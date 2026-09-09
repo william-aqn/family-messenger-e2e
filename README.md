@@ -28,12 +28,29 @@ and screen sharing. One Go binary, one SQLite file, deployable with
 curl -fsSL https://raw.githubusercontent.com/william-aqn/family-messenger-e2e/main/deploy/install.sh | sudo sh
 ```
 
-The script installs Docker if needed, clones the repository into
-`/opt/family-messenger-e2e`, asks for the domain and public IP (or reads
-`DOMAIN`, `EXTERNAL_IP`, `TURN_SECRET`, `MSGR_REGISTRATION` from the
-environment for a non-interactive run: `DOMAIN=chat.example.com ... | sudo -E sh`),
-pulls the prebuilt image from GHCR (or builds it locally), starts Caddy, the
-server and coturn, and prints the first invite code. Run it again to update.
+The script clones the repository into `/opt/family-messenger-e2e`, asks how
+to run the messenger, asks for the domain and public IP, starts everything
+and prints the first invite code. Run it again to update. Two flavours:
+
+- **docker** (default): installs Docker if needed, pulls the prebuilt image
+  from GHCR (or builds it locally) and runs Caddy, the server and coturn as
+  containers.
+- **native**: no Docker. The server is compiled on the machine (Go and Node
+  are downloaded into `/opt/family-messenger-e2e/toolchain` unless the system
+  already has them; a small VPS gets a temporary swap file for the build),
+  Caddy is fetched as a static binary and coturn comes from the distribution.
+  Everything runs as systemd units `family-messenger`,
+  `family-messenger-caddy` and `coturn` under the `family-messenger` user with
+  data in `/var/lib/family-messenger`; `family-messenger invite -n 3` and
+  `family-messenger admin list` wrap the server's subcommands. Set
+  `MSGR_BINARY_URL` to a prebuilt `server-linux-<arch>` (from a GitHub
+  Release) to skip the compilation.
+
+Answers can come from the environment for a non-interactive run:
+`INSTALL_MODE=native DOMAIN=chat.example.com EXTERNAL_IP=... | sudo -E sh`
+(also `TURN_SECRET`, `MSGR_REGISTRATION`). Running `sudo sh deploy/install.sh`
+inside a checkout installs that checkout as it is, which is handy for testing
+local changes on a server.
 
 ## Manual install (Docker Compose)
 

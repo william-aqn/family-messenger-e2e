@@ -20,6 +20,7 @@ RUN curl -SL --output vs_buildtools.exe https://aka.ms/vs/17/release/vs_buildtoo
         --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended `
         --add Microsoft.VisualStudio.Component.VC.Tools.x86.x64 `
         --add Microsoft.VisualStudio.Component.VC.CMake.Project `
+        --add Microsoft.VisualStudio.Component.VC.ATL `
         --remove Microsoft.VisualStudio.Component.Windows10SDK.10240 `
         --remove Microsoft.VisualStudio.Component.Windows10SDK.10586 `
         --remove Microsoft.VisualStudio.Component.Windows10SDK.14393 `

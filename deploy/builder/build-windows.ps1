@@ -249,26 +249,47 @@ function Ensure-Go {
   Use-Tool 'go' $go ((& $go version) -replace '^go version ', '')
 }
 
+# Components the Flutter Windows build needs: MSVC, CMake and ATL (plugins such
+# as flutter_secure_storage include atlstr.h), plus a Windows SDK.
+$MsvcComponents = @(
+  'Microsoft.VisualStudio.Component.VC.Tools.x86.x64',
+  'Microsoft.VisualStudio.Component.VC.CMake.Project',
+  'Microsoft.VisualStudio.Component.VC.ATL')
+$VsWhere = Join-Path $ProgramFilesX86 'Microsoft Visual Studio\Installer\vswhere.exe'
+
 function Get-MsvcInstall {
-  $vswhere = Join-Path $ProgramFilesX86 'Microsoft Visual Studio\Installer\vswhere.exe'
-  if (-not (Test-Path $vswhere)) { return $null }
-  $path = & $vswhere -products * -latest -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 Microsoft.VisualStudio.Component.VC.CMake.Project -property installationPath
+  if (-not (Test-Path $VsWhere)) { return $null }
+  $path = & $VsWhere -products * -latest -requires $MsvcComponents -property installationPath
   if ($LASTEXITCODE -eq 0 -and $path) { return "$path".Trim() }
   return $null
 }
 
+function Test-WindowsSdk {
+  return [bool](Get-ChildItem (Join-Path $ProgramFilesX86 'Windows Kits\10\Include\*\um\windows.h') -ErrorAction SilentlyContinue)
+}
+
 function Ensure-VisualStudio {
   $vs = Get-MsvcInstall
-  $sdk = [bool](Get-ChildItem (Join-Path $ProgramFilesX86 'Windows Kits\10\Include\*\um\windows.h') -ErrorAction SilentlyContinue)
-  if ($vs -and $sdk) { Use-Tool 'msvc' $vs 'C++ tools, CMake, Windows SDK'; return }
-  Require-Install 'Visual Studio Build Tools 2022 with the C++ workload (MSVC, CMake, Windows SDK)'
+  if ($vs -and (Test-WindowsSdk)) { Use-Tool 'msvc' $vs 'C++ tools, CMake, ATL, Windows SDK'; return }
+  Require-Install 'Visual Studio Build Tools 2022 with the C++ workload (MSVC, CMake, ATL, Windows SDK)'
   $exe = Join-Path $Downloads 'vs_BuildTools.exe'
   Get-File 'https://aka.ms/vs/17/release/vs_BuildTools.exe' $exe
-  Step 'installing Visual Studio Build Tools 2022 (C++ workload, about 7 GB); confirm the UAC prompt'
-  $installArgs = @('--passive', '--norestart', '--wait',
-    '--add', 'Microsoft.VisualStudio.Workload.VCTools', '--includeRecommended',
-    '--add', 'Microsoft.VisualStudio.Component.VC.Tools.x86.x64',
-    '--add', 'Microsoft.VisualStudio.Component.VC.CMake.Project')
+  $addArgs = @('--add', 'Microsoft.VisualStudio.Workload.VCTools', '--includeRecommended')
+  foreach ($c in $MsvcComponents) { $addArgs += @('--add', $c) }
+  # An existing Visual Studio / Build Tools instance is modified in place
+  # (adds the missing components) instead of installing a second copy.
+  $existing = $null
+  if (Test-Path $VsWhere) {
+    $existing = & $VsWhere -products * -latest -property installationPath
+    if ($existing) { $existing = "$existing".Trim() }
+  }
+  if ($existing) {
+    Step "adding the C++ components (MSVC, CMake, ATL, Windows SDK) to $existing; confirm the UAC prompt"
+    $installArgs = @('modify', '--installPath', $existing, '--passive', '--norestart', '--wait') + $addArgs
+  } else {
+    Step 'installing Visual Studio Build Tools 2022 (C++ workload, about 7 GB); confirm the UAC prompt'
+    $installArgs = @('--passive', '--norestart', '--wait') + $addArgs
+  }
   $p = Start-Process -FilePath $exe -ArgumentList $installArgs -Wait -PassThru
   switch ($p.ExitCode) {
     0 { }
@@ -277,9 +298,8 @@ function Ensure-VisualStudio {
     default { throw "Visual Studio Build Tools installer failed with exit code $($p.ExitCode); see $env:TEMP\dd_setup_*.log" }
   }
   $vs = Get-MsvcInstall
-  $sdk = [bool](Get-ChildItem (Join-Path $ProgramFilesX86 'Windows Kits\10\Include\*\um\windows.h') -ErrorAction SilentlyContinue)
-  if (-not ($vs -and $sdk)) { throw 'Visual Studio Build Tools finished but the C++ tools, CMake or the Windows SDK are still missing' }
-  Use-Tool 'msvc' $vs 'C++ tools, CMake, Windows SDK'
+  if (-not ($vs -and (Test-WindowsSdk))) { throw 'Visual Studio Build Tools finished but the C++ tools, CMake, ATL or the Windows SDK are still missing' }
+  Use-Tool 'msvc' $vs 'C++ tools, CMake, ATL, Windows SDK'
 }
 
 function Ensure-Symlinks {
