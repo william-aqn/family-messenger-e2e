@@ -359,9 +359,15 @@ function Build-Windows {
   $app = Join-Path $Repo 'app'
   Step 'flutter pub get'
   Exec 'flutter' @('pub', 'get') $app
+  $bundle = Join-Path $app 'build\windows\x64\runner\Release'
+  # Incremental builds reuse a stale tree-shaken icon font from the cached
+  # asset bundle (newly used icons render as blanks); dropping the bundles
+  # makes Flutter regenerate the font from the current code.
+  foreach ($assets in @((Join-Path $app 'build\flutter_assets'), (Join-Path $bundle 'data\flutter_assets'))) {
+    if (Test-Path $assets) { Remove-Item $assets -Recurse -Force }
+  }
   Step "flutter build windows --release ($version)"
   Exec 'flutter' @('build', 'windows', '--release') $app
-  $bundle = Join-Path $app 'build\windows\x64\runner\Release'
   if (-not (Test-Path (Join-Path $bundle 'family_messenger_e2e.exe'))) { throw "no build output in $bundle" }
   New-Item -ItemType Directory -Force $Dist | Out-Null
   $zip = Join-Path $Dist "family-messenger-windows-x64-$version.zip"
