@@ -81,6 +81,13 @@ class ApiClient {
 
   Future<UserView> user(String username) async => UserView.fromJson((await _json('GET', '/users/${Uri.encodeComponent(username)}')) as Map<String, dynamic>);
 
+  /// Active accounts whose username starts with [prefix]; 403 when the
+  /// administrator disabled the directory.
+  Future<List<DirectoryEntry>> users(String prefix) async {
+    final res = (await _json('GET', '/users?q=${Uri.encodeQueryComponent(prefix)}&limit=200')) as Map<String, dynamic>;
+    return ((res['users'] as List<dynamic>?) ?? []).cast<Map<String, dynamic>>().map(DirectoryEntry.fromJson).toList();
+  }
+
   Future<List<ConversationView>> conversations() async {
     final j = (await _json('GET', '/conversations')) as Map<String, dynamic>;
     return [for (final c in j['conversations'] as List<dynamic>) ConversationView.fromJson(c as Map<String, dynamic>)];

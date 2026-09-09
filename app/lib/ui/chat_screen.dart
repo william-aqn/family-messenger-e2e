@@ -9,6 +9,7 @@ import '../crypto/fingerprint.dart';
 import '../i18n/strings.dart';
 import '../main.dart';
 import '../state/app_state.dart';
+import 'voice_panel.dart';
 
 class ChatScreen extends StatefulWidget {
   const ChatScreen({super.key, required this.convId});
@@ -63,13 +64,16 @@ class _ChatScreenState extends State<ChatScreen> {
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
-      listenable: app,
+      listenable: Listenable.merge([app, app.voice]),
       builder: (context, _) {
         final conv = app.conversations[widget.convId];
         if (conv == null) return const Scaffold(body: SizedBox.shrink());
         final list = app.messages[conv.id] ?? const <Message>[];
         if (conv.lastSeq > conv.readSeq) WidgetsBinding.instance.addPostFrameCallback((_) => app.markRead(conv.id));
+        final inVoice = app.voice.inChannel(conv.id);
+        final voiceCount = app.voice.participantsOf(conv.id).length;
         return Scaffold(
+          bottomNavigationBar: const VoicePanel(),
           appBar: AppBar(
             title: InkWell(
               onTap: () => _showInfo(context, conv),
@@ -82,12 +86,33 @@ class _ChatScreenState extends State<ChatScreen> {
               ),
             ),
             actions: [
-              if (conv.kind == 'direct' && !app.hasBot(conv)) IconButton(icon: const Icon(Icons.call), onPressed: () => app.calls.startCall(conv.id)),
+              if (conv.kind == 'direct' && !app.hasBot(conv))
+                IconButton(
+                  icon: const Icon(Icons.call),
+                  onPressed: () {
+                    if (app.voice.channel != null) {
+                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(t('voice_leave_first'))));
+                    } else {
+                      app.calls.startCall(conv.id);
+                    }
+                  },
+                ),
+              if (conv.kind == 'group')
+                IconButton(
+                  tooltip: t('voice_channel'),
+                  icon: Badge.count(
+                    count: voiceCount,
+                    isLabelVisible: voiceCount > 0,
+                    child: Icon(inVoice ? Icons.headset_mic : Icons.headset_mic_outlined),
+                  ),
+                  onPressed: () => inVoice ? app.voice.leave() : joinVoice(context, conv.id),
+                ),
               IconButton(icon: const Icon(Icons.info_outline), onPressed: () => _showInfo(context, conv)),
             ],
           ),
           body: Column(
             children: [
+              if (conv.kind == 'group') VoiceBar(convId: conv.id),
               if (app.hasBot(conv)) MaterialBanner(content: Text('🤖 ${t('bot_notice')}'), actions: const [SizedBox.shrink()]),
               Expanded(
                 child: ListView.builder(

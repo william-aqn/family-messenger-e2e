@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 
+import '../api/models.dart';
 import '../api/ws_client.dart';
 import '../crypto/fingerprint.dart';
 import '../i18n/strings.dart';
 import '../main.dart';
 import '../state/app_state.dart';
 import 'chat_screen.dart';
+import 'voice_panel.dart';
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
@@ -17,6 +19,7 @@ class HomeScreen extends StatelessWidget {
       builder: (context, _) {
         final list = app.sortedConversations;
         return Scaffold(
+          bottomNavigationBar: const VoicePanel(),
           appBar: AppBar(
             title: Text('@${app.session!.username}'),
             actions: [
@@ -60,48 +63,88 @@ class HomeScreen extends StatelessWidget {
     final name = TextEditingController();
     final members = TextEditingController();
     String? error;
+    // The user directory (when the administrator allows it) feeds name suggestions.
+    var directory = const <DirectoryEntry>[];
+    if (app.settings?.userDirectory != false) {
+      try {
+        directory = (await app.api!.users('')).where((u) => u.id != app.session!.accountId).toList();
+      } catch (_) {}
+    }
+    if (!context.mounted) return;
     await showDialog<void>(
       context: context,
       builder: (context) => StatefulBuilder(
-        builder: (context, setState) => AlertDialog(
-          title: Text(t('new_chat')),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              SegmentedButton<bool>(
-                segments: [ButtonSegment(value: false, label: Text(t('direct'))), ButtonSegment(value: true, label: Text(t('group')))],
-                selected: {group},
-                onSelectionChanged: (s) => setState(() => group = s.first),
+        builder: (context, setState) {
+          // Suggestions for the name being typed (the last comma-separated token of a group).
+          final raw = group ? members.text : username.text;
+          final tokens = raw.split(RegExp(r'[\s,]+')).where((s) => s.isNotEmpty).toList();
+          final typing = group ? (raw.isNotEmpty && !RegExp(r'[\s,]$').hasMatch(raw) ? (tokens.lastOrNull ?? '') : '') : raw;
+          final done = group && typing.isNotEmpty ? tokens.sublist(0, tokens.length - 1) : (group ? tokens : const <String>[]);
+          final chosen = done.map((s) => s.replaceFirst('@', '').toLowerCase()).toSet();
+          final q = typing.trim().replaceFirst('@', '').toLowerCase();
+          final matches = directory.where((u) {
+            final n = u.username.toLowerCase();
+            return n.startsWith(q) && n != q && !chosen.contains(n);
+          }).take(12).toList();
+          void pick(DirectoryEntry u) {
+            final field = group ? members : username;
+            field.text = group ? '${[...done, u.username].join(', ')}, ' : u.username;
+            field.selection = TextSelection.collapsed(offset: field.text.length);
+            setState(() {});
+          }
+
+          return AlertDialog(
+            title: Text(t('new_chat')),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SegmentedButton<bool>(
+                    segments: [ButtonSegment(value: false, label: Text(t('direct'))), ButtonSegment(value: true, label: Text(t('group')))],
+                    selected: {group},
+                    onSelectionChanged: (s) => setState(() => group = s.first),
+                  ),
+                  const SizedBox(height: 12),
+                  if (!group) TextField(controller: username, decoration: InputDecoration(labelText: t('username')), autocorrect: false, onChanged: (_) => setState(() {})),
+                  if (group) ...[
+                    TextField(controller: name, decoration: InputDecoration(labelText: t('group_name'))),
+                    TextField(controller: members, decoration: InputDecoration(labelText: t('members_hint')), autocorrect: false, onChanged: (_) => setState(() {})),
+                  ],
+                  if (matches.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 10),
+                      child: Wrap(
+                        spacing: 6,
+                        runSpacing: 6,
+                        children: [for (final u in matches) ActionChip(label: Text('${u.isBot ? '🤖 ' : ''}${u.username}'), onPressed: () => pick(u))],
+                      ),
+                    ),
+                  if (error != null) Padding(padding: const EdgeInsets.only(top: 8), child: Text(error!, style: TextStyle(color: Theme.of(context).colorScheme.error))),
+                ],
               ),
-              const SizedBox(height: 12),
-              if (!group) TextField(controller: username, decoration: InputDecoration(labelText: t('username')), autocorrect: false),
-              if (group) ...[
-                TextField(controller: name, decoration: InputDecoration(labelText: t('group_name'))),
-                TextField(controller: members, decoration: InputDecoration(labelText: t('members_hint')), autocorrect: false),
-              ],
-              if (error != null) Padding(padding: const EdgeInsets.only(top: 8), child: Text(error!, style: TextStyle(color: Theme.of(context).colorScheme.error))),
-            ],
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(context), child: Text(t('cancel'))),
-            FilledButton(
-              onPressed: () async {
-                try {
-                  final id = group
-                      ? await app.createGroup(name.text, members.text.split(RegExp(r'[\s,]+')).where((s) => s.isNotEmpty).toList())
-                      : await app.createDirect(username.text);
-                  if (context.mounted) {
-                    Navigator.pop(context);
-                    Navigator.of(context).push(MaterialPageRoute(builder: (_) => ChatScreen(convId: id)));
-                  }
-                } catch (e) {
-                  setState(() => error = e.toString());
-                }
-              },
-              child: Text(t('create')),
             ),
-          ],
-        ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(context), child: Text(t('cancel'))),
+              FilledButton(
+                onPressed: () async {
+                  try {
+                    final id = group
+                        ? await app.createGroup(name.text, members.text.split(RegExp(r'[\s,]+')).where((s) => s.isNotEmpty).toList())
+                        : await app.createDirect(username.text);
+                    if (context.mounted) {
+                      Navigator.pop(context);
+                      Navigator.of(context).push(MaterialPageRoute(builder: (_) => ChatScreen(convId: id)));
+                    }
+                  } catch (e) {
+                    setState(() => error = e.toString());
+                  }
+                },
+                child: Text(t('create')),
+              ),
+            ],
+          );
+        },
       ),
     );
   }

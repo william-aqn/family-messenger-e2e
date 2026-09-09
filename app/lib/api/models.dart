@@ -150,8 +150,32 @@ class UserView {
   final String displayName;
 }
 
+/// An entry of the user directory (GET /users), when the administrator allows it.
+class DirectoryEntry {
+  const DirectoryEntry({required this.id, required this.username, required this.displayName, required this.isBot});
+
+  factory DirectoryEntry.fromJson(Map<String, dynamic> j) => DirectoryEntry(
+        id: j['id'] as String,
+        username: j['username'] as String,
+        displayName: (j['display_name'] as String?) ?? '',
+        isBot: j['is_bot'] == true,
+      );
+
+  final String id;
+  final String username;
+  final String displayName;
+  final bool isBot;
+}
+
 class ServerSettings {
-  const ServerSettings({required this.registration, required this.announcement, required this.allowBots, required this.maxAttachmentBytes, required this.retentionDays});
+  const ServerSettings({
+    required this.registration,
+    required this.announcement,
+    required this.allowBots,
+    required this.maxAttachmentBytes,
+    required this.retentionDays,
+    required this.userDirectory,
+  });
 
   factory ServerSettings.fromJson(Map<String, dynamic> j) => ServerSettings(
         registration: (j['registration'] as String?) ?? 'invite',
@@ -159,6 +183,7 @@ class ServerSettings {
         allowBots: j['allow_bots'] == true,
         maxAttachmentBytes: ((j['max_attachment_bytes'] as num?) ?? 50 * 1024 * 1024).toInt(),
         retentionDays: ((j['retention_days'] as num?) ?? 0).toInt(),
+        userDirectory: j['user_directory'] != false,
       );
 
   final String registration;
@@ -166,6 +191,8 @@ class ServerSettings {
   final bool allowBots;
   final int maxAttachmentBytes;
   final int retentionDays;
+  /// Members may list users and get name suggestions (default on).
+  final bool userDirectory;
 }
 
 class IceServer {

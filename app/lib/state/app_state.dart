@@ -18,6 +18,7 @@ import '../crypto/ids.dart';
 import '../crypto/primitives.dart';
 import '../i18n/strings.dart';
 import 'call_controller.dart';
+import 'voice_controller.dart';
 
 class Contact {
   Contact({required this.id, required this.username, required this.signPub, required this.encPub, this.isBot = false, this.displayName = ''});
@@ -81,11 +82,13 @@ class Message {
 class AppState extends ChangeNotifier {
   AppState() {
     calls = CallController(this);
+    voice = VoiceController(this);
   }
 
   static const _storage = FlutterSecureStorage();
 
   late final CallController calls;
+  late final VoiceController voice;
   ApiClient? api;
   WsClient? _ws;
   StreamSubscription<Frame>? _frameSub;
@@ -249,6 +252,7 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> logout() async {
+    await voice.leave();
     _stopSync();
     try {
       await api?.logout();
@@ -477,6 +481,7 @@ class AppState extends ChangeNotifier {
     if (!stored) {
       final type = payload?['t'] as String?;
       if (type != null && type.startsWith('call.')) calls.handleSignal(view.senderAccount, view.senderDevice, view.convId, payload!);
+      if (type != null && type.startsWith('voice.')) voice.handleSignal(view.senderAccount, view.senderDevice, view.convId, payload!);
       return;
     }
     _applyStored(Message(convId: view.convId, seq: view.seq, clientMsgId: view.clientMsgId, sender: view.senderAccount, ts: ts, serverTs: view.serverTs, payload: payload, error: error));

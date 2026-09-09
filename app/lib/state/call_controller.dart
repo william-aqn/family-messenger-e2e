@@ -131,6 +131,7 @@ class CallController extends ChangeNotifier {
     final peer = conv == null ? null : app.otherMember(conv);
     if (conv == null || conv.kind != 'direct' || peer == null) return;
     if (call != null && call!.status != CallStatus.ended) return;
+    if (app.voice.channel != null) return; // leave the voice channel first (the UI says so)
     final id = newUuid();
     call = CallInfo(id: id, convId: convId, peer: peer, incoming: false, status: CallStatus.ringingOut);
     notifyListeners();
@@ -166,8 +167,9 @@ class CallController extends ChangeNotifier {
     }
     switch (payload['t']) {
       case 'call.offer':
-        if (current != null && current.status != CallStatus.ended) {
-          if (current.id != callId) _signal(convId, {'t': 'call.reject', 'call': callId, 'reason': 'busy'});
+        // Busy while in another call or in a group voice channel.
+        if ((current != null && current.status != CallStatus.ended) || app.voice.channel != null) {
+          if (current?.id != callId) _signal(convId, {'t': 'call.reject', 'call': callId, 'reason': 'busy'});
           return;
         }
         _pendingOfferSdp = payload['sdp'] as String?;
