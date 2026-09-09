@@ -662,6 +662,91 @@ code.fp.small {
   font-weight: 600;
 }
 
+/* screens streamed into the channel */
+.voice-screens {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.voice-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.voice-tabs button {
+  padding: 4px 10px;
+  font-size: 13px;
+}
+
+.voice-tabs button.active {
+  border-color: var(--accent);
+  background: var(--bg-3);
+}
+
+.voice-tabs .voice-fs {
+  margin-left: auto;
+}
+
+.voice-grid {
+  display: grid;
+  gap: 6px;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+}
+
+.voice-grid.focus {
+  grid-template-columns: 1fr;
+}
+
+.voice-video {
+  position: relative;
+  min-height: 120px;
+  background: #000;
+  border-radius: 8px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.voice-video video {
+  display: block;
+  width: 100%;
+  max-height: 50vh;
+}
+
+.voice-grid.focus .voice-video video {
+  max-height: 65vh;
+}
+
+.voice-label {
+  position: absolute;
+  left: 6px;
+  bottom: 6px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.6);
+  font-size: 12px;
+}
+
+.voice-screens:fullscreen {
+  background: #000;
+  padding: 8px;
+  overflow: auto;
+}
+
+.voice-screens:fullscreen .voice-grid {
+  flex: 1;
+  align-content: center;
+}
+
+.voice-screens:fullscreen .voice-video video {
+  max-height: calc(100vh - 64px);
+  object-fit: contain;
+}
+
 .voice-bar {
   display: flex;
   align-items: center;

@@ -1,8 +1,9 @@
 // Group voice channels: any member of a group joins its channel at any time
 // (no ringing). Audio flows in a full mesh of 1:1 WebRTC connections, so it
 // stays end-to-end encrypted and the server never touches media; signaling
-// travels inside ephemeral envelopes of the group (PROTOCOL.md §6). Mirrors
-// web/src/state/voice.ts.
+// travels inside ephemeral envelopes of the group (PROTOCOL.md §6). Every pair
+// also negotiates a video track, so a participant can stream its screen to
+// everybody else. Mirrors web/src/state/voice.ts.
 import 'dart:async';
 import 'dart:io' show Platform;
 
@@ -17,12 +18,14 @@ import 'call_controller.dart';
 enum PeerState { connecting, connected, failed }
 
 class VoiceParticipant {
-  VoiceParticipant({required this.session, required this.account, required this.device, required this.muted, required this.seen});
+  VoiceParticipant({required this.session, required this.account, required this.device, required this.muted, required this.sharing, required this.seen});
 
   final String session;
   final String account;
   final String device;
   bool muted;
+  /// Streaming their screen (from the join/here/share signals).
+  bool sharing;
   /// Last join or heartbeat, ms since epoch.
   int seen;
 }
@@ -34,6 +37,7 @@ class VoiceChannel {
   final String convId;
   final String session;
   bool muted = false;
+  bool sharing = false;
   /// Connection state per remote session.
   final Map<String, PeerState> peers = {};
 }
@@ -42,6 +46,7 @@ class _Peer {
   _Peer(this.pc);
 
   final RTCPeerConnection pc;
+  RTCRtpTransceiver? videoTx;
   final List<Map<String, dynamic>> queued = [];
   final List<Map<String, dynamic>> outgoing = [];
   Timer? flush;
@@ -60,6 +65,10 @@ class VoiceController extends ChangeNotifier {
   /// Who is in which group's channel, by conversation id (from voice.* signals).
   final Map<String, List<VoiceParticipant>> rooms = {};
 
+  /// Video of every connected peer, by session; it shows frames only while
+  /// that peer is sharing its screen.
+  final Map<String, RTCVideoRenderer> renderers = {};
+
   static const _heartbeat = Duration(seconds: 20);
   static const _expireMs = 65000;
   static const _iceRefreshMs = 20 * 60 * 1000;
@@ -67,6 +76,7 @@ class VoiceController extends ChangeNotifier {
   final Map<String, _Peer> _peers = {};
   final Set<String> _connecting = {};
   MediaStream? _local;
+  MediaStream? _screen;
   Timer? _heartbeatTimer;
   Timer? _pruneTimer;
   List<Map<String, dynamic>> _ice = [];
@@ -74,6 +84,13 @@ class VoiceController extends ChangeNotifier {
 
   List<VoiceParticipant> participantsOf(String convId) => rooms[convId] ?? const [];
   bool inChannel(String convId) => channel?.convId == convId;
+
+  /// Participants streaming their screen, other than this device.
+  List<VoiceParticipant> streamers() {
+    final ch = channel;
+    if (ch == null) return const [];
+    return participantsOf(ch.convId).where((p) => p.sharing && p.session != ch.session).toList();
+  }
 
   int _now() => DateTime.now().millisecondsSinceEpoch;
 
@@ -85,7 +102,7 @@ class VoiceController extends ChangeNotifier {
     }
   }
 
-  Map<String, dynamic> _presence() => {'t': 'voice.here', 'session': channel!.session, 'muted': channel!.muted};
+  Map<String, dynamic> _presence() => {'t': 'voice.here', 'session': channel!.session, 'muted': channel!.muted, 'sharing': channel!.sharing};
 
   void _setParticipant(String convId, VoiceParticipant p) {
     final list = rooms.putIfAbsent(convId, () => []);
@@ -101,6 +118,14 @@ class VoiceController extends ChangeNotifier {
     list.removeWhere((x) => x.session == session);
     if (list.isEmpty) rooms.remove(convId);
     notifyListeners();
+  }
+
+  /// Our own entry in the room list, from the current state.
+  void _updateSelf() {
+    final ch = channel;
+    final me = app.session;
+    if (ch == null || me == null) return;
+    _setParticipant(ch.convId, VoiceParticipant(session: ch.session, account: me.accountId, device: me.deviceId, muted: ch.muted, sharing: ch.sharing, seen: _now()));
   }
 
   Future<void> _refreshIce() async {
@@ -137,8 +162,8 @@ class VoiceController extends ChangeNotifier {
     }
     final id = newUuid();
     channel = VoiceChannel(convId: convId, session: id);
-    _setParticipant(convId, VoiceParticipant(session: id, account: me.accountId, device: me.deviceId, muted: false, seen: _now()));
-    await _signal(convId, {'t': 'voice.join', 'session': id, 'muted': false});
+    _updateSelf();
+    await _signal(convId, {'t': 'voice.join', 'session': id, 'muted': false, 'sharing': false});
     for (final p in List.of(participantsOf(convId))) {
       _maybeConnect(p);
     }
@@ -162,6 +187,8 @@ class VoiceController extends ChangeNotifier {
     if (ch == null) return;
     _heartbeatTimer?.cancel();
     _heartbeatTimer = null;
+    final screen = _screen;
+    _screen = null;
     for (final id in List.of(_peers.keys)) {
       _closePeer(id);
     }
@@ -171,25 +198,79 @@ class VoiceController extends ChangeNotifier {
     _removeParticipant(ch.convId, ch.session);
     notifyListeners();
     await _signal(ch.convId, {'t': 'voice.leave', 'session': ch.session});
-    if (local != null) {
-      for (final track in local.getTracks()) {
-        await track.stop();
-      }
-      await local.dispose();
+    await _dispose(screen);
+    await _dispose(local);
+    await disableScreenCaptureService();
+  }
+
+  Future<void> _dispose(MediaStream? stream) async {
+    if (stream == null) return;
+    for (final track in stream.getTracks()) {
+      await track.stop();
     }
+    await stream.dispose();
   }
 
   Future<void> toggleMute() async {
     final ch = channel;
-    final me = app.session;
     final local = _local;
-    if (ch == null || me == null || local == null) return;
+    if (ch == null || local == null) return;
     ch.muted = !ch.muted;
     for (final track in local.getAudioTracks()) {
       track.enabled = !ch.muted;
     }
-    _setParticipant(ch.convId, VoiceParticipant(session: ch.session, account: me.accountId, device: me.deviceId, muted: ch.muted, seen: _now()));
+    _updateSelf();
     await _signal(ch.convId, _presence());
+  }
+
+  /// Streams this screen to every participant. Returns a translation key on
+  /// failure, null on success.
+  Future<String?> startScreenShare() async {
+    final ch = channel;
+    if (ch == null || ch.sharing) return null;
+    try {
+      if (!await enableScreenCaptureService()) return 'voice_share_failed';
+      final stream = await navigator.mediaDevices.getDisplayMedia({'video': true, 'audio': false});
+      final track = stream.getVideoTracks().first;
+      _screen = stream;
+      for (final p in _peers.values) {
+        final tx = p.videoTx;
+        if (tx == null) continue;
+        try {
+          await tx.sender.replaceTrack(track);
+        } catch (_) {}
+      }
+      track.onEnded = () => stopScreenShare();
+      ch.sharing = true;
+      _updateSelf();
+      await _signal(ch.convId, {'t': 'voice.share', 'session': ch.session, 'on': true});
+      return null;
+    } catch (e) {
+      debugPrint('voice screen share failed: $e');
+      return 'voice_share_failed';
+    }
+  }
+
+  Future<void> stopScreenShare() async {
+    final ch = channel;
+    final wasSharing = _screen != null || (ch?.sharing ?? false);
+    final screen = _screen;
+    _screen = null;
+    for (final p in _peers.values) {
+      final tx = p.videoTx;
+      if (tx == null) continue;
+      try {
+        await tx.sender.replaceTrack(null);
+      } catch (_) {}
+    }
+    await _dispose(screen);
+    await disableScreenCaptureService();
+    if (ch != null) {
+      ch.sharing = false;
+      _updateSelf();
+      if (wasSharing) await _signal(ch.convId, {'t': 'voice.share', 'session': ch.session, 'on': false});
+    }
+    notifyListeners();
   }
 
   void _setPeerState(String session, PeerState? state) {
@@ -203,16 +284,36 @@ class VoiceController extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> _attachRenderer(String remote, MediaStream stream) async {
+    var r = renderers[remote];
+    if (r == null) {
+      r = RTCVideoRenderer();
+      await r.initialize();
+      renderers[remote] = r;
+    }
+    r.srcObject = stream;
+    notifyListeners();
+  }
+
+  void _dropRenderer(String remote) {
+    final r = renderers.remove(remote);
+    if (r == null) return;
+    r.srcObject = null;
+    unawaited(r.dispose());
+    notifyListeners();
+  }
+
   void _closePeer(String session) {
     final p = _peers.remove(session);
     if (p == null) return;
     p.closed = true;
     p.flush?.cancel();
     unawaited(p.pc.close());
+    _dropRenderer(session);
     _setPeerState(session, null);
   }
 
-  Future<RTCPeerConnection> _createPeer(String convId, String remote) async {
+  Future<_Peer> _createPeer(String convId, String remote) async {
     _closePeer(remote);
     final pc = await createPeerConnection({'iceServers': _ice, 'sdpSemantics': 'unified-plan'});
     final peer = _Peer(pc);
@@ -224,7 +325,11 @@ class VoiceController extends ChangeNotifier {
         await pc.addTrack(track, local);
       }
     }
-    // Remote audio plays through the platform automatically; no renderer needed.
+    // Remote audio plays through the platform automatically; video goes to a renderer.
+    pc.onTrack = (RTCTrackEvent event) {
+      if (event.track.kind != 'video' || event.streams.isEmpty) return;
+      if (_peers[remote] == peer) unawaited(_attachRenderer(remote, event.streams.first));
+    };
     pc.onIceCandidate = (RTCIceCandidate c) {
       if (c.candidate == null || peer.closed) return;
       peer.outgoing.add({'candidate': c.candidate, 'sdpMid': c.sdpMid, 'sdpMLineIndex': c.sdpMLineIndex});
@@ -254,7 +359,30 @@ class VoiceController extends ChangeNotifier {
           break;
       }
     };
-    return pc;
+    return peer;
+  }
+
+  /// The pair's video transceiver: negotiated once, fed with the screen track
+  /// while sharing. The mic stream is announced as the track's stream so the
+  /// m-line carries an msid and receivers get the track inside a stream.
+  Future<void> _ensureVideo(_Peer peer) async {
+    var tx = peer.videoTx;
+    if (tx == null) {
+      for (final candidate in await peer.pc.getTransceivers()) {
+        if (candidate.receiver.track?.kind == 'video') {
+          tx = candidate;
+          await tx.setDirection(TransceiverDirection.SendRecv);
+          break;
+        }
+      }
+      tx ??= await peer.pc.addTransceiver(
+        kind: RTCRtpMediaType.RTCRtpMediaTypeVideo,
+        init: RTCRtpTransceiverInit(direction: TransceiverDirection.SendRecv, streams: [?_local]),
+      );
+      peer.videoTx = tx;
+    }
+    final track = _screen?.getVideoTracks().firstOrNull;
+    if (track != null) await tx.sender.replaceTrack(track);
   }
 
   void _maybeConnect(VoiceParticipant p) {
@@ -271,9 +399,10 @@ class VoiceController extends ChangeNotifier {
     try {
       final ch = channel;
       if (ch == null) return;
-      final pc = await _createPeer(convId, remote);
-      final offer = await pc.createOffer({});
-      await pc.setLocalDescription(offer);
+      final peer = await _createPeer(convId, remote);
+      await _ensureVideo(peer);
+      final offer = await peer.pc.createOffer({});
+      await peer.pc.setLocalDescription(offer);
       await _signal(convId, {'t': 'voice.offer', 'session': ch.session, 'to': remote, 'sdp': offer.sdp});
     } catch (e) {
       debugPrint('voice offer failed: $e');
@@ -288,11 +417,12 @@ class VoiceController extends ChangeNotifier {
     try {
       final ch = channel;
       if (ch == null) return;
-      final pc = await _createPeer(convId, remote);
-      await pc.setRemoteDescription(RTCSessionDescription(sdp, 'offer'));
-      _peers[remote]?.remoteSet = true;
-      final answer = await pc.createAnswer({});
-      await pc.setLocalDescription(answer);
+      final peer = await _createPeer(convId, remote);
+      await peer.pc.setRemoteDescription(RTCSessionDescription(sdp, 'offer'));
+      peer.remoteSet = true;
+      await _ensureVideo(peer);
+      final answer = await peer.pc.createAnswer({});
+      await peer.pc.setLocalDescription(answer);
       await _signal(convId, {'t': 'voice.answer', 'session': ch.session, 'to': remote, 'sdp': answer.sdp});
       await _flushIce(remote);
     } catch (e) {
@@ -361,10 +491,18 @@ class VoiceController extends ChangeNotifier {
     switch (payload['t']) {
       case 'voice.join':
       case 'voice.here':
-        final p = VoiceParticipant(session: session, account: sender, device: senderDevice, muted: payload['muted'] == true, seen: _now());
+        final p = VoiceParticipant(session: session, account: sender, device: senderDevice, muted: payload['muted'] == true, sharing: payload['sharing'] == true, seen: _now());
         _setParticipant(convId, p);
         if (payload['t'] == 'voice.join' && here) unawaited(_signal(convId, _presence())); // tell the newcomer we are here
         if (here) _maybeConnect(p);
+      case 'voice.share':
+        for (final p in participantsOf(convId)) {
+          if (p.session == session) {
+            p.sharing = payload['on'] == true;
+            p.seen = _now();
+            notifyListeners();
+          }
+        }
       case 'voice.leave':
         _removeParticipant(convId, session);
         _closePeer(session);

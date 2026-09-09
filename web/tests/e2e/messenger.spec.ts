@@ -86,6 +86,20 @@ test('group voice channel: join, mesh connection, presence and leave', async ({ 
   await expect(alicePage.locator('.voice-list li.connected', { hasText: bob })).toBeVisible({ timeout: 30_000 });
   await expect(carolPage.locator('.voice-bar')).toContainText(bob, { timeout: 15_000 });
 
+  // Alice streams her screen into the channel; Bob sees it, focuses it, and it
+  // disappears when she stops.
+  await alicePage.locator('.voice').getByRole('button', { name: 'Share screen' }).click();
+  await expect(alicePage.locator('.voice').getByRole('button', { name: 'Stop sharing' })).toBeVisible({ timeout: 15_000 });
+  await expect(bobPage.locator('.voice-video video')).toBeVisible({ timeout: 20_000 });
+  await expect
+    .poll(async () => bobPage.locator('.voice-video video').evaluate((v) => (v as HTMLVideoElement).videoWidth), { timeout: 20_000 })
+    .toBeGreaterThan(0);
+  await expect(carolPage.locator('.voice-bar')).toContainText('🖥');
+  await bobPage.locator('.voice-tabs button', { hasText: alice }).click();
+  await expect(bobPage.locator('.voice-grid.focus')).toBeVisible();
+  await alicePage.locator('.voice').getByRole('button', { name: 'Stop sharing' }).click();
+  await expect(bobPage.locator('.voice-video')).toHaveCount(0, { timeout: 10_000 });
+
   // Mute state is shared.
   await bobPage.locator('.voice').getByRole('button', { name: 'Mute' }).click();
   await expect(alicePage.locator('.voice-list li', { hasText: bob })).toContainText('🔇', { timeout: 10_000 });

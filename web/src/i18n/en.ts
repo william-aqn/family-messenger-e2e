@@ -152,6 +152,8 @@ export const en = {
   voice_state_connecting: 'connecting…',
   voice_state_connected: 'connected',
   voice_state_failed: 'no connection, retrying…',
+  voice_all_screens: 'All screens',
+  voice_waiting_video: 'waiting for video…',
   screen_share_unavailable: 'Screen sharing is not available in this browser',
   screen_share_failed: 'Could not share the screen',
   call_interrupted: 'Call connection interrupted…',

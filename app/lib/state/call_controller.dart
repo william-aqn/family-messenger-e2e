@@ -13,6 +13,27 @@ import 'app_state.dart';
 
 enum CallStatus { ringingOut, ringingIn, connecting, active, ended }
 
+/// Android needs a foreground service of type mediaProjection before the
+/// system allows screen capture (flutter_background provides it). Shared by
+/// 1:1 calls and group voice channels.
+Future<bool> enableScreenCaptureService() async {
+  if (!Platform.isAndroid) return true;
+  const config = FlutterBackgroundAndroidConfig(
+    notificationTitle: 'Screen sharing',
+    notificationText: 'Family Messenger is sharing your screen',
+    notificationImportance: AndroidNotificationImportance.normal,
+    notificationIcon: AndroidResource(name: 'ic_launcher', defType: 'mipmap'),
+  );
+  final ok = await FlutterBackground.initialize(androidConfig: config);
+  if (!ok) return false;
+  if (!FlutterBackground.isBackgroundExecutionEnabled) return FlutterBackground.enableBackgroundExecution();
+  return true;
+}
+
+Future<void> disableScreenCaptureService() async {
+  if (Platform.isAndroid && FlutterBackground.isBackgroundExecutionEnabled) await FlutterBackground.disableBackgroundExecution();
+}
+
 class CallInfo {
   CallInfo({required this.id, required this.convId, required this.peer, required this.incoming, required this.status});
 
@@ -267,28 +288,12 @@ class CallController extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Android needs a foreground service of type mediaProjection before the
-  /// system allows screen capture (flutter_background provides it).
-  Future<bool> _enableScreenService() async {
-    if (!Platform.isAndroid) return true;
-    const config = FlutterBackgroundAndroidConfig(
-      notificationTitle: 'Screen sharing',
-      notificationText: 'Family Messenger is sharing your screen',
-      notificationImportance: AndroidNotificationImportance.normal,
-      notificationIcon: AndroidResource(name: 'ic_launcher', defType: 'mipmap'),
-    );
-    final ok = await FlutterBackground.initialize(androidConfig: config);
-    if (!ok) return false;
-    if (!FlutterBackground.isBackgroundExecutionEnabled) return FlutterBackground.enableBackgroundExecution();
-    return true;
-  }
-
   Future<void> startScreenShare() async {
     final current = call;
     final pc = _pc;
     if (current == null || pc == null || current.sharing) return;
     try {
-      if (!await _enableScreenService()) return;
+      if (!await enableScreenCaptureService()) return;
       final stream = await navigator.mediaDevices.getDisplayMedia({'video': true, 'audio': false});
       final track = stream.getVideoTracks().first;
       _screen = stream;
@@ -316,7 +321,7 @@ class CallController extends ChangeNotifier {
     try {
       await _videoTx?.sender.replaceTrack(null);
     } catch (_) {}
-    if (Platform.isAndroid && FlutterBackground.isBackgroundExecutionEnabled) await FlutterBackground.disableBackgroundExecution();
+    await disableScreenCaptureService();
     current?.sharing = false;
     notifyListeners();
     if (wasSharing && current != null && current.status != CallStatus.ended) {
@@ -351,7 +356,7 @@ class CallController extends ChangeNotifier {
         }
         await screen.dispose();
       }
-      if (Platform.isAndroid && FlutterBackground.isBackgroundExecutionEnabled) await FlutterBackground.disableBackgroundExecution();
+      await disableScreenCaptureService();
       await pc?.close();
       if (_rendererReady) remoteRenderer.srcObject = null;
     }());

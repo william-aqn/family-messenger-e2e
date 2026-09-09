@@ -179,17 +179,20 @@ UTF-8 JSON objects with a `t` field. Public keys are standard base64.
 | `call.reject` | `call`, `reason` (`declined`/`busy`/`timeout`) | EPHEMERAL + URGENT |
 | `call.hangup` | `call` | EPHEMERAL + URGENT |
 | `call.share` | `call`, `on` (bool) | EPHEMERAL; the sender started (`true`) or stopped (`false`) sharing its screen on the video track. Receivers hide the remote video on `false` instead of relying on track mute events |
-| `voice.join` | `session` (uuid v7), `muted` | EPHEMERAL, `group` conversations only; the sender joined the group's voice channel. A session identifies one participant (one per device and join) |
-| `voice.here` | `session`, `muted` | EPHEMERAL; presence heartbeat every 20 s and the reply of every participant to a `voice.join`. A session unseen for 65 s is considered gone |
+| `voice.join` | `session` (uuid v7), `muted`, `sharing` | EPHEMERAL, `group` conversations only; the sender joined the group's voice channel. A session identifies one participant (one per device and join) |
+| `voice.here` | `session`, `muted`, `sharing` | EPHEMERAL; presence heartbeat every 20 s and the reply of every participant to a `voice.join`. A session unseen for 65 s is considered gone |
+| `voice.share` | `session`, `on` (bool) | EPHEMERAL; the participant started or stopped streaming its screen. Every pair negotiates a video transceiver up front, so the screen track is swapped in and out without renegotiation |
 | `voice.leave` | `session` | EPHEMERAL |
 | `voice.offer`, `voice.answer` | `session`, `to` (target session), `sdp` | EPHEMERAL; addressed to one participant. The participant with the lexicographically smaller session id sends the offer, so the earlier participant connects to the newcomer and there is no glare |
 | `voice.ice` | `session`, `to`, `candidates[]` | EPHEMERAL |
 
 Group voice channels have no ringing: members see who is in the channel from
-the presence signals and join whenever they like. Audio flows in a full mesh,
-one DTLS-SRTP connection per pair of participants, so the server never handles
-media and the end-to-end guarantees of 1:1 calls hold; the price is one
-outgoing audio stream per other participant, fine for family-sized groups.
+the presence signals and join whenever they like. Audio (and any shared
+screen) flows in a full mesh, one DTLS-SRTP connection per pair of
+participants, so the server never handles media and the end-to-end guarantees
+of 1:1 calls hold; the price is one outgoing stream per other participant,
+fine for family-sized groups. Viewers watch every streamed screen at once or
+pick one.
 
 Every membership event carries the complete roster, so a device that joins
 later or syncs from scratch reconstructs membership from the latest event

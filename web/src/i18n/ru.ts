@@ -143,6 +143,8 @@ export const ru: Partial<Dict> = {
   voice_state_connecting: 'подключение…',
   voice_state_connected: 'подключено',
   voice_state_failed: 'нет связи, повтор…',
+  voice_all_screens: 'Все экраны',
+  voice_waiting_video: 'ожидание видео…',
   screen_share_unavailable: 'Демонстрация экрана недоступна в этом браузере',
   screen_share_failed: 'Не удалось показать экран',
   call_interrupted: 'Связь прервалась…',

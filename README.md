@@ -26,6 +26,20 @@ and screen sharing. One Go binary, one SQLite file, deployable with
 - **Flutter app** for Android, iOS, Windows, Linux and macOS from one codebase
   (`app/`), sharing the protocol test vectors with the server and the web client.
 
+## Server requirements
+
+The server is one static Go binary with an embedded SQLite database, so the
+requirements are modest. Figures were measured on the reference VPS (1 vCPU,
+1 GB RAM, Debian 13) after a day of family use.
+
+| | Minimum | Notes |
+|---|---|---|
+| CPU and RAM | 1 vCPU, 1 GB | At rest the server holds about 12 MB of memory, Caddy about 50 MB, coturn about 10 MB; the CPU stays idle unless calls are relayed. Compiling the server on the machine (native install) wants about 2 GB, which the installer covers with a temporary swap file |
+| Disk | 2 GB free | Native install: about 1 GB for the Go and Node toolchain (build time only) plus 60 MB of binaries; Docker install: about 1.2 GB of images. Add the space you expect for attachments, they are stored as files under the data directory |
+| System | Linux with systemd, or Docker | The installer handles Debian/Ubuntu, Fedora/RHEL, Arch, openSUSE and Alpine (Docker flavour), on amd64 and arm64 |
+| Network | Public IPv4, a DNS name, open ports 80/tcp, 443/tcp+udp, 3478/tcp+udp and 49160-49200/udp | The DNS name gets a Let's Encrypt certificate automatically (a bare IP works with a self-signed one, browsers warn); 3478 and the UDP range serve STUN/TURN for calls |
+| Bandwidth | Small | Messages and attachments are tiny. Calls, voice channels and screen streams flow peer to peer and touch the server only when a direct connection is impossible; then TURN relays about 100 kbps per audio stream and 1-3 Mbps per shared screen |
+
 ## One-line install (Linux)
 
 ```bash

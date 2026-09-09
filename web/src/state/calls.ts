@@ -139,7 +139,10 @@ async function createPeer(convId: string, callId: string): Promise<RTCPeerConnec
 
 function ensureVideoSender(peer: RTCPeerConnection): RTCRtpSender {
   let tx = peer.getTransceivers().find((tr) => tr.receiver.track.kind === 'video');
-  if (!tx) tx = peer.addTransceiver('video', { direction: 'sendrecv' });
+  // Announcing the mic stream as the track's stream gives the m-line an msid,
+  // so native receivers (the Flutter app) get the track inside a stream.
+  const streams = call.value?.localStream ? [call.value.localStream] : [];
+  if (!tx) tx = peer.addTransceiver('video', { direction: 'sendrecv', streams });
   else if (tx.direction !== 'sendrecv') tx.direction = 'sendrecv';
   videoSender = tx.sender;
   return tx.sender;

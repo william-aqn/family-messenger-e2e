@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'preact/hooks';
 import { t } from '../i18n';
 import { acceptCall, call, dismissEndedCall, hangup, rejectCall, startScreenShare, stopScreenShare, toggleMute } from '../state/calls';
 import { session, usernameOf } from '../state/model';
+import { exitFullscreen, isFullscreen, toggleFullscreen, useFullscreen } from './fullscreen';
 
 function useElapsed(since: number | null): string {
   const [, tick] = useState(0);
@@ -15,21 +16,13 @@ function useElapsed(since: number | null): string {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }
 
-function isFullscreen(el: Element | null): boolean {
-  return el !== null && document.fullscreenElement === el;
-}
-
-function exitFullscreen(): void {
-  if (document.fullscreenElement) void document.exitFullscreen().catch(() => {});
-}
-
 export function CallOverlay() {
   const c = call.value!;
   const me = session.value!;
   const audioRef = useRef<HTMLAudioElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const screenRef = useRef<HTMLDivElement>(null);
-  const [fullscreen, setFullscreen] = useState(false);
+  const fullscreen = useFullscreen(screenRef);
   const elapsed = useElapsed(c.startedAt);
 
   useEffect(() => {
@@ -43,26 +36,13 @@ export function CallOverlay() {
     }
   }, [c.remoteStream, c.remoteSharing]);
 
-  useEffect(() => {
-    const el = screenRef.current;
-    const onChange = () => setFullscreen(isFullscreen(el));
-    document.addEventListener('fullscreenchange', onChange);
-    return () => {
-      document.removeEventListener('fullscreenchange', onChange);
-      if (isFullscreen(el)) exitFullscreen();
-    };
-  }, []);
-
   // Leave full screen as soon as the peer stops sharing or the call ends.
   useEffect(() => {
     if ((!c.remoteSharing || c.status === 'ended') && isFullscreen(screenRef.current)) exitFullscreen();
   }, [c.remoteSharing, c.status]);
 
-  const toggleFullscreen = () => {
-    const el = screenRef.current;
-    if (!el || !c.remoteSharing) return;
-    if (isFullscreen(el)) exitFullscreen();
-    else void el.requestFullscreen().catch(() => {});
+  const toggle = () => {
+    if (c.remoteSharing) toggleFullscreen(screenRef.current);
   };
 
   const peer = usernameOf(c.peer, me.accountId);
@@ -88,10 +68,10 @@ export function CallOverlay() {
     <div class={`call ${c.remoteSharing ? 'call-video' : ''}`}>
       <audio ref={audioRef} autoplay />
       <div class="call-status">{statusText}</div>
-      <div ref={screenRef} class={`call-screen ${c.remoteSharing ? '' : 'hidden'}`} onDblClick={toggleFullscreen}>
+      <div ref={screenRef} class={`call-screen ${c.remoteSharing ? '' : 'hidden'}`} onDblClick={toggle}>
         <video ref={videoRef} autoplay playsInline muted />
         <div class="call-screen-tools">
-          <button type="button" onClick={toggleFullscreen} title={fullscreen ? t('exit_fullscreen') : t('fullscreen')}>
+          <button type="button" onClick={toggle} title={fullscreen ? t('exit_fullscreen') : t('fullscreen')}>
             {fullscreen ? t('exit_fullscreen') : t('fullscreen')}
           </button>
         </div>

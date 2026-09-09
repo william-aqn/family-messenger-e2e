@@ -163,8 +163,9 @@ export type Payload =
   | { t: 'call.hangup'; call: string }
   | { t: 'call.share'; call: string; on: boolean }
   // Group voice channel (mesh); `session` identifies one participant, `to` the target session.
-  | { t: 'voice.join'; session: string; muted: boolean }
-  | { t: 'voice.here'; session: string; muted: boolean }
+  | { t: 'voice.join'; session: string; muted: boolean; sharing?: boolean }
+  | { t: 'voice.here'; session: string; muted: boolean; sharing?: boolean }
+  | { t: 'voice.share'; session: string; on: boolean }
   | { t: 'voice.leave'; session: string }
   | { t: 'voice.offer'; session: string; to: string; sdp: string }
   | { t: 'voice.answer'; session: string; to: string; sdp: string }
