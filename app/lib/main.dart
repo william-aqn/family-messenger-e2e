@@ -5,7 +5,8 @@ import 'ui/call_screen.dart';
 import 'ui/home_screen.dart';
 import 'ui/login_screen.dart';
 
-final AppState app = AppState();
+/// Replaced by integration tests with an instance that does not persist.
+AppState app = AppState();
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();

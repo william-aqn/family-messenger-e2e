@@ -36,6 +36,35 @@ Future<void> disableScreenCaptureService() async {
   if (Platform.isAndroid && FlutterBackground.isBackgroundExecutionEnabled) await FlutterBackground.disableBackgroundExecution();
 }
 
+/// Constraints for capturing the screen. Desktop platforms need an explicit
+/// source (the primary screen here); phones show the system prompt.
+Future<Map<String, dynamic>> displayMediaConstraints() async {
+  if (Platform.isAndroid || Platform.isIOS) return {'video': true, 'audio': false};
+  final sources = await desktopCapturer.getSources(types: [SourceType.Screen]);
+  if (sources.isEmpty) throw StateError('no screen to capture');
+  return {
+    'video': {
+      'deviceId': {'exact': sources.first.id},
+      'mandatory': {'frameRate': 15.0},
+    },
+    'audio': false,
+  };
+}
+
+/// The stream a remote video track arrived in, or a fresh one wrapping the
+/// track when the sender announced none ("msid:-"). Renderers need a stream.
+Future<MediaStream?> remoteStreamFor(RTCTrackEvent event, String label) async {
+  if (event.streams.isNotEmpty) return event.streams.first;
+  try {
+    final stream = await createLocalMediaStream(label);
+    await stream.addTrack(event.track);
+    return stream;
+  } catch (e) {
+    debugPrint('could not wrap a remote track: $e');
+    return null;
+  }
+}
+
 class CallInfo {
   CallInfo({required this.id, required this.convId, required this.peer, required this.incoming, required this.status});
 
@@ -73,8 +102,11 @@ class CallController extends ChangeNotifier {
   MediaStream? _screenSlot; // placeholder announced for the screen slot
   RTCRtpTransceiver? _cameraTx;
   RTCRtpTransceiver? _screenTx;
-  /// Remote streams by the id of the video track they carry.
-  final Map<String, MediaStream> _remoteStreams = {};
+  /// Remote streams of the video slots (0 = camera, 1 = screen).
+  final Map<int, MediaStream> _remoteStreams = {};
+  int _videoTracksSeen = 0;
+
+  int get debugRemoteStreams => _remoteStreams.length;
   String? _pendingOfferSdp;
   final List<Map<String, dynamic>> _queuedIce = [];
   final List<Map<String, dynamic>> _outgoingIce = [];
@@ -109,11 +141,8 @@ class CallController extends ChangeNotifier {
     final pc = await createPeerConnection({'iceServers': ice, 'sdpSemantics': 'unified-plan'});
     _pc = pc;
     pc.onTrack = (RTCTrackEvent event) {
-      if (event.track.kind == 'video' && event.streams.isNotEmpty) {
-        _remoteStreams[event.track.id ?? ''] = event.streams.first;
-        _bindRemoteVideo();
-      }
-      notifyListeners();
+      if (event.track.kind != 'video') return;
+      unawaited(_storeRemoteVideo(pc, event));
     };
     pc.onIceCandidate = (RTCIceCandidate c) {
       if (c.candidate == null) return;
@@ -168,8 +197,18 @@ class CallController extends ChangeNotifier {
       _screenSlot ??= await createLocalMediaStream('screen-slot');
       videos.add(await pc.addTransceiver(kind: RTCRtpMediaType.RTCRtpMediaTypeVideo, init: RTCRtpTransceiverInit(direction: TransceiverDirection.SendRecv, streams: [_screenSlot!])));
     }
-    for (final tx in videos.take(2)) {
-      await tx.setDirection(TransceiverDirection.SendRecv);
+    _screenSlot ??= await createLocalMediaStream('screen-slot');
+    final slotStreams = [_local, _screenSlot];
+    for (var i = 0; i < 2; i++) {
+      await videos[i].setDirection(TransceiverDirection.SendRecv);
+      // Transceivers created from a remote offer carry no stream ("msid:-");
+      // receivers want the track inside one.
+      final s = slotStreams[i];
+      if (s != null) {
+        try {
+          await videos[i].sender.setStreams([s]);
+        } catch (_) {}
+      }
     }
     _cameraTx = videos[0];
     _screenTx = videos[1];
@@ -180,13 +219,32 @@ class CallController extends ChangeNotifier {
     _bindRemoteVideo();
   }
 
-  /// Routes the remote tracks of the two video slots to their renderers.
+  /// Files a remote video track under its slot: the position of its
+  /// transceiver among the video transceivers (camera first, screen second),
+  /// or the order of arrival when the transceiver cannot be matched.
+  Future<void> _storeRemoteVideo(RTCPeerConnection pc, RTCTrackEvent event) async {
+    var slot = -1;
+    try {
+      final videos = <RTCRtpTransceiver>[];
+      for (final tx in await pc.getTransceivers()) {
+        if (tx.receiver.track?.kind == 'video') videos.add(tx);
+      }
+      slot = videos.indexWhere((tx) => tx.receiver.track?.id == event.track.id);
+      if (slot < 0 && event.transceiver != null) slot = videos.indexWhere((tx) => tx.mid == event.transceiver!.mid);
+    } catch (_) {}
+    if (slot < 0) slot = _videoTracksSeen;
+    _videoTracksSeen++;
+    final stream = await remoteStreamFor(event, 'call-slot-$slot');
+    if (_pc != pc || stream == null) return;
+    _remoteStreams[slot] = stream;
+    _bindRemoteVideo();
+  }
+
+  /// Routes the remote streams of the two video slots to their renderers.
   void _bindRemoteVideo() {
     if (!_renderersReady) return;
-    final cam = _cameraTx?.receiver.track;
-    final scr = _screenTx?.receiver.track;
-    remoteCamera.srcObject = cam == null ? null : _remoteStreams[cam.id ?? ''];
-    remoteScreen.srcObject = scr == null ? null : _remoteStreams[scr.id ?? ''];
+    remoteCamera.srcObject = _remoteStreams[0];
+    remoteScreen.srcObject = _remoteStreams[1];
     notifyListeners();
   }
 
@@ -340,15 +398,21 @@ class CallController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Test mode: `--dart-define=FAKE_CAMERA=screen` feeds the screen instead
+  /// of a camera, so video calls can be exercised on machines without one.
+  static const String fakeCamera = String.fromEnvironment('FAKE_CAMERA');
+
   Future<bool> _enableCamera({required bool notify}) async {
     final current = call;
     if (current == null) return false;
     if (_camera != null) return true;
     try {
-      final stream = await navigator.mediaDevices.getUserMedia({
-        'audio': false,
-        'video': {'facingMode': 'user', 'width': 1280, 'height': 720},
-      });
+      final stream = fakeCamera == 'screen'
+          ? await navigator.mediaDevices.getDisplayMedia(await displayMediaConstraints())
+          : await navigator.mediaDevices.getUserMedia({
+              'audio': false,
+              'video': {'facingMode': 'user', 'width': 1280, 'height': 720},
+            });
       if (call != current || current.status == CallStatus.ended) {
         await _disposeStream(stream);
         return false;
@@ -405,7 +469,7 @@ class CallController extends ChangeNotifier {
     if (current == null || _pc == null || current.sharing) return;
     try {
       if (!await enableScreenCaptureService()) return;
-      final stream = await navigator.mediaDevices.getDisplayMedia({'video': true, 'audio': false});
+      final stream = await navigator.mediaDevices.getDisplayMedia(await displayMediaConstraints());
       final track = stream.getVideoTracks().first;
       _screen = stream;
       if (_screenTx != null) await _screenTx!.sender.replaceTrack(track);
@@ -453,6 +517,7 @@ class CallController extends ChangeNotifier {
     _cameraTx = null;
     _screenTx = null;
     _remoteStreams.clear();
+    _videoTracksSeen = 0;
     final local = _local;
     _local = null;
     final camera = _camera;

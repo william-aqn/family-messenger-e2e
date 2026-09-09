@@ -1,8 +1,11 @@
 import { defineConfig } from '@playwright/test';
+import path from 'node:path';
 
 // End-to-end tests drive the real Go server (serving web/dist) with two or
 // three isolated browser contexts. Run `npm run build` first.
 const port = 18081;
+// A silent file for the fake microphone; the default fake input is a loud beep.
+const silence = path.resolve(process.cwd(), 'tests/peer/silence.wav');
 
 export default defineConfig({
   testDir: 'tests/e2e',
@@ -17,6 +20,7 @@ export default defineConfig({
       args: [
         '--use-fake-device-for-media-stream',
         '--use-fake-ui-for-media-stream',
+        `--use-file-for-fake-audio-capture=${silence}`,
         '--auto-select-desktop-capture-source=Entire screen',
       ],
     },

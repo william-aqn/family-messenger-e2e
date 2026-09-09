@@ -171,9 +171,15 @@ async function createPeer(convId: string, callId: string): Promise<RTCPeerConnec
 function ensureVideoSlots(peer: RTCPeerConnection): void {
   const videos = peer.getTransceivers().filter((tr) => tr.receiver.track.kind === 'video');
   const mic = call.value?.localStream;
-  if (videos.length < 1) videos.push(peer.addTransceiver('video', { direction: 'sendrecv', streams: mic ? [mic] : [] }));
-  if (videos.length < 2) videos.push(peer.addTransceiver('video', { direction: 'sendrecv', streams: screenSlot ? [screenSlot] : [] }));
-  for (const tx of videos.slice(0, 2)) if (tx.direction !== 'sendrecv') tx.direction = 'sendrecv';
+  const slotStreams = [mic ? [mic] : [], screenSlot ? [screenSlot] : []];
+  if (videos.length < 1) videos.push(peer.addTransceiver('video', { direction: 'sendrecv', streams: slotStreams[0] }));
+  if (videos.length < 2) videos.push(peer.addTransceiver('video', { direction: 'sendrecv', streams: slotStreams[1] }));
+  videos.slice(0, 2).forEach((tx, i) => {
+    if (tx.direction !== 'sendrecv') tx.direction = 'sendrecv';
+    // Transceivers created from a remote offer have no stream yet ("msid:-"),
+    // and native receivers (the Flutter app) drop tracks without one.
+    if (typeof tx.sender.setStreams === 'function') tx.sender.setStreams(...slotStreams[i]);
+  });
   cameraSender = videos[0].sender;
   screenSender = videos[1].sender;
   const cam = cameraStream?.getVideoTracks()[0];

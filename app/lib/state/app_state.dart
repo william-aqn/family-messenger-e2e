@@ -80,10 +80,14 @@ class Message {
 }
 
 class AppState extends ChangeNotifier {
-  AppState() {
+  AppState({this.persist = true}) {
     calls = CallController(this);
     voice = VoiceController(this);
   }
+
+  /// Keep the session in secure storage (off in integration tests, which
+  /// must not touch the device's real session).
+  final bool persist;
 
   static const _storage = FlutterSecureStorage();
 
@@ -117,6 +121,11 @@ class AppState extends ChangeNotifier {
   // ---------- session ----------
 
   Future<void> init() async {
+    if (!persist) {
+      booting = false;
+      notifyListeners();
+      return;
+    }
     try {
       final lang = await _storage.read(key: 'lang');
       if (lang != null) L10n.set(lang);
@@ -143,7 +152,7 @@ class AppState extends ChangeNotifier {
 
   Future<void> setLanguage(String code) async {
     L10n.set(code);
-    await _storage.write(key: 'lang', value: code);
+    if (persist) await _storage.write(key: 'lang', value: code);
     notifyListeners();
   }
 
@@ -228,24 +237,26 @@ class AppState extends ChangeNotifier {
     session = sess;
     keys = k;
     api = ApiClient(base, token: sess.token);
-    await _storage.write(key: 'server', value: base);
-    await _storage.write(key: 'token', value: sess.token);
-    await _storage.write(
-      key: 'session',
-      value: jsonEncode({
-        'account_id': sess.accountId,
-        'username': sess.username,
-        'device_id': sess.deviceId,
-        'token': sess.token,
-        'sign_pub': sess.signPub,
-        'enc_pub': sess.encPub,
-        'key_bundle': sess.keyBundle,
-        'salt': sess.salt,
-        'is_admin': sess.isAdmin,
-      }),
-    );
-    await _storage.write(key: 'sign_seed', value: b64encode(k.signSeed));
-    await _storage.write(key: 'enc_priv', value: b64encode(k.encPriv));
+    if (persist) {
+      await _storage.write(key: 'server', value: base);
+      await _storage.write(key: 'token', value: sess.token);
+      await _storage.write(
+        key: 'session',
+        value: jsonEncode({
+          'account_id': sess.accountId,
+          'username': sess.username,
+          'device_id': sess.deviceId,
+          'token': sess.token,
+          'sign_pub': sess.signPub,
+          'enc_pub': sess.encPub,
+          'key_bundle': sess.keyBundle,
+          'salt': sess.salt,
+          'is_admin': sess.isAdmin,
+        }),
+      );
+      await _storage.write(key: 'sign_seed', value: b64encode(k.signSeed));
+      await _storage.write(key: 'enc_priv', value: b64encode(k.encPriv));
+    }
     _startSync();
     unawaited(refreshMe());
     notifyListeners();
@@ -263,8 +274,10 @@ class AppState extends ChangeNotifier {
     contacts.clear();
     conversations.clear();
     messages.clear();
-    for (final k in ['server', 'token', 'session', 'sign_seed', 'enc_priv']) {
-      await _storage.delete(key: k);
+    if (persist) {
+      for (final k in ['server', 'token', 'session', 'sign_seed', 'enc_priv']) {
+        await _storage.delete(key: k);
+      }
     }
     notifyListeners();
   }

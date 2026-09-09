@@ -230,7 +230,7 @@ class VoiceController extends ChangeNotifier {
     if (ch == null || ch.sharing) return null;
     try {
       if (!await enableScreenCaptureService()) return 'voice_share_failed';
-      final stream = await navigator.mediaDevices.getDisplayMedia({'video': true, 'audio': false});
+      final stream = await navigator.mediaDevices.getDisplayMedia(await displayMediaConstraints());
       final track = stream.getVideoTracks().first;
       _screen = stream;
       for (final p in _peers.values) {
@@ -327,8 +327,11 @@ class VoiceController extends ChangeNotifier {
     }
     // Remote audio plays through the platform automatically; video goes to a renderer.
     pc.onTrack = (RTCTrackEvent event) {
-      if (event.track.kind != 'video' || event.streams.isEmpty) return;
-      if (_peers[remote] == peer) unawaited(_attachRenderer(remote, event.streams.first));
+      if (event.track.kind != 'video') return;
+      unawaited(() async {
+        final stream = await remoteStreamFor(event, 'voice-$remote');
+        if (stream != null && _peers[remote] == peer) await _attachRenderer(remote, stream);
+      }());
     };
     pc.onIceCandidate = (RTCIceCandidate c) {
       if (c.candidate == null || peer.closed) return;
@@ -372,6 +375,12 @@ class VoiceController extends ChangeNotifier {
         if (candidate.receiver.track?.kind == 'video') {
           tx = candidate;
           await tx.setDirection(TransceiverDirection.SendRecv);
+          // Created from a remote offer: announce the mic stream for the track ("msid:-" otherwise).
+          if (_local != null) {
+            try {
+              await tx.sender.setStreams([_local!]);
+            } catch (_) {}
+          }
           break;
         }
       }

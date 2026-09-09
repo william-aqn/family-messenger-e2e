@@ -38,7 +38,9 @@ param(
   # Ignore tools on PATH; use (and download) the portable ones in ToolsDir.
   [switch]$Portable,
   # Never download or install anything; fail when something is missing.
-  [switch]$NoInstall
+  [switch]$NoInstall,
+  # Extra --dart-define values for the Flutter build, e.g. FAKE_CAMERA=screen.
+  [string[]]$DartDefine = @()
 )
 
 $ErrorActionPreference = 'Stop'
@@ -366,8 +368,10 @@ function Build-Windows {
   foreach ($assets in @((Join-Path $app 'build\flutter_assets'), (Join-Path $bundle 'data\flutter_assets'))) {
     if (Test-Path $assets) { Remove-Item $assets -Recurse -Force }
   }
-  Step "flutter build windows --release ($version)"
-  Exec 'flutter' @('build', 'windows', '--release') $app
+  $buildArgs = @('build', 'windows', '--release')
+  foreach ($d in $DartDefine) { $buildArgs += "--dart-define=$d" }
+  Step "flutter $($buildArgs -join ' ') ($version)"
+  Exec 'flutter' $buildArgs $app
   if (-not (Test-Path (Join-Path $bundle 'family_messenger_e2e.exe'))) { throw "no build output in $bundle" }
   New-Item -ItemType Directory -Force $Dist | Out-Null
   $zip = Join-Path $Dist "family-messenger-windows-x64-$version.zip"

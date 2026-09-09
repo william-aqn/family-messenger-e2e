@@ -201,6 +201,25 @@ macOS; on iOS it needs a Broadcast Upload Extension, which is not wired up
 yet. Message history is fetched from the server on every start (no local
 database yet).
 
+#### Testing video calls without a webcam
+
+- **Built-in test mode**: build with `--dart-define=FAKE_CAMERA=screen` (or
+  `build-windows.ps1 -DartDefine FAKE_CAMERA=screen`) and the camera button
+  streams the screen instead of a camera, which exercises the whole video
+  path on a machine without one.
+- **A virtual webcam**: OBS Studio's Virtual Camera shows up as a normal
+  camera. `winget install OBSProject.OBSStudio`, then start OBS with
+  `obs64.exe --startvirtualcam --minimize-to-tray` from its `bin\64bit`
+  folder; any scene (an image, a video file or a browser source with an
+  animation) becomes the picture.
+- **Automated app-to-browser call**: `scripts\app-video-call-test.ps1` starts a
+  throwaway local server, a browser peer with Chromium's fake camera
+  (`web/tests/peer`) and the app's integration test
+  (`app/integration_test/video_call_test.dart`), which signs up, opens a chat,
+  starts a video call and checks that frames flow both ways. Add
+  `-Camera screen` to use the built-in test mode instead of a real or virtual
+  camera. The test never touches the device's stored session.
+
 ### Builder container
 
 A Docker image with Go, Node, Flutter, the Android SDK/NDK and the Linux

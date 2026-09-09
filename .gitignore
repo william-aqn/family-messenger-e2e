@@ -44,3 +44,4 @@ app/.idea/
 # web client copied into the server for embedding (kept out of git except the placeholder)
 internal/webui/dist/*
 !internal/webui/dist/.keep
+app/test-results/

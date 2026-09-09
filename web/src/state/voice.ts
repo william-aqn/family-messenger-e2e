@@ -299,9 +299,13 @@ function createPeer(convId: string, remote: string): Peer {
 function ensureVideo(peer: Peer): void {
   let tx = peer.pc.getTransceivers().find((tr) => tr.receiver.track.kind === 'video');
   // With the mic stream announced as the track's stream the m-line carries an
-  // msid, so native receivers (the Flutter app) get the track inside a stream.
+  // msid, so native receivers (the Flutter app) get the track inside a stream;
+  // a transceiver created from a remote offer needs it set explicitly.
   if (!tx) tx = peer.pc.addTransceiver('video', { direction: 'sendrecv', streams: localStream ? [localStream] : [] });
-  else if (tx.direction !== 'sendrecv') tx.direction = 'sendrecv';
+  else {
+    if (tx.direction !== 'sendrecv') tx.direction = 'sendrecv';
+    if (localStream && typeof tx.sender.setStreams === 'function') tx.sender.setStreams(localStream);
+  }
   peer.videoSender = tx.sender;
   if (screenTrack && tx.sender.track !== screenTrack) void tx.sender.replaceTrack(screenTrack).catch(() => {});
 }
