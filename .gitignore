@@ -1,0 +1,42 @@
+# Go
+/bin/
+/dist/
+*.exe
+*.test
+*.out
+coverage.*
+
+# Web
+web/node_modules/
+web/dist/
+web/playwright-report/
+web/test-results/
+web/.vite/
+
+# Flutter / Dart
+app/.dart_tool/
+app/build/
+app/.flutter-plugins*
+app/.packages
+app/ios/Pods/
+app/*.iml
+
+# Deployment / runtime data
+deploy/.env
+data/
+*.db
+*.db-wal
+*.db-shm
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# local tool settings
+.claude/settings.local.json
+
+# Claude Code session config
+.claude/
+app/.idea/

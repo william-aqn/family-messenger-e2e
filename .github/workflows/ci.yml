@@ -1,0 +1,37 @@
+name: ci
+on:
+  push:
+  pull_request:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Go tests
+        run: go vet ./... && go test ./...
+      - name: Web unit tests and build
+        working-directory: web
+        run: npm ci && npm test && npm run build
+      - name: Browser tests
+        working-directory: web
+        run: npx playwright install --with-deps chromium && npx playwright test
+      - name: Docker image
+        run: docker build -t family-messenger-e2e:ci .
+  flutter:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - name: Flutter analyze and tests
+        working-directory: app
+        run: flutter pub get && flutter analyze && flutter test

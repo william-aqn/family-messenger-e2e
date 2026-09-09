@@ -1,0 +1,164 @@
+// Minimal localisation for the mobile client. Add a language by adding a
+// map to `_dicts`; missing keys fall back to English.
+import 'dart:ui' show PlatformDispatcher;
+
+const Map<String, String> _en = {
+  'app_name': 'Family Messenger',
+  'server_url': 'Server URL',
+  'server_hint': 'https://chat.example.com',
+  'sign_in': 'Sign in',
+  'create_account': 'Create account',
+  'username': 'Username',
+  'password': 'Password',
+  'invite_code': 'Invite code',
+  'password_warning': 'Your password unlocks your encryption keys on every device. It cannot be reset.',
+  'deriving_key': 'Deriving password key…',
+  'chats': 'Chats',
+  'no_conversations': 'No conversations yet.',
+  'new_chat': 'New chat',
+  'direct': 'Direct',
+  'group': 'Group',
+  'group_name': 'Group name',
+  'members_hint': 'Members (usernames, comma separated)',
+  'create': 'Create',
+  'cancel': 'Cancel',
+  'send': 'Send',
+  'write_message': 'Message',
+  'attach': 'Attach',
+  'settings': 'Settings',
+  'sign_out': 'Sign out',
+  'language': 'Language',
+  'safety_number': 'Your safety number',
+  'members': 'Members',
+  'security': 'Security',
+  'disappearing': 'Disappearing messages',
+  'off': 'Off',
+  'hour_1': '1 hour',
+  'day_1': '1 day',
+  'week_1': '1 week',
+  'days_30': '30 days',
+  'leave_group': 'Leave group',
+  'add_member': 'Add member',
+  'bot_notice': 'This conversation includes a bot; the server can read it.',
+  'bot': 'bot',
+  'you': 'you',
+  'call': 'Call',
+  'incoming_call': 'Incoming call',
+  'answer': 'Answer',
+  'decline': 'Decline',
+  'hang_up': 'Hang up',
+  'mute': 'Mute',
+  'unmute': 'Unmute',
+  'share_screen': 'Share screen',
+  'stop_sharing': 'Stop sharing',
+  'calling': 'Calling…',
+  'connecting': 'Connecting…',
+  'in_call': 'In call',
+  'call_ended': 'Call ended',
+  'download': 'Download',
+  'saved_to': 'Saved to {path}',
+  'file_too_large': 'The file exceeds the server limit',
+  'undecryptable': 'Message could not be decrypted',
+  'started_chat': '{who} started the chat',
+  'created_group': '{who} created the group',
+  'added': '{who} added {member}',
+  'left': '{who} left',
+  'renamed': '{who} renamed the group',
+  'retention_set': '{who} changed the disappearing-messages timer',
+  'offline': 'Offline, reconnecting…',
+  'error': 'Error',
+  'sending': 'sending…',
+  'chat_settings': 'Chat settings',
+};
+
+const Map<String, String> _ru = {
+  'server_url': 'Адрес сервера',
+  'sign_in': 'Войти',
+  'create_account': 'Создать аккаунт',
+  'username': 'Имя пользователя',
+  'password': 'Пароль',
+  'invite_code': 'Инвайт-код',
+  'password_warning': 'Пароль открывает ваши ключи шифрования на каждом устройстве. Его нельзя сбросить.',
+  'deriving_key': 'Вычисление ключа из пароля…',
+  'chats': 'Чаты',
+  'no_conversations': 'Пока нет чатов.',
+  'new_chat': 'Новый чат',
+  'direct': 'Личный',
+  'group': 'Группа',
+  'group_name': 'Название группы',
+  'members_hint': 'Участники (имена через запятую)',
+  'create': 'Создать',
+  'cancel': 'Отмена',
+  'send': 'Отправить',
+  'write_message': 'Сообщение',
+  'attach': 'Прикрепить',
+  'settings': 'Настройки',
+  'sign_out': 'Выйти',
+  'language': 'Язык',
+  'safety_number': 'Ваш код безопасности',
+  'members': 'Участники',
+  'security': 'Безопасность',
+  'disappearing': 'Исчезающие сообщения',
+  'off': 'Выкл',
+  'hour_1': '1 час',
+  'day_1': '1 день',
+  'week_1': '1 неделя',
+  'days_30': '30 дней',
+  'leave_group': 'Выйти из группы',
+  'add_member': 'Добавить участника',
+  'bot_notice': 'В этом чате есть бот; сервер может его читать.',
+  'bot': 'бот',
+  'you': 'вы',
+  'call': 'Позвонить',
+  'incoming_call': 'Входящий звонок',
+  'answer': 'Ответить',
+  'decline': 'Отклонить',
+  'hang_up': 'Завершить',
+  'mute': 'Выкл. микрофон',
+  'unmute': 'Вкл. микрофон',
+  'share_screen': 'Показать экран',
+  'stop_sharing': 'Остановить показ',
+  'calling': 'Звоним…',
+  'connecting': 'Соединение…',
+  'in_call': 'Разговор',
+  'call_ended': 'Звонок завершён',
+  'download': 'Скачать',
+  'saved_to': 'Сохранено в {path}',
+  'file_too_large': 'Файл больше лимита сервера',
+  'undecryptable': 'Не удалось расшифровать сообщение',
+  'started_chat': '{who} начал(а) чат',
+  'created_group': '{who} создал(а) группу',
+  'added': '{who} добавил(а) {member}',
+  'left': '{who} вышел(ла)',
+  'renamed': '{who} переименовал(а) группу',
+  'retention_set': '{who} изменил(а) таймер исчезающих сообщений',
+  'offline': 'Нет связи, переподключение…',
+  'error': 'Ошибка',
+  'sending': 'отправка…',
+  'chat_settings': 'Настройки чата',
+};
+
+const Map<String, Map<String, String>> _dicts = {'en': _en, 'ru': _ru};
+const Map<String, String> languageNames = {'en': 'English', 'ru': 'Русский'};
+
+class L10n {
+  static String current = _detect();
+
+  static String _detect() {
+    final code = PlatformDispatcher.instance.locale.languageCode.toLowerCase();
+    return _dicts.containsKey(code) ? code : 'en';
+  }
+
+  static void set(String code) {
+    if (_dicts.containsKey(code)) current = code;
+  }
+
+  static List<String> get codes => _dicts.keys.toList();
+}
+
+/// Translates a key with optional {placeholder} substitution.
+String t(String key, [Map<String, Object?> params = const {}]) {
+  var s = _dicts[L10n.current]?[key] ?? _en[key] ?? key;
+  params.forEach((k, v) => s = s.replaceAll('{$k}', '$v'));
+  return s;
+}

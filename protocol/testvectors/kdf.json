@@ -1,0 +1,30 @@
+{
+  "params": {
+    "t": 3,
+    "m": 65536,
+    "p": 1
+  },
+  "cases": [
+    {
+      "password": "correct horse battery staple",
+      "salt": "e444760a045c4b96924e69ad5fbc398d",
+      "auth_key": "6d0d83300915609107d4d83c1e96c6ebca13d37b7d8784b49fe6e2aa3a862e0d",
+      "enc_key": "d25b2f331a5e74bdbd2a0146893f0af4351ba1b724c9861f77f46f18cc128548",
+      "auth_hash": "fa0b1a6fe350eb6a174b9198af6858e52037145709f29cee7a61697e20883465"
+    },
+    {
+      "password": "пароль 🔐 with unicode",
+      "salt": "20b313ec2f8b9694367f5514f37af2b8",
+      "auth_key": "4191a4b2619b2d350d216266b4d639a6d3e22b54c766acec4548138da1e52470",
+      "enc_key": "e78f951f410e792a70bfb268dc06b18369bb5ffde42cbfab130976d1bc3fd1ca",
+      "auth_hash": "fa7cad9aab696676adec5558c15627f702f1a6dd106aa3b8f9eec89ccbe71541"
+    },
+    {
+      "password": "long-password-long-password-long-password-long-password-long-password-long-password-long-password-long-password-long-password-long-password-long-password-long-password-",
+      "salt": "6d06a1f3ee6f70a2cc3b60a947c3850f",
+      "auth_key": "05cd01d7d000181e3da88a46e47fdd0d2ca8d427d6166a472a6557baf6f55d82",
+      "enc_key": "6d99d5e8ffa552e83aea0317a5704960e2d7551b80bb5e00d57ee7282193bb3d",
+      "auth_hash": "f37281117c4b24f8011a6b3bbbcbd7a0289fa54bea1e9959d548cee5be0b2eba"
+    }
+  ]
+}

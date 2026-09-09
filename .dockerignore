@@ -1,0 +1,12 @@
+.git
+.claude
+bin
+data
+web/node_modules
+web/dist
+web/test-results
+web/playwright-report
+app
+**/*.db
+**/*.db-wal
+**/*.db-shm

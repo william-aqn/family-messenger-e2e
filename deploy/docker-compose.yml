@@ -1,0 +1,60 @@
+# Production deployment: Caddy (automatic TLS) -> server, plus coturn for calls.
+# Copy .env.example to .env, fill it in, then: docker compose up -d --build
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      DOMAIN: ${DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - server
+
+  server:
+    build:
+      context: ..
+      args:
+        VERSION: ${VERSION:-dev}
+    image: ${MSGR_IMAGE:-ghcr.io/william-aqn/family-messenger-e2e:latest}
+    restart: unless-stopped
+    environment:
+      MSGR_ADDR: ":8080"
+      MSGR_DATA_DIR: /data
+      MSGR_PUBLIC_URL: https://${DOMAIN}
+      MSGR_REGISTRATION: ${MSGR_REGISTRATION:-invite}
+      MSGR_TURN_SECRET: ${TURN_SECRET}
+      MSGR_TURN_URLS: turn:${DOMAIN}:3478?transport=udp,turn:${DOMAIN}:3478?transport=tcp
+      MSGR_STUN_URLS: stun:${DOMAIN}:3478
+      MSGR_TURN_TTL: 1h
+      MSGR_LOG_JSON: "1"
+    volumes:
+      - server_data:/data
+    expose:
+      - "8080"
+
+  coturn:
+    image: coturn/coturn:4.18-alpine
+    restart: unless-stopped
+    # Host networking: TURN needs a range of UDP ports and the real public IP.
+    network_mode: host
+    command: >
+      -n --log-file=stdout
+      --listening-port=3478
+      --realm=${DOMAIN}
+      --use-auth-secret --static-auth-secret=${TURN_SECRET}
+      --external-ip=${EXTERNAL_IP}
+      --min-port=49160 --max-port=49200
+      --fingerprint --no-multicast-peers
+      --no-tlsv1 --no-tlsv1_1
+
+volumes:
+  caddy_data:
+  caddy_config:
+  server_data:

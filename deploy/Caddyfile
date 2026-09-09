@@ -1,0 +1,6 @@
+# Set DOMAIN=localhost for a LAN/test install: Caddy then issues a certificate
+# from its own local CA (browsers show a warning you can accept).
+{$DOMAIN} {
+	encode zstd gzip
+	reverse_proxy server:8080
+}
