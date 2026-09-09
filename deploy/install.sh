@@ -260,11 +260,20 @@ remove_build_swap() {
 trap remove_build_swap EXIT
 
 build_server() {
+  version="$(git -C "$INSTALL_DIR" describe --tags --always --dirty 2>/dev/null || echo dev)"
+  # A re-run that only changed .env must not spend minutes recompiling.
+  case "$version" in
+    dev|*-dirty) ;;
+    *)
+      if [ -x "$BIN_DIR/server" ] && [ "$(cat "$BIN_DIR/server.version" 2>/dev/null)" = "$version" ]; then
+        say "Server $version is already built (delete $BIN_DIR/server.version to rebuild)"
+        return 0
+      fi ;;
+  esac
   ensure_go
   ensure_node
   export PATH="$NODE_BIN:$PATH"
   export GOPATH="$TOOLCHAIN/gopath" GOCACHE="$TOOLCHAIN/gocache" GOFLAGS="-buildvcs=false" GOTOOLCHAIN=local CGO_ENABLED=0
-  version="$(git -C "$INSTALL_DIR" describe --tags --always --dirty 2>/dev/null || echo dev)"
   add_build_swap
   say "Building the web client (Node $(node --version))"
   (cd "$INSTALL_DIR/web" && npm ci --no-audit --no-fund --loglevel=error && npm run build --silent)
@@ -273,6 +282,7 @@ build_server() {
   say "Building the server $version with $("$GO" version | cut -d' ' -f3) (several minutes on a small machine)"
   (cd "$INSTALL_DIR" && "$GO" build -trimpath -ldflags "-s -w -X github.com/william-aqn/family-messenger-e2e/internal/api.Version=$version" -o "$BIN_DIR/server.new" ./cmd/server)
   mv -f "$BIN_DIR/server.new" "$BIN_DIR/server"
+  printf '%s\n' "$version" >"$BIN_DIR/server.version"
   remove_build_swap
 }
 
