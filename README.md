@@ -190,14 +190,37 @@ several minutes and later ones are fast. The host checkout is left untouched
 ### Windows desktop binary
 
 Flutter's Windows build needs MSVC, which does not exist for Linux, so the
-Linux builder above cannot produce it. Two options:
+Linux builder above cannot produce it. Three options:
 
-1. **GitHub Actions** (`.github/workflows/release.yml`): pushing a tag such as
+1. **Native script** (`deploy/builder/build-windows.ps1`, no Docker): run it
+   on any Windows 10/11 machine and it fetches whatever is missing. Git, the
+   Flutter SDK, Node and Go are downloaded as portable zips into
+   `%LOCALAPPDATA%\family-messenger-e2e\tools` (only when nothing usable is
+   found on PATH or in the usual places); Visual Studio Build Tools 2022 with
+   the C++ workload is installed with Microsoft's bootstrapper, which asks for
+   administrator rights once (about 7 GB). Flutter also needs Developer Mode
+   (Settings > System > For developers) or an elevated shell for plugin
+   symlinks.
+
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File deploy\builder\build-windows.ps1            # Windows app
+   powershell -ExecutionPolicy Bypass -File deploy\builder\build-windows.ps1 all        # + web client and server binaries
+   powershell -ExecutionPolicy Bypass -File deploy\builder\build-windows.ps1 doctor -NoInstall
+   ```
+
+   Targets: `windows` (default, writes
+   `dist\family-messenger-windows-x64-<version>.zip`: unzip and run
+   `family_messenger_e2e.exe`), `web`, `server` (Windows and Linux binaries
+   with the web client embedded), `all`, `doctor`. `-NoInstall` only reports
+   what is missing, `-Portable` ignores tools on PATH and uses the downloaded
+   ones, `-ToolsDir` (or `FM_TOOLS_DIR`) moves the tool folder. The
+   executable is unsigned, so SmartScreen shows its warning on first start.
+2. **GitHub Actions** (`.github/workflows/release.yml`): pushing a tag such as
    `v0.1.0` (or running the workflow manually from the Actions tab) builds the
    Windows zip, the Linux and macOS desktop bundles, the APK/App Bundle, an
    unsigned iOS app and the server binaries, and attaches them to a GitHub
    Release. Nothing needs to be installed locally.
-2. **Windows container** (`deploy/builder/windows/`): a Windows Server Core
+3. **Windows container** (`deploy/builder/windows/`): a Windows Server Core
    image with Visual Studio Build Tools 2022 and the Flutter SDK. It needs a
    Windows 10/11 Pro or Enterprise host with the Windows features *Hyper-V*
    and *Containers* enabled and Docker Desktop (all-users install) switched to
