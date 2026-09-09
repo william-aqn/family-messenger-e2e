@@ -24,7 +24,7 @@ Write-Host "==> flutter pub get"
 flutter pub get
 if ($LASTEXITCODE -ne 0) { throw 'flutter pub get failed' }
 Write-Host "==> flutter build windows --release ($version)"
-flutter build windows --release
+flutter build windows --release "--dart-define=APP_VERSION=$version"
 if ($LASTEXITCODE -ne 0) { throw 'flutter build windows failed' }
 
 New-Item -ItemType Directory -Force "$src\dist" | Out-Null

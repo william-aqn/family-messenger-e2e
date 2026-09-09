@@ -110,9 +110,28 @@ class CallController extends ChangeNotifier {
   String? _pendingOfferSdp;
   final List<Map<String, dynamic>> _queuedIce = [];
   final List<Map<String, dynamic>> _outgoingIce = [];
+  /// Every candidate gathered in this call, repeated with the offer/answer retransmissions.
+  final List<Map<String, dynamic>> _allIce = [];
   Timer? _iceTimer;
+  Timer? _retryTimer;
   Timer? _ringTimer;
   Timer? _endTimer;
+
+  List<Map<String, dynamic>> _candidatesOf(Map<String, dynamic> payload) =>
+      ((payload['candidates'] as List<dynamic>?) ?? const []).cast<Map<String, dynamic>>();
+
+  /// Applies candidates that came with a (repeated) offer or answer.
+  void _addCandidates(List<Map<String, dynamic>> list) {
+    if (list.isEmpty) return;
+    final current = call;
+    if (_pc != null && current != null && current.status != CallStatus.ringingIn && current.status != CallStatus.ringingOut) {
+      for (final c in list) {
+        _addIce(c);
+      }
+    } else {
+      _queuedIce.addAll(list);
+    }
+  }
 
   bool get renderersReady => _renderersReady;
 
@@ -146,7 +165,9 @@ class CallController extends ChangeNotifier {
     };
     pc.onIceCandidate = (RTCIceCandidate c) {
       if (c.candidate == null) return;
-      _outgoingIce.add({'candidate': c.candidate, 'sdpMid': c.sdpMid, 'sdpMLineIndex': c.sdpMLineIndex});
+      final json = {'candidate': c.candidate, 'sdpMid': c.sdpMid, 'sdpMLineIndex': c.sdpMLineIndex};
+      _outgoingIce.add(json);
+      _allIce.add(json);
       _iceTimer ??= Timer(const Duration(milliseconds: 150), () {
         _iceTimer = null;
         final batch = List<Map<String, dynamic>>.from(_outgoingIce);
@@ -270,6 +291,20 @@ class CallController extends ChangeNotifier {
           _end('no answer');
         }
       });
+      // Repeat the offer while ringing (ephemeral signals are lost when the
+      // callee is briefly offline), with the candidates gathered so far.
+      _retryTimer?.cancel();
+      _retryTimer = Timer.periodic(const Duration(seconds: 5), (timer) async {
+        final c = call;
+        if (c?.id != id || c!.status != CallStatus.ringingOut || _pc != pc) {
+          timer.cancel();
+          return;
+        }
+        final local = await pc.getLocalDescription();
+        if (local?.sdp != null) {
+          await _signal(convId, {'t': 'call.offer', 'call': id, 'sdp': local!.sdp, 'video': c.video, 'candidates': List.of(_allIce)});
+        }
+      });
     } catch (e) {
       _end('could not start: $e');
     }
@@ -290,25 +325,36 @@ class CallController extends ChangeNotifier {
     }
     switch (payload['t']) {
       case 'call.offer':
+        // A repeat of the current call's offer: only its candidates matter.
+        if (current != null && current.id == callId) {
+          _addCandidates(_candidatesOf(payload));
+          return;
+        }
         // Busy while in another call or in a group voice channel.
         if ((current != null && current.status != CallStatus.ended) || app.voice.channel != null) {
-          if (current?.id != callId) _signal(convId, {'t': 'call.reject', 'call': callId, 'reason': 'busy'});
+          _signal(convId, {'t': 'call.reject', 'call': callId, 'reason': 'busy'});
           return;
         }
         _pendingOfferSdp = payload['sdp'] as String?;
         _queuedIce.clear();
+        _queuedIce.addAll(_candidatesOf(payload));
         call = CallInfo(id: callId!, convId: convId, peer: sender, incoming: true, status: CallStatus.ringingIn)..remoteVideo = payload['video'] == true;
         _ringTimer = Timer(const Duration(seconds: 45), () {
           if (call?.id == callId && call!.status == CallStatus.ringingIn) _end('missed');
         });
         notifyListeners();
       case 'call.answer':
-        if (current?.id == callId && current!.status == CallStatus.ringingOut && _pc != null) {
+        if (current?.id != callId) return;
+        if (current!.status == CallStatus.ringingOut && _pc != null) {
           _ringTimer?.cancel();
+          _retryTimer?.cancel();
           current.status = CallStatus.connecting;
           current.remoteVideo = payload['video'] == true;
           notifyListeners();
+          _queuedIce.addAll(_candidatesOf(payload));
           _pc!.setRemoteDescription(RTCSessionDescription(payload['sdp'] as String?, 'answer')).then((_) => _flushIce()).catchError((_) => _end('connection failed'));
+        } else {
+          _addCandidates(_candidatesOf(payload)); // a repeat: only its candidates matter
         }
       case 'call.ice':
         if (current?.id == callId) {
@@ -369,6 +415,19 @@ class CallController extends ChangeNotifier {
       await pc.setLocalDescription(answer);
       await _signal(current.convId, {'t': 'call.answer', 'call': current.id, 'sdp': answer.sdp, 'video': current.video});
       await _flushIce();
+      // Repeat the answer until the connection is up, with all candidates so far.
+      _retryTimer?.cancel();
+      _retryTimer = Timer.periodic(const Duration(seconds: 3), (timer) async {
+        final c = call;
+        if (c?.id != current.id || c!.status != CallStatus.connecting || _pc != pc) {
+          timer.cancel();
+          return;
+        }
+        final local = await pc.getLocalDescription();
+        if (local?.sdp != null) {
+          await _signal(current.convId, {'t': 'call.answer', 'call': current.id, 'sdp': local!.sdp, 'video': c.video, 'candidates': List.of(_allIce)});
+        }
+      });
     } catch (e) {
       _end('could not answer: $e');
     }
@@ -509,9 +568,12 @@ class CallController extends ChangeNotifier {
 
   void _end(String reason) {
     _ringTimer?.cancel();
+    _retryTimer?.cancel();
+    _retryTimer = null;
     _iceTimer?.cancel();
     _iceTimer = null;
     _outgoingIce.clear();
+    _allIce.clear();
     _queuedIce.clear();
     _pendingOfferSdp = null;
     _cameraTx = null;

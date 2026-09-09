@@ -68,21 +68,21 @@ server() {
 apk() {
   say "Android APK"
   stage_app
-  (cd /tmp/app && flutter pub get && flutter build apk --release)
+  (cd /tmp/app && flutter pub get && flutter build apk --release "--dart-define=APP_VERSION=$VERSION")
   cp /tmp/app/build/app/outputs/flutter-apk/app-release.apk "$OUT/family-messenger-$VERSION.apk"
 }
 
 appbundle() {
   say "Android App Bundle"
   stage_app
-  (cd /tmp/app && flutter pub get && flutter build appbundle --release)
+  (cd /tmp/app && flutter pub get && flutter build appbundle --release "--dart-define=APP_VERSION=$VERSION")
   cp /tmp/app/build/app/outputs/bundle/release/app-release.aab "$OUT/family-messenger-$VERSION.aab"
 }
 
 linux() {
   say "Flutter Linux desktop"
   stage_app
-  (cd /tmp/app && flutter pub get && flutter build linux --release)
+  (cd /tmp/app && flutter pub get && flutter build linux --release "--dart-define=APP_VERSION=$VERSION")
   tar -C /tmp/app/build/linux/x64/release -czf "$OUT/family-messenger-linux-x64-$VERSION.tar.gz" bundle
 }
 

@@ -368,7 +368,7 @@ function Build-Windows {
   foreach ($assets in @((Join-Path $app 'build\flutter_assets'), (Join-Path $bundle 'data\flutter_assets'))) {
     if (Test-Path $assets) { Remove-Item $assets -Recurse -Force }
   }
-  $buildArgs = @('build', 'windows', '--release')
+  $buildArgs = @('build', 'windows', '--release', "--dart-define=APP_VERSION=$version")
   foreach ($d in $DartDefine) { $buildArgs += "--dart-define=$d" }
   Step "flutter $($buildArgs -join ' ') ($version)"
   Exec 'flutter' $buildArgs $app

@@ -52,7 +52,13 @@ class _LoginScreenState extends State<LoginScreen> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text(t('app_name'), style: Theme.of(context).textTheme.headlineMedium),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(t('app_name'), style: Theme.of(context).textTheme.headlineMedium),
+                        Text(appVersion, style: Theme.of(context).textTheme.bodySmall),
+                      ],
+                    ),
                     DropdownButton<String>(
                       value: L10n.current,
                       items: [for (final c in L10n.codes) DropdownMenuItem(value: c, child: Text(languageNames[c] ?? c))],

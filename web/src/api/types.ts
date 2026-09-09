@@ -156,8 +156,10 @@ export type Payload =
   | { t: 'member.remove'; id: string; members: MemberInfo[] }
   | { t: 'conv.rename'; name: string }
   | { t: 'conv.retention'; seconds: number }
-  | { t: 'call.offer'; call: string; sdp: string; video?: boolean }
-  | { t: 'call.answer'; call: string; sdp: string; video?: boolean }
+  // Offers and answers are retransmitted until the call connects; the repeats
+  // carry every ICE candidate gathered so far, so a lost signal does no harm.
+  | { t: 'call.offer'; call: string; sdp: string; video?: boolean; candidates?: RTCIceCandidateInit[] }
+  | { t: 'call.answer'; call: string; sdp: string; video?: boolean; candidates?: RTCIceCandidateInit[] }
   | { t: 'call.video'; call: string; on: boolean }
   | { t: 'call.ice'; call: string; candidates: RTCIceCandidateInit[] }
   | { t: 'call.reject'; call: string; reason: string }

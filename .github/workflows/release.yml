@@ -74,8 +74,8 @@ jobs:
         working-directory: app
         run: |
           flutter pub get
-          flutter build apk --release
-          flutter build appbundle --release
+          flutter build apk --release --dart-define=APP_VERSION=${GITHUB_REF_NAME}
+          flutter build appbundle --release --dart-define=APP_VERSION=${GITHUB_REF_NAME}
           mkdir -p "$GITHUB_WORKSPACE/dist"
           cp build/app/outputs/flutter-apk/app-release.apk "$GITHUB_WORKSPACE/dist/family-messenger-${GITHUB_REF_NAME}.apk"
           cp build/app/outputs/bundle/release/app-release.aab "$GITHUB_WORKSPACE/dist/family-messenger-${GITHUB_REF_NAME}.aab"
@@ -97,7 +97,7 @@ jobs:
         shell: pwsh
         run: |
           flutter pub get
-          flutter build windows --release
+          flutter build windows --release "--dart-define=APP_VERSION=$env:GITHUB_REF_NAME"
           New-Item -ItemType Directory -Force "$env:GITHUB_WORKSPACE\dist" | Out-Null
           Compress-Archive -Path build\windows\x64\runner\Release\* -DestinationPath "$env:GITHUB_WORKSPACE\dist\family-messenger-windows-x64-$env:GITHUB_REF_NAME.zip"
       - uses: actions/upload-artifact@v4
@@ -118,7 +118,7 @@ jobs:
         working-directory: app
         run: |
           flutter pub get
-          flutter build linux --release
+          flutter build linux --release --dart-define=APP_VERSION=${GITHUB_REF_NAME}
           mkdir -p "$GITHUB_WORKSPACE/dist"
           tar -C build/linux/x64/release -czf "$GITHUB_WORKSPACE/dist/family-messenger-linux-x64-${GITHUB_REF_NAME}.tar.gz" bundle
       - uses: actions/upload-artifact@v4
@@ -138,7 +138,7 @@ jobs:
         working-directory: app
         run: |
           flutter pub get
-          flutter build macos --release
+          flutter build macos --release --dart-define=APP_VERSION=${GITHUB_REF_NAME}
           mkdir -p "$GITHUB_WORKSPACE/dist"
           ditto -c -k --keepParent "build/macos/Build/Products/Release/Family Messenger.app" "$GITHUB_WORKSPACE/dist/family-messenger-macos-${GITHUB_REF_NAME}.zip"
       - uses: actions/upload-artifact@v4
@@ -161,7 +161,7 @@ jobs:
         working-directory: app
         run: |
           flutter pub get
-          flutter build ios --release --no-codesign
+          flutter build ios --release --no-codesign --dart-define=APP_VERSION=${GITHUB_REF_NAME}
           mkdir -p "$GITHUB_WORKSPACE/dist"
           ditto -c -k --keepParent build/ios/iphoneos/Runner.app "$GITHUB_WORKSPACE/dist/family-messenger-ios-unsigned-${GITHUB_REF_NAME}.zip"
       - uses: actions/upload-artifact@v4

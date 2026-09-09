@@ -8,6 +8,9 @@ import 'ui/login_screen.dart';
 /// Replaced by integration tests with an instance that does not persist.
 AppState app = AppState();
 
+/// Build identification, passed by the build scripts as `--dart-define=APP_VERSION=` plus `git describe`.
+const String appVersion = String.fromEnvironment('APP_VERSION', defaultValue: 'dev');
+
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
   app.init();
@@ -20,7 +23,7 @@ class FamilyMessengerApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Family Messenger',
+      title: 'Family Messenger $appVersion',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF4F8CFF), brightness: Brightness.dark),

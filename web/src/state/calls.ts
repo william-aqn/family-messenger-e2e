@@ -65,9 +65,24 @@ let screenSlot: MediaStream | null = null;
 let pendingOffer: RTCSessionDescriptionInit | null = null;
 let queuedIce: RTCIceCandidateInit[] = [];
 let outgoingIce: RTCIceCandidateInit[] = [];
+/** Every candidate gathered in this call, repeated with the offer/answer retransmissions. */
+let allIce: RTCIceCandidateInit[] = [];
 let iceFlushTimer: ReturnType<typeof setTimeout> | null = null;
+let retryTimer: ReturnType<typeof setInterval> | null = null;
 let ringTimer: ReturnType<typeof setTimeout> | null = null;
 let endTimer: ReturnType<typeof setTimeout> | null = null;
+
+function stopRetry(): void {
+  if (retryTimer) clearInterval(retryTimer);
+  retryTimer = null;
+}
+
+/** Applies candidates that came with a (repeated) offer or answer. */
+function addCandidates(list: RTCIceCandidateInit[] | undefined): void {
+  if (!list?.length) return;
+  if (pc?.remoteDescription) for (const c of list) void pc.addIceCandidate(c).catch(() => {});
+  else queuedIce.push(...list);
+}
 
 function update(patch: Partial<CallState>): void {
   if (call.value) call.value = { ...call.value, ...patch };
@@ -134,7 +149,9 @@ async function createPeer(convId: string, callId: string): Promise<RTCPeerConnec
   };
   peer.onicecandidate = (ev) => {
     if (!ev.candidate) return;
-    outgoingIce.push(ev.candidate.toJSON());
+    const c = ev.candidate.toJSON();
+    outgoingIce.push(c);
+    allIce.push(c);
     if (!iceFlushTimer) {
       iceFlushTimer = setTimeout(() => {
         iceFlushTimer = null;
@@ -216,6 +233,19 @@ export async function startCall(convId: string, video = false): Promise<void> {
         endCall('no_answer', false);
       }
     }, RING_TIMEOUT_MS);
+    // Repeat the offer while ringing: the callee may have been offline for a
+    // moment (ephemeral signals are not stored), and the repeats carry the
+    // candidates gathered so far.
+    stopRetry();
+    retryTimer = setInterval(() => {
+      const c = call.value;
+      const sdp = peer.localDescription?.sdp;
+      if (c?.id === id && c.status === 'ringing-out' && pc === peer && sdp) {
+        void sendSignal(convId, { t: 'call.offer', call: id, sdp, video: c.video, candidates: allIce.slice() });
+      } else {
+        stopRetry();
+      }
+    }, 5000);
   } catch (e) {
     console.error('call start failed', e);
     endCall('could_not_start', true);
@@ -237,26 +267,36 @@ export function handleCallSignal(sender: string, senderDevice: string, convId: s
   }
   switch (payload.t) {
     case 'call.offer':
+      // A repeat of the current call's offer: only its candidates matter.
+      if (current?.id === payload.call) {
+        addCandidates(payload.candidates);
+        return;
+      }
       // Busy while in another call or in a group voice channel.
       if ((current && current.status !== 'ended') || voice.value) {
-        if (current?.id !== payload.call) void sendSignal(convId, { t: 'call.reject', call: payload.call, reason: 'busy' });
+        void sendSignal(convId, { t: 'call.reject', call: payload.call, reason: 'busy' });
         return;
       }
       pendingOffer = { type: 'offer', sdp: payload.sdp };
-      queuedIce = [];
+      queuedIce = [...(payload.candidates ?? [])];
       call.value = { ...freshState(payload.call, convId, sender, 'in', 'ringing-in'), remoteVideo: payload.video === true };
       ringTimer = setTimeout(() => {
         if (call.value?.id === payload.call && call.value.status === 'ringing-in') endCall('missed', false);
       }, RING_TIMEOUT_MS);
       break;
     case 'call.answer':
-      if (current?.id === payload.call && current.status === 'ringing-out' && pc) {
+      if (current?.id !== payload.call) return;
+      if (current.status === 'ringing-out' && pc) {
         clearRing();
+        stopRetry();
         update({ status: 'connecting', remoteVideo: payload.video === true });
+        queuedIce.push(...(payload.candidates ?? []));
         void pc
           .setRemoteDescription({ type: 'answer', sdp: payload.sdp })
           .then(flushQueuedIce)
           .catch(() => endCall('connection_failed', true));
+      } else {
+        addCandidates(payload.candidates); // a repeat: only its candidates matter
       }
       break;
     case 'call.ice':
@@ -304,6 +344,17 @@ export async function acceptCall(): Promise<void> {
     await peer.setLocalDescription(answer);
     await sendSignal(current.convId, { t: 'call.answer', call: current.id, sdp: answer.sdp ?? '', video: call.value?.video === true });
     await flushQueuedIce();
+    // Repeat the answer until the connection is up, with all candidates so far.
+    stopRetry();
+    retryTimer = setInterval(() => {
+      const c = call.value;
+      const sdp = peer.localDescription?.sdp;
+      if (c?.id === current.id && c.status === 'connecting' && pc === peer && sdp) {
+        void sendSignal(current.convId, { t: 'call.answer', call: current.id, sdp, video: c.video, candidates: allIce.slice() });
+      } else {
+        stopRetry();
+      }
+    }, 3000);
   } catch (e) {
     console.error('answer failed', e);
     endCall('could_not_answer', true);
@@ -414,9 +465,11 @@ function clearRing(): void {
 
 function endCall(reason: EndReason, notify: boolean): void {
   clearRing();
+  stopRetry();
   if (iceFlushTimer) clearTimeout(iceFlushTimer);
   iceFlushTimer = null;
   outgoingIce = [];
+  allIce = [];
   queuedIce = [];
   pendingOffer = null;
   if (screenTrack) {

@@ -21,7 +21,13 @@ class HomeScreen extends StatelessWidget {
         return Scaffold(
           bottomNavigationBar: const VoicePanel(),
           appBar: AppBar(
-            title: Text('@${app.session!.username}'),
+            title: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('@${app.session!.username}'),
+                Text(appVersion, style: Theme.of(context).textTheme.bodySmall),
+              ],
+            ),
             actions: [
               if (app.wsStatus != WsStatus.online) const Padding(padding: EdgeInsets.all(12), child: Icon(Icons.cloud_off, size: 20)),
               IconButton(icon: const Icon(Icons.settings), onPressed: () => _showSettings(context)),
