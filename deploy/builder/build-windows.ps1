@@ -285,7 +285,8 @@ function Ensure-VisualStudio {
   }
   if ($existing) {
     Step "adding the C++ components (MSVC, CMake, ATL, Windows SDK) to $existing; confirm the UAC prompt"
-    $installArgs = @('modify', '--installPath', $existing, '--passive', '--norestart', '--wait') + $addArgs
+    # Start-Process joins the arguments with spaces, so the path needs its own quotes.
+    $installArgs = @('modify', '--installPath', "`"$existing`"", '--passive', '--norestart', '--wait') + $addArgs
   } else {
     Step 'installing Visual Studio Build Tools 2022 (C++ workload, about 7 GB); confirm the UAC prompt'
     $installArgs = @('--passive', '--norestart', '--wait') + $addArgs
