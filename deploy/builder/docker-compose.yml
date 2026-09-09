@@ -1,0 +1,31 @@
+# Builder container: reproducible local builds of the server binaries, the web
+# client, the Android APK/App Bundle and the Flutter Linux desktop bundle.
+#
+#   docker compose -f deploy/builder/docker-compose.yml build          # once (large image)
+#   docker compose -f deploy/builder/docker-compose.yml run --rm builder server apk
+#   docker compose -f deploy/builder/docker-compose.yml run --rm builder shell
+#
+# Artifacts appear in ./dist at the repository root. Caches live in named
+# volumes so repeated builds are fast.
+services:
+  builder:
+    build: .
+    image: family-messenger-e2e-builder:latest
+    working_dir: /src
+    volumes:
+      - ../..:/src
+      - builder-gradle:/root/.gradle
+      - builder-pub:/root/.pub-cache
+      - builder-go:/root/go
+      - builder-gocache:/root/.cache/go-build
+      - builder-npm:/root/.npm
+    environment:
+      PUB_CACHE: /root/.pub-cache
+      GOFLAGS: -buildvcs=false
+
+volumes:
+  builder-gradle:
+  builder-pub:
+  builder-go:
+  builder-gocache:
+  builder-npm:

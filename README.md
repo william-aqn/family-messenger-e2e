@@ -166,6 +166,27 @@ macOS; on iOS it needs a Broadcast Upload Extension, which is not wired up
 yet. Message history is fetched from the server on every start (no local
 database yet).
 
+### Builder container
+
+A Docker image with Go, Node, Flutter, the Android SDK/NDK and the Linux
+desktop toolchain builds every artifact without installing anything on the
+host (Windows and macOS/iOS binaries still need their native toolchains):
+
+```bash
+docker compose -f deploy/builder/docker-compose.yml build              # once, the image is large
+docker compose -f deploy/builder/docker-compose.yml run --rm builder server apk
+docker compose -f deploy/builder/docker-compose.yml run --rm builder all   # web, server, apk, linux
+docker compose -f deploy/builder/docker-compose.yml run --rm builder shell
+```
+
+Targets: `web`, `server` (linux/amd64, linux/arm64, windows/amd64 with the
+web client embedded), `apk` (universal APK with all ABIs, about 90 MB, signed
+with the debug key: fine for testing, not for stores), `appbundle`, `linux`
+(Flutter desktop bundle), `test`. Artifacts land in `dist/`; Gradle, pub, Go
+and npm caches persist in named volumes, so the first APK build takes
+several minutes and later ones are fast. The host checkout is left untouched
+(builds run on staging copies inside the container).
+
 ## Layout
 
 ```
