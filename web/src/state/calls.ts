@@ -7,6 +7,7 @@ import { newUuid } from '../crypto/ids';
 import { t } from '../i18n';
 import { FLAG_EPHEMERAL, FLAG_URGENT, sendPayload } from './messaging';
 import { conversations, otherMember, session, showToast } from './model';
+import { voice } from './voice';
 
 export type CallStatus = 'ringing-out' | 'ringing-in' | 'connecting' | 'active' | 'ended';
 
@@ -64,7 +65,7 @@ async function sendSignal(convId: string, payload: Payload): Promise<void> {
   }
 }
 
-async function iceServers(): Promise<RTCIceServer[]> {
+export async function iceServers(): Promise<RTCIceServer[]> {
   try {
     const res = await http.turn();
     return res.ice_servers.map((s) => ({ urls: s.urls, username: s.username, credential: s.credential }));
@@ -152,6 +153,10 @@ export async function startCall(convId: string): Promise<void> {
     showToast(t('already_in_call'));
     return;
   }
+  if (voice.value) {
+    showToast(t('voice_leave_first'));
+    return;
+  }
   const peerId = otherMember(conv, s.accountId);
   if (!peerId) return;
   const id = newUuid();
@@ -189,8 +194,9 @@ export function handleCallSignal(sender: string, senderDevice: string, convId: s
   }
   switch (payload.t) {
     case 'call.offer':
-      if (current && current.status !== 'ended') {
-        if (current.id !== payload.call) void sendSignal(convId, { t: 'call.reject', call: payload.call, reason: 'busy' });
+      // Busy while in another call or in a group voice channel.
+      if ((current && current.status !== 'ended') || voice.value) {
+        if (current?.id !== payload.call) void sendSignal(convId, { t: 'call.reject', call: payload.call, reason: 'busy' });
         return;
       }
       pendingOffer = { type: 'offer', sdp: payload.sdp };

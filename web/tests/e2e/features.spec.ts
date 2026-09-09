@@ -43,6 +43,27 @@ test('admin panel: invites, registration mode and announcement', async ({ browse
     await page.getByRole('button', { name: 'Create account' }).last().click();
     await expect(page.getByText(`@${invited}`)).toBeVisible({ timeout: 60_000 });
 
+    // The user directory suggests names in the new-chat dialog, until the
+    // administrator switches it off.
+    await page.getByTitle('New chat').click();
+    await expect(page.locator('.suggestions button', { hasText: admin })).toBeVisible();
+    await page.getByLabel('Username').fill(admin.slice(0, 5));
+    await page.locator('.suggestions button', { hasText: admin }).click();
+    await expect(page.getByLabel('Username')).toHaveValue(admin);
+    await page.getByRole('button', { name: 'Cancel' }).click();
+
+    await adminPage.getByRole('button', { name: 'Settings', exact: true }).last().click();
+    await adminPage.getByLabel('Show the user list', { exact: false }).uncheck();
+    await adminPage.getByRole('button', { name: 'Save' }).click();
+    await expect(adminPage.locator('.toast', { hasText: 'Settings saved' })).toBeVisible();
+    await page.getByTitle('New chat').click();
+    await page.getByLabel('Username').fill(admin.slice(0, 5));
+    await expect(page.locator('.suggestions')).toHaveCount(0);
+    await page.getByRole('button', { name: 'Cancel' }).click();
+    await adminPage.getByLabel('Show the user list', { exact: false }).check();
+    await adminPage.getByRole('button', { name: 'Save' }).click();
+    await expect(adminPage.locator('.toast', { hasText: 'Settings saved' })).toBeVisible();
+
     await adminPage.getByRole('button', { name: 'Users', exact: true }).click();
     await expect(adminPage.locator('.admin-table tr', { hasText: invited })).toBeVisible();
     await adminPage.locator('.admin-table tr', { hasText: invited }).getByRole('button', { name: 'Disable' }).click();

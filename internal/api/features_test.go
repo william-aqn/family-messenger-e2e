@@ -587,3 +587,44 @@ func TestAttachmentsAndRetention(t *testing.T) {
 		t.Fatalf("message survived the global retention: %d", len(hist.Messages))
 	}
 }
+
+func TestUserDirectory(t *testing.T) {
+	env := newTestEnv(t, "open")
+	base := env.ts.URL
+	alice := register(t, base, "alice", "alice-password-123")
+	bob := register(t, base, "bob", "bob-password-123")
+	register(t, base, "bobby", "bobby-password-123")
+
+	var dir struct {
+		Users []struct {
+			Username string `json:"username"`
+			IsBot    bool   `json:"is_bot"`
+		} `json:"users"`
+	}
+	bob.must("GET", "/api/v1/users?q=bo", nil, &dir, http.StatusOK)
+	if len(dir.Users) != 2 || dir.Users[0].Username != "bob" || dir.Users[1].Username != "bobby" {
+		t.Fatalf("prefix search: %+v", dir.Users)
+	}
+	bob.must("GET", "/api/v1/users", nil, &dir, http.StatusOK)
+	if len(dir.Users) != 3 {
+		t.Fatalf("full directory: %+v", dir.Users)
+	}
+	var info struct {
+		UserDirectory bool `json:"user_directory"`
+	}
+	bob.must("GET", "/api/v1/info", nil, &info, http.StatusOK)
+	if !info.UserDirectory {
+		t.Fatal("the directory must be enabled by default")
+	}
+
+	// The administrator switches it off: listing stops, exact lookups still work.
+	alice.must("PUT", "/api/v1/admin/settings", map[string]any{"user_directory": false}, nil, http.StatusOK)
+	if status := bob.do("GET", "/api/v1/users", nil, nil); status != http.StatusForbidden {
+		t.Fatalf("disabled directory status %d", status)
+	}
+	bob.must("GET", "/api/v1/info", nil, &info, http.StatusOK)
+	if info.UserDirectory {
+		t.Fatal("info must report the directory as disabled")
+	}
+	bob.must("GET", "/api/v1/users/alice", nil, nil, http.StatusOK)
+}

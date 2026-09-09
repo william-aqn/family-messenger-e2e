@@ -189,6 +189,39 @@ func escapeLike(s string) string {
 }
 
 // SetAccountFlags updates the administrative flags of an account.
+// DirectoryEntry is what every member may learn about another account.
+type DirectoryEntry struct {
+	ID          string `json:"id"`
+	Username    string `json:"username"`
+	DisplayName string `json:"display_name"`
+	IsBot       bool   `json:"is_bot"`
+}
+
+// Directory lists active accounts whose username starts with prefix (all
+// accounts for an empty prefix), sorted by username.
+func (s *Store) Directory(ctx context.Context, prefix string, limit int) ([]DirectoryEntry, error) {
+	if limit <= 0 || limit > 500 {
+		limit = 500
+	}
+	pattern := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(strings.ToLower(prefix)) + "%"
+	rows, err := s.db.QueryContext(ctx, `SELECT id, username, display_name, is_bot FROM accounts
+		WHERE deleted_at IS NULL AND disabled = 0 AND lower(username) LIKE ? ESCAPE '\'
+		ORDER BY username LIMIT ?`, pattern, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []DirectoryEntry{}
+	for rows.Next() {
+		var e DirectoryEntry
+		if err := rows.Scan(&e.ID, &e.Username, &e.DisplayName, &e.IsBot); err != nil {
+			return nil, err
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
 func (s *Store) SetAccountFlags(ctx context.Context, id string, disabled, isAdmin bool) error {
 	res, err := s.db.ExecContext(ctx, `UPDATE accounts SET disabled = ?, is_admin = ? WHERE id = ?`, disabled, isAdmin, id)
 	if err != nil {

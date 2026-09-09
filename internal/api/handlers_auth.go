@@ -271,6 +271,7 @@ func (s *Server) publicSettings() map[string]any {
 		"max_attachment_bytes": st.MaxAttachmentBytes,
 		"max_group_members":    st.MaxGroupMembers,
 		"retention_days":       st.RetentionDays,
+		"user_directory":       st.UserDirectory,
 	}
 }
 

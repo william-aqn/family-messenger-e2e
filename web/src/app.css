@@ -607,6 +607,91 @@ code.fp.small {
   font-weight: 600;
 }
 
+/* user directory suggestions in the new-chat dialog */
+.suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: -6px 0 10px;
+}
+
+.suggestions button {
+  padding: 4px 10px;
+  font-size: 13px;
+  border-radius: 14px;
+}
+
+/* group voice channel */
+.voice-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 40vh;
+  overflow: auto;
+}
+
+.voice-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.voice-list li::before {
+  content: '';
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.voice-list li.self::before,
+.voice-list li.connected::before {
+  background: var(--ok);
+}
+
+.voice-list li.failed::before {
+  background: var(--danger);
+}
+
+.voice-name {
+  font-weight: 600;
+}
+
+.voice-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  border-left-color: var(--accent);
+}
+
+.voice-bar button.link {
+  margin-left: auto;
+}
+
+.actions button.active {
+  border-color: var(--accent);
+}
+
+.badge {
+  display: inline-block;
+  min-width: 16px;
+  margin-left: 2px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 11px;
+  line-height: 16px;
+  text-align: center;
+  vertical-align: top;
+}
+
 .call-actions {
   display: flex;
   gap: 8px;

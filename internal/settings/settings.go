@@ -21,6 +21,7 @@ type Settings struct {
 	AllowBots          bool   `json:"allow_bots"`           // users may create bots
 	MaxGroupMembers    int    `json:"max_group_members"`    // 2..100
 	Announcement       string `json:"announcement"`         // banner shown to everyone
+	UserDirectory      bool   `json:"user_directory"`       // members may list users and get name suggestions
 }
 
 // Defaults returns the built-in defaults with the given registration mode.
@@ -32,6 +33,7 @@ func Defaults(registration string) Settings {
 		AllowBots:          true,
 		MaxGroupMembers:    100,
 		Announcement:       "",
+		UserDirectory:      true,
 	}
 }
 
@@ -78,7 +80,17 @@ func apply(s Settings, kv map[string]string) Settings {
 	if v, ok := kv["announcement"]; ok {
 		s.Announcement = v
 	}
+	if v, ok := kv["user_directory"]; ok {
+		s.UserDirectory = v == "1"
+	}
 	return s
+}
+
+func boolFlag(v bool) string {
+	if v {
+		return "1"
+	}
+	return "0"
 }
 
 // Get returns a copy of the current settings.
@@ -116,17 +128,14 @@ func (m *Manager) Update(ctx context.Context, s Settings) error {
 	if err := Validate(&s); err != nil {
 		return err
 	}
-	allow := "0"
-	if s.AllowBots {
-		allow = "1"
-	}
 	kv := map[string]string{
 		"registration":         s.Registration,
 		"max_attachment_bytes": strconv.FormatInt(s.MaxAttachmentBytes, 10),
 		"retention_days":       strconv.FormatInt(s.RetentionDays, 10),
-		"allow_bots":           allow,
+		"allow_bots":           boolFlag(s.AllowBots),
 		"max_group_members":    strconv.Itoa(s.MaxGroupMembers),
 		"announcement":         s.Announcement,
+		"user_directory":       boolFlag(s.UserDirectory),
 	}
 	if err := m.store.SaveSettings(ctx, kv); err != nil {
 		return err

@@ -6,8 +6,10 @@ import { startCall } from '../state/calls';
 import { dismissPending, markRead, sendText, unverifiedMembers } from '../state/messaging';
 import { conversationTitle, hasBot, messages, pending, selectedConversation, selectedId, session, usernameOf } from '../state/model';
 import { effectiveRetention, ensureMessagesLoaded } from '../state/sync';
+import { joinVoice, leaveVoice, participantsOf, voice } from '../state/voice';
 import type { StoredMessage } from '../store/db';
 import { MemberPanel } from './MemberPanel';
+import { VoiceBar } from './VoiceOverlay';
 
 function describeEvent(p: Payload, sender: string, me: string): string | null {
   const who = usernameOf(sender, me);
@@ -196,11 +198,21 @@ export function ChatView() {
               📞
             </button>
           )}
+          {conv.kind === 'group' && (
+            <button
+              title={t('voice_channel')}
+              class={voice.value?.convId === conv.id ? 'active' : ''}
+              onClick={() => void (voice.value?.convId === conv.id ? leaveVoice() : joinVoice(conv.id))}
+            >
+              🎙{participantsOf(conv.id).length > 0 && <span class="badge">{participantsOf(conv.id).length}</span>}
+            </button>
+          )}
           <button title={t('members_security')} onClick={() => setShowMembers((v) => !v)}>
             ℹ
           </button>
         </div>
       </header>
+      {conv.kind === 'group' && <VoiceBar convId={conv.id} />}
       {hasBot(conv) && <div class="notice small">🤖 {t('bot_notice')}</div>}
       <div class="chat-body">
         <div class="messages" ref={listRef}>

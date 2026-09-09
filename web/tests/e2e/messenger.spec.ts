@@ -55,6 +55,49 @@ test('group chat with a signed roster', async ({ browser }) => {
   await expect(carolPage.locator('.conv-list li', { hasText: 'Team' })).toHaveCount(0);
 });
 
+test('group voice channel: join, mesh connection, presence and leave', async ({ browser }) => {
+  const alice = `valice${run}`;
+  const bob = `vbob${run}`;
+  const carol = `vcarol${run}`;
+  const alicePage = await register(browser, alice);
+  const bobPage = await register(browser, bob);
+  const carolPage = await register(browser, carol);
+
+  await alicePage.getByTitle('New chat').click();
+  await alicePage.getByRole('button', { name: 'Group' }).click();
+  await alicePage.getByPlaceholder('Weekend plans').fill('Voice');
+  await alicePage.getByPlaceholder('bob, carol').fill(`${bob}, ${carol}`);
+  await alicePage.getByRole('button', { name: 'Create' }).click();
+  await send(alicePage, 'voice test');
+  for (const page of [bobPage, carolPage]) {
+    await selectConversation(page, 'Voice');
+    await expect(page.locator('.bubble', { hasText: 'voice test' })).toBeVisible();
+  }
+
+  // Alice joins; the others see her in the channel without joining.
+  await alicePage.getByTitle('Voice channel').click();
+  await expect(alicePage.locator('.voice .call-status')).toContainText('Voice channel · Voice', { timeout: 15_000 });
+  await expect(bobPage.locator('.voice-bar')).toContainText(alice, { timeout: 15_000 });
+  await expect(carolPage.locator('.voice-bar')).toContainText(alice, { timeout: 15_000 });
+
+  // Bob joins from the bar: both ends report a connected peer.
+  await bobPage.getByRole('button', { name: 'Join voice' }).click();
+  await expect(bobPage.locator('.voice-list li.connected', { hasText: alice })).toBeVisible({ timeout: 30_000 });
+  await expect(alicePage.locator('.voice-list li.connected', { hasText: bob })).toBeVisible({ timeout: 30_000 });
+  await expect(carolPage.locator('.voice-bar')).toContainText(bob, { timeout: 15_000 });
+
+  // Mute state is shared.
+  await bobPage.locator('.voice').getByRole('button', { name: 'Mute' }).click();
+  await expect(alicePage.locator('.voice-list li', { hasText: bob })).toContainText('🔇', { timeout: 10_000 });
+
+  // Bob leaves: Alice keeps the channel, everybody's presence updates.
+  await bobPage.locator('.voice').getByRole('button', { name: 'Leave channel' }).click();
+  await expect(bobPage.locator('.voice')).toHaveCount(0);
+  await expect(alicePage.locator('.voice-list li', { hasText: bob })).toHaveCount(0, { timeout: 10_000 });
+  await expect(carolPage.locator('.voice-bar')).not.toContainText(bob, { timeout: 10_000 });
+  await expect(alicePage.locator('.voice-list li.self')).toHaveCount(1);
+});
+
 test('voice call with screen sharing', async ({ browser }) => {
   const alice = `calice${run}`;
   const bob = `cbob${run}`;

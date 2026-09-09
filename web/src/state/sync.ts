@@ -19,6 +19,7 @@ import {
   type StoredMessage,
 } from '../store/db';
 import { handleCallSignal } from './calls';
+import { handleVoiceSignal } from './voice';
 import {
   contacts,
   conversations,
@@ -285,6 +286,7 @@ export async function handleIncoming(view: MessageView, stored: boolean): Promis
   }
   if (!stored) {
     if (payload && payload.t.startsWith('call.')) handleCallSignal(view.sender_account, view.sender_device, view.conv_id, payload);
+    else if (payload && payload.t.startsWith('voice.')) handleVoiceSignal(view.sender_account, view.sender_device, view.conv_id, payload);
     return;
   }
   await applyStored({

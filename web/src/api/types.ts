@@ -93,6 +93,15 @@ export interface ServerSettings {
   max_attachment_bytes: number;
   max_group_members: number;
   retention_days: number;
+  /** Members may list users and get name suggestions (admin setting, default on). */
+  user_directory: boolean;
+}
+
+export interface DirectoryUser {
+  id: string;
+  username: string;
+  display_name: string;
+  is_bot: boolean;
 }
 
 export interface MeView {
@@ -106,6 +115,7 @@ export interface MeView {
 export interface ServerInfo {
   registration: 'open' | 'invite' | 'closed';
   announcement: string;
+  user_directory: boolean;
   version: string;
 }
 
@@ -151,7 +161,14 @@ export type Payload =
   | { t: 'call.ice'; call: string; candidates: RTCIceCandidateInit[] }
   | { t: 'call.reject'; call: string; reason: string }
   | { t: 'call.hangup'; call: string }
-  | { t: 'call.share'; call: string; on: boolean };
+  | { t: 'call.share'; call: string; on: boolean }
+  // Group voice channel (mesh); `session` identifies one participant, `to` the target session.
+  | { t: 'voice.join'; session: string; muted: boolean }
+  | { t: 'voice.here'; session: string; muted: boolean }
+  | { t: 'voice.leave'; session: string }
+  | { t: 'voice.offer'; session: string; to: string; sdp: string }
+  | { t: 'voice.answer'; session: string; to: string; sdp: string }
+  | { t: 'voice.ice'; session: string; to: string; candidates: RTCIceCandidateInit[] };
 
 // Bots
 export interface BotView {
@@ -190,6 +207,7 @@ export interface AdminSettings {
   allow_bots: boolean;
   max_group_members: number;
   announcement: string;
+  user_directory: boolean;
 }
 
 export interface AdminUser {

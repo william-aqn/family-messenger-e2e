@@ -301,6 +301,10 @@ function SettingsTab() {
         <input type="checkbox" checked={s.allow_bots} onChange={(e) => setS({ ...s, allow_bots: (e.target as HTMLInputElement).checked })} />
         {t('allow_bots')}
       </label>
+      <label class="check">
+        <input type="checkbox" checked={s.user_directory} onChange={(e) => setS({ ...s, user_directory: (e.target as HTMLInputElement).checked })} />
+        {t('user_directory')}
+      </label>
       {error && <div class="error">{error}</div>}
       <button type="submit" class="primary">
         {t('save')}

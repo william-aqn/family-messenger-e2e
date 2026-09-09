@@ -82,6 +82,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /api/v1/me", authed(s.me))
 	mux.Handle("GET /api/v1/devices", authed(s.listDevices))
 	mux.Handle("DELETE /api/v1/devices/{id}", authed(s.deleteDevice))
+	mux.Handle("GET /api/v1/users", authed(s.listUsers))
 	mux.Handle("GET /api/v1/users/{username}", authed(s.getUser))
 	mux.Handle("GET /api/v1/conversations", authed(s.listConversations))
 	mux.Handle("POST /api/v1/conversations", authed(s.createConversation))
@@ -187,8 +188,9 @@ func (s *Server) recoverer(next http.Handler) http.Handler {
 func (s *Server) info(w http.ResponseWriter, r *http.Request) {
 	st := s.settings.Get()
 	writeJSON(w, http.StatusOK, map[string]any{
-		"registration": st.Registration,
-		"announcement": st.Announcement,
-		"version":      Version,
+		"registration":   st.Registration,
+		"announcement":   st.Announcement,
+		"user_directory": st.UserDirectory,
+		"version":        Version,
 	})
 }

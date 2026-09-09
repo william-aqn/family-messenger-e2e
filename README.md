@@ -16,7 +16,11 @@ and screen sharing. One Go binary, one SQLite file, deployable with
 - **Bots** with webhooks or long polling, created by any user and usable in
   direct chats and groups ([docs/BOTS.md](docs/BOTS.md)).
 - **Admin panel**: users, invites, registration mode, limits, announcement,
-  statistics and one-click database backup.
+  statistics, one-click database backup and a switch for the user directory
+  (the user list and name suggestions everyone sees when starting a chat).
+- **Group voice channels**: any member joins the group's channel whenever they
+  like, no ringing; audio flows peer-to-peer (mesh), so it stays end-to-end
+  encrypted.
 - **Web client** in English and Russian (more languages are one file away);
   works as a PWA on desktop and mobile browsers.
 - **Flutter app** for Android, iOS, Windows, Linux and macOS from one codebase
