@@ -112,7 +112,9 @@ test('group voice channel: join, mesh connection, presence and leave', async ({ 
   await expect(alicePage.locator('.voice-list li.self')).toHaveCount(1);
 });
 
-test('voice call with screen sharing', async ({ browser }) => {
+const videoWidth = (v: Element) => (v as HTMLVideoElement).videoWidth;
+
+test('voice call: screen sharing and a camera switched on mid-call', async ({ browser }) => {
   const alice = `calice${run}`;
   const bob = `cbob${run}`;
   const alicePage = await register(browser, alice);
@@ -125,13 +127,12 @@ test('voice call with screen sharing', async ({ browser }) => {
   await bobPage.getByRole('button', { name: 'Answer' }).click();
   await expect(alicePage.locator('.call-status', { hasText: 'In call with' })).toBeVisible({ timeout: 30_000 });
   await expect(bobPage.locator('.call-status', { hasText: 'In call with' })).toBeVisible({ timeout: 30_000 });
+  await expect(bobPage.locator('.call-screen')).toBeHidden();
 
   await alicePage.getByRole('button', { name: 'Share screen' }).click();
   await expect(alicePage.getByRole('button', { name: 'Stop sharing' })).toBeVisible({ timeout: 15_000 });
-  await expect(bobPage.locator('.call-screen:not(.hidden) video')).toBeVisible({ timeout: 20_000 });
-  await expect
-    .poll(async () => bobPage.locator('.call video').evaluate((v) => (v as HTMLVideoElement).videoWidth), { timeout: 20_000 })
-    .toBeGreaterThan(0);
+  await expect(bobPage.locator('.call-screen:not(.hidden) video.call-main')).toBeVisible({ timeout: 20_000 });
+  await expect.poll(async () => bobPage.locator('video.call-main').evaluate(videoWidth), { timeout: 20_000 }).toBeGreaterThan(0);
 
   // The viewer can go full screen; stopping the share hides it and leaves full screen.
   await bobPage.getByRole('button', { name: 'Full screen' }).click();
@@ -140,6 +141,58 @@ test('voice call with screen sharing', async ({ browser }) => {
   await expect(bobPage.locator('.call-screen')).toBeHidden({ timeout: 10_000 });
   await expect.poll(() => bobPage.evaluate(() => document.fullscreenElement === null)).toBe(true);
   await expect(alicePage.getByRole('button', { name: 'Share screen' })).toBeVisible();
+
+  // Bob switches his camera on in the audio call: Alice sees it, then it goes away.
+  await bobPage.getByRole('button', { name: 'Camera on' }).click();
+  await expect(bobPage.locator('video.call-self')).toBeVisible({ timeout: 15_000 });
+  await expect(alicePage.locator('video.call-main')).toBeVisible({ timeout: 20_000 });
+  await expect.poll(async () => alicePage.locator('video.call-main').evaluate(videoWidth), { timeout: 20_000 }).toBeGreaterThan(0);
+  await bobPage.getByRole('button', { name: 'Camera off' }).click();
+  await expect(alicePage.locator('video.call-main')).toHaveCount(0, { timeout: 10_000 });
+
+  await bobPage.getByRole('button', { name: 'Hang up' }).click();
+  await expect(alicePage.locator('.call-status', { hasText: 'Call ended' })).toBeVisible({ timeout: 10_000 });
+});
+
+test('video call: both cameras, a screen on top of the camera, full screen', async ({ browser }) => {
+  const alice = `vcalice${run}`;
+  const bob = `vcbob${run}`;
+  const alicePage = await register(browser, alice);
+  const bobPage = await register(browser, bob);
+  await openDirect(alicePage, bob);
+  await selectConversation(bobPage, alice);
+
+  await alicePage.getByTitle('Video call').click();
+  await expect(bobPage.locator('.call-status', { hasText: 'video call' })).toBeVisible({ timeout: 15_000 });
+  await bobPage.getByRole('button', { name: 'Answer' }).click();
+  await expect(alicePage.locator('.call-status', { hasText: 'In call with' })).toBeVisible({ timeout: 30_000 });
+  await expect(bobPage.locator('.call-status', { hasText: 'In call with' })).toBeVisible({ timeout: 30_000 });
+
+  // Both cameras are on: each side sees the other's camera and its own preview.
+  for (const page of [alicePage, bobPage]) {
+    await expect(page.locator('video.call-main')).toBeVisible({ timeout: 20_000 });
+    await expect.poll(async () => page.locator('video.call-main').evaluate(videoWidth), { timeout: 20_000 }).toBeGreaterThan(0);
+    await expect(page.locator('video.call-self')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Camera off' })).toBeVisible();
+  }
+
+  // Alice adds her screen: Bob gets the screen on the stage and the camera beside it.
+  await alicePage.getByRole('button', { name: 'Share screen' }).click();
+  await expect(bobPage.locator('.call-stage.both')).toBeVisible({ timeout: 20_000 });
+  await expect.poll(async () => bobPage.locator('video.call-pip').evaluate(videoWidth), { timeout: 20_000 }).toBeGreaterThan(0);
+  await expect.poll(async () => bobPage.locator('video.call-main').evaluate(videoWidth), { timeout: 20_000 }).toBeGreaterThan(0);
+  await bobPage.getByRole('button', { name: 'Full screen' }).click();
+  await expect.poll(() => bobPage.evaluate(() => document.fullscreenElement?.classList.contains('call-screen') ?? false)).toBe(true);
+
+  // The screen stops but the camera stays, so full screen stays too; the camera off ends it.
+  await alicePage.getByRole('button', { name: 'Stop sharing' }).click();
+  await expect(bobPage.locator('.call-stage.both')).toHaveCount(0, { timeout: 10_000 });
+  await expect(bobPage.locator('video.call-main')).toBeVisible();
+  await expect.poll(() => bobPage.evaluate(() => document.fullscreenElement?.classList.contains('call-screen') ?? false)).toBe(true);
+  await alicePage.getByRole('button', { name: 'Camera off' }).click();
+  await expect(bobPage.locator('video.call-main')).toHaveCount(0, { timeout: 10_000 });
+  await expect.poll(() => bobPage.evaluate(() => document.fullscreenElement === null)).toBe(true);
+  await expect(alicePage.getByRole('button', { name: 'Camera on' })).toBeVisible();
 
   await bobPage.getByRole('button', { name: 'Hang up' }).click();
   await expect(alicePage.locator('.call-status', { hasText: 'Call ended' })).toBeVisible({ timeout: 10_000 });

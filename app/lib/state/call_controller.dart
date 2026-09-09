@@ -1,5 +1,7 @@
-// 1:1 voice calls with screen sharing over WebRTC (flutter_webrtc). Signaling
-// travels inside ephemeral, signed and encrypted envelopes (PROTOCOL.md §8).
+// 1:1 calls with camera video and screen sharing over WebRTC (flutter_webrtc).
+// Signaling travels inside ephemeral, signed and encrypted envelopes
+// (PROTOCOL.md §6). Every call negotiates three slots up front (audio, camera
+// video, screen video), so cameras and screens switch with replaceTrack only.
 import 'dart:async';
 import 'dart:io' show Platform;
 
@@ -43,8 +45,12 @@ class CallInfo {
   final bool incoming;
   CallStatus status;
   bool muted = false;
+  /// Our camera is on.
+  bool video = false;
+  /// Our screen is shared.
   bool sharing = false;
-  // Set from the peer's call.share signal (track mute events are unreliable).
+  /// The peer's camera / screen are on (from the call.video / call.share signals).
+  bool remoteVideo = false;
   bool remoteSharing = false;
   String? endReason;
   DateTime? startedAt;
@@ -54,14 +60,21 @@ class CallController extends ChangeNotifier {
   CallController(this.app);
 
   final AppState app;
-  final RTCVideoRenderer remoteRenderer = RTCVideoRenderer();
-  bool _rendererReady = false;
+  final RTCVideoRenderer remoteCamera = RTCVideoRenderer();
+  final RTCVideoRenderer remoteScreen = RTCVideoRenderer();
+  final RTCVideoRenderer localCamera = RTCVideoRenderer();
+  bool _renderersReady = false;
 
   CallInfo? call;
   RTCPeerConnection? _pc;
-  MediaStream? _local;
+  MediaStream? _local; // microphone
+  MediaStream? _camera;
   MediaStream? _screen;
-  RTCRtpTransceiver? _videoTx;
+  MediaStream? _screenSlot; // placeholder announced for the screen slot
+  RTCRtpTransceiver? _cameraTx;
+  RTCRtpTransceiver? _screenTx;
+  /// Remote streams by the id of the video track they carry.
+  final Map<String, MediaStream> _remoteStreams = {};
   String? _pendingOfferSdp;
   final List<Map<String, dynamic>> _queuedIce = [];
   final List<Map<String, dynamic>> _outgoingIce = [];
@@ -69,13 +82,14 @@ class CallController extends ChangeNotifier {
   Timer? _ringTimer;
   Timer? _endTimer;
 
-  bool get remoteVideo => _rendererReady && (call?.remoteSharing ?? false);
+  bool get renderersReady => _renderersReady;
 
-  Future<void> _ensureRenderer() async {
-    if (_rendererReady) return;
-    await remoteRenderer.initialize();
-    remoteRenderer.onResize = notifyListeners;
-    _rendererReady = true;
+  Future<void> _ensureRenderers() async {
+    if (_renderersReady) return;
+    await remoteCamera.initialize();
+    await remoteScreen.initialize();
+    await localCamera.initialize();
+    _renderersReady = true;
   }
 
   Future<void> _signal(String convId, Map<String, dynamic> payload) async {
@@ -87,7 +101,7 @@ class CallController extends ChangeNotifier {
   }
 
   Future<RTCPeerConnection> _createPeer(String convId, String callId) async {
-    await _ensureRenderer();
+    await _ensureRenderers();
     List<Map<String, dynamic>> ice = [];
     try {
       ice = (await app.api!.turn()).map((s) => s.toRtc()).toList();
@@ -96,7 +110,8 @@ class CallController extends ChangeNotifier {
     _pc = pc;
     pc.onTrack = (RTCTrackEvent event) {
       if (event.track.kind == 'video' && event.streams.isNotEmpty) {
-        remoteRenderer.srcObject = event.streams.first;
+        _remoteStreams[event.track.id ?? ''] = event.streams.first;
+        _bindRemoteVideo();
       }
       notifyListeners();
     };
@@ -130,24 +145,52 @@ class CallController extends ChangeNotifier {
     for (final track in mic.getAudioTracks()) {
       await pc.addTrack(track, mic);
     }
-    await Helper.setSpeakerphoneOn(true);
+    if (Platform.isAndroid || Platform.isIOS) {
+      try {
+        await Helper.setSpeakerphoneOn(true);
+      } catch (_) {}
+    }
     return pc;
   }
 
-  Future<RTCRtpTransceiver> _ensureVideoTransceiver(RTCPeerConnection pc) async {
-    if (_videoTx != null) return _videoTx!;
+  /// Finds (or adds) the two video transceivers in slot order and attaches
+  /// the current camera and screen tracks. Each slot announces its own stream
+  /// so receivers get the tracks in separate streams.
+  Future<void> _ensureVideoSlots(RTCPeerConnection pc) async {
+    final videos = <RTCRtpTransceiver>[];
     for (final tx in await pc.getTransceivers()) {
-      if (tx.receiver.track?.kind == 'video') {
-        await tx.setDirection(TransceiverDirection.SendRecv);
-        _videoTx = tx;
-        return tx;
-      }
+      if (tx.receiver.track?.kind == 'video') videos.add(tx);
     }
-    _videoTx = await pc.addTransceiver(kind: RTCRtpMediaType.RTCRtpMediaTypeVideo, init: RTCRtpTransceiverInit(direction: TransceiverDirection.SendRecv));
-    return _videoTx!;
+    if (videos.isEmpty) {
+      videos.add(await pc.addTransceiver(kind: RTCRtpMediaType.RTCRtpMediaTypeVideo, init: RTCRtpTransceiverInit(direction: TransceiverDirection.SendRecv, streams: [?_local])));
+    }
+    if (videos.length < 2) {
+      _screenSlot ??= await createLocalMediaStream('screen-slot');
+      videos.add(await pc.addTransceiver(kind: RTCRtpMediaType.RTCRtpMediaTypeVideo, init: RTCRtpTransceiverInit(direction: TransceiverDirection.SendRecv, streams: [_screenSlot!])));
+    }
+    for (final tx in videos.take(2)) {
+      await tx.setDirection(TransceiverDirection.SendRecv);
+    }
+    _cameraTx = videos[0];
+    _screenTx = videos[1];
+    final cam = _camera?.getVideoTracks().firstOrNull;
+    if (cam != null) await _cameraTx!.sender.replaceTrack(cam);
+    final scr = _screen?.getVideoTracks().firstOrNull;
+    if (scr != null) await _screenTx!.sender.replaceTrack(scr);
+    _bindRemoteVideo();
   }
 
-  Future<void> startCall(String convId) async {
+  /// Routes the remote tracks of the two video slots to their renderers.
+  void _bindRemoteVideo() {
+    if (!_renderersReady) return;
+    final cam = _cameraTx?.receiver.track;
+    final scr = _screenTx?.receiver.track;
+    remoteCamera.srcObject = cam == null ? null : _remoteStreams[cam.id ?? ''];
+    remoteScreen.srcObject = scr == null ? null : _remoteStreams[scr.id ?? ''];
+    notifyListeners();
+  }
+
+  Future<void> startCall(String convId, {bool video = false}) async {
     final conv = app.conversations[convId];
     final peer = conv == null ? null : app.otherMember(conv);
     if (conv == null || conv.kind != 'direct' || peer == null) return;
@@ -158,10 +201,11 @@ class CallController extends ChangeNotifier {
     notifyListeners();
     try {
       final pc = await _createPeer(convId, id);
-      await _ensureVideoTransceiver(pc);
+      if (video) await _enableCamera(notify: false);
+      await _ensureVideoSlots(pc);
       final offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
-      await _signal(convId, {'t': 'call.offer', 'call': id, 'sdp': offer.sdp});
+      await _signal(convId, {'t': 'call.offer', 'call': id, 'sdp': offer.sdp, 'video': call?.video == true});
       _ringTimer = Timer(const Duration(seconds: 45), () {
         if (call?.id == id && call!.status == CallStatus.ringingOut) {
           _signal(convId, {'t': 'call.hangup', 'call': id});
@@ -195,7 +239,7 @@ class CallController extends ChangeNotifier {
         }
         _pendingOfferSdp = payload['sdp'] as String?;
         _queuedIce.clear();
-        call = CallInfo(id: callId!, convId: convId, peer: sender, incoming: true, status: CallStatus.ringingIn);
+        call = CallInfo(id: callId!, convId: convId, peer: sender, incoming: true, status: CallStatus.ringingIn)..remoteVideo = payload['video'] == true;
         _ringTimer = Timer(const Duration(seconds: 45), () {
           if (call?.id == callId && call!.status == CallStatus.ringingIn) _end('missed');
         });
@@ -204,6 +248,7 @@ class CallController extends ChangeNotifier {
         if (current?.id == callId && current!.status == CallStatus.ringingOut && _pc != null) {
           _ringTimer?.cancel();
           current.status = CallStatus.connecting;
+          current.remoteVideo = payload['video'] == true;
           notifyListeners();
           _pc!.setRemoteDescription(RTCSessionDescription(payload['sdp'] as String?, 'answer')).then((_) => _flushIce()).catchError((_) => _end('connection failed'));
         }
@@ -222,6 +267,11 @@ class CallController extends ChangeNotifier {
         if (current?.id == callId) _end(payload['reason'] == 'busy' ? 'busy' : 'declined');
       case 'call.hangup':
         if (current?.id == callId) _end(current!.status == CallStatus.ringingIn ? 'missed' : 'ended');
+      case 'call.video':
+        if (current?.id == callId) {
+          current!.remoteVideo = payload['on'] == true;
+          notifyListeners();
+        }
       case 'call.share':
         if (current?.id == callId) {
           current!.remoteSharing = payload['on'] == true;
@@ -254,10 +304,12 @@ class CallController extends ChangeNotifier {
     try {
       final pc = await _createPeer(current.convId, current.id);
       await pc.setRemoteDescription(RTCSessionDescription(sdp, 'offer'));
-      await _ensureVideoTransceiver(pc);
+      // A video call is answered with the camera on (audio only if it fails).
+      if (current.remoteVideo) await _enableCamera(notify: false);
+      await _ensureVideoSlots(pc);
       final answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
-      await _signal(current.convId, {'t': 'call.answer', 'call': current.id, 'sdp': answer.sdp});
+      await _signal(current.convId, {'t': 'call.answer', 'call': current.id, 'sdp': answer.sdp, 'video': current.video});
       await _flushIce();
     } catch (e) {
       _end('could not answer: $e');
@@ -288,17 +340,75 @@ class CallController extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<bool> _enableCamera({required bool notify}) async {
+    final current = call;
+    if (current == null) return false;
+    if (_camera != null) return true;
+    try {
+      final stream = await navigator.mediaDevices.getUserMedia({
+        'audio': false,
+        'video': {'facingMode': 'user', 'width': 1280, 'height': 720},
+      });
+      if (call != current || current.status == CallStatus.ended) {
+        await _disposeStream(stream);
+        return false;
+      }
+      _camera = stream;
+      final track = stream.getVideoTracks().firstOrNull;
+      if (track != null && _cameraTx != null) await _cameraTx!.sender.replaceTrack(track);
+      if (_renderersReady) localCamera.srcObject = stream;
+      current.video = true;
+      notifyListeners();
+      if (notify) await _signal(current.convId, {'t': 'call.video', 'call': current.id, 'on': true});
+      return true;
+    } catch (e) {
+      debugPrint('camera failed: $e');
+      return false;
+    }
+  }
+
+  Future<void> _disableCamera({required bool notify}) async {
+    final current = call;
+    final cam = _camera;
+    _camera = null;
+    if (_renderersReady) localCamera.srcObject = null;
+    try {
+      await _cameraTx?.sender.replaceTrack(null);
+    } catch (_) {}
+    await _disposeStream(cam);
+    if (current == null) return;
+    current.video = false;
+    notifyListeners();
+    if (notify && current.status != CallStatus.ended) await _signal(current.convId, {'t': 'call.video', 'call': current.id, 'on': false});
+  }
+
+  /// Switches our camera on or off during a call (an audio call becomes a
+  /// video call). Returns a translation key on failure.
+  Future<String?> toggleCamera() async {
+    final current = call;
+    if (current == null || current.status == CallStatus.ended) return null;
+    if (current.video) {
+      await _disableCamera(notify: true);
+      return null;
+    }
+    return await _enableCamera(notify: true) ? null : 'camera_failed';
+  }
+
+  /// Front / back camera on phones.
+  Future<void> switchCamera() async {
+    final track = _camera?.getVideoTracks().firstOrNull;
+    if (track != null) await Helper.switchCamera(track);
+  }
+
   Future<void> startScreenShare() async {
     final current = call;
-    final pc = _pc;
-    if (current == null || pc == null || current.sharing) return;
+    if (current == null || _pc == null || current.sharing) return;
     try {
       if (!await enableScreenCaptureService()) return;
       final stream = await navigator.mediaDevices.getDisplayMedia({'video': true, 'audio': false});
       final track = stream.getVideoTracks().first;
       _screen = stream;
-      final tx = await _ensureVideoTransceiver(pc);
-      await tx.sender.replaceTrack(track);
+      if (_screenTx != null) await _screenTx!.sender.replaceTrack(track);
       track.onEnded = () => stopScreenShare();
       current.sharing = true;
       notifyListeners();
@@ -311,22 +421,26 @@ class CallController extends ChangeNotifier {
   Future<void> stopScreenShare() async {
     final current = call;
     final wasSharing = _screen != null || (current?.sharing ?? false);
-    if (_screen != null) {
-      for (final t in _screen!.getTracks()) {
-        await t.stop();
-      }
-      await _screen!.dispose();
-      _screen = null;
-    }
+    final screen = _screen;
+    _screen = null;
     try {
-      await _videoTx?.sender.replaceTrack(null);
+      await _screenTx?.sender.replaceTrack(null);
     } catch (_) {}
+    await _disposeStream(screen);
     await disableScreenCaptureService();
     current?.sharing = false;
     notifyListeners();
     if (wasSharing && current != null && current.status != CallStatus.ended) {
       await _signal(current.convId, {'t': 'call.share', 'call': current.id, 'on': false});
     }
+  }
+
+  Future<void> _disposeStream(MediaStream? stream) async {
+    if (stream == null) return;
+    for (final t in stream.getTracks()) {
+      await t.stop();
+    }
+    await stream.dispose();
   }
 
   void _end(String reason) {
@@ -336,34 +450,38 @@ class CallController extends ChangeNotifier {
     _outgoingIce.clear();
     _queuedIce.clear();
     _pendingOfferSdp = null;
-    _videoTx = null;
+    _cameraTx = null;
+    _screenTx = null;
+    _remoteStreams.clear();
     final local = _local;
     _local = null;
+    final camera = _camera;
+    _camera = null;
     final screen = _screen;
     _screen = null;
+    final slot = _screenSlot;
+    _screenSlot = null;
     final pc = _pc;
     _pc = null;
     unawaited(() async {
-      if (local != null) {
-        for (final t in local.getTracks()) {
-          await t.stop();
-        }
-        await local.dispose();
-      }
-      if (screen != null) {
-        for (final t in screen.getTracks()) {
-          await t.stop();
-        }
-        await screen.dispose();
-      }
+      await _disposeStream(local);
+      await _disposeStream(camera);
+      await _disposeStream(screen);
+      await slot?.dispose();
       await disableScreenCaptureService();
       await pc?.close();
-      if (_rendererReady) remoteRenderer.srcObject = null;
+      if (_renderersReady) {
+        remoteCamera.srcObject = null;
+        remoteScreen.srcObject = null;
+        localCamera.srcObject = null;
+      }
     }());
     final current = call;
     if (current != null && current.status != CallStatus.ended) {
       current.status = CallStatus.ended;
       current.endReason = reason;
+      current.video = false;
+      current.sharing = false;
       notifyListeners();
       _endTimer?.cancel();
       _endTimer = Timer(const Duration(seconds: 3), () {

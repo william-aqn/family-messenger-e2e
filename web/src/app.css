@@ -569,9 +569,42 @@ code.fp.small {
 .call-screen video {
   display: block;
   width: 100%;
-  max-height: 60vh;
   background: #000;
   border-radius: 8px;
+}
+
+/* remote screen and camera: the screen takes the stage, the camera sits beside it */
+.call-stage {
+  display: grid;
+  gap: 6px;
+}
+
+.call-stage.both {
+  grid-template-columns: 3fr 1fr;
+  align-items: start;
+}
+
+.call-screen video.call-main {
+  max-height: 60vh;
+}
+
+.call-screen video.call-pip {
+  max-height: 30vh;
+}
+
+/* our own camera preview (mirrored) */
+.call-self {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  width: 160px;
+  border: 1px solid var(--border);
+  transform: scaleX(-1);
+}
+
+.call-self.alone {
+  position: static;
+  width: 200px;
 }
 
 .call-screen-tools {
@@ -590,17 +623,28 @@ code.fp.small {
 
 .call-screen:fullscreen {
   display: flex;
-  align-items: center;
+  flex-direction: column;
   justify-content: center;
   background: #000;
 }
 
-.call-screen:fullscreen video {
+.call-screen:fullscreen .call-stage {
+  flex: 1;
+  min-height: 0;
+  align-items: center;
+}
+
+.call-screen:fullscreen video.call-main {
   width: 100%;
   height: 100%;
-  max-height: none;
+  max-height: 100vh;
   object-fit: contain;
   border-radius: 0;
+}
+
+.call-screen:fullscreen video.call-pip {
+  max-height: 40vh;
+  object-fit: contain;
 }
 
 .call-status {

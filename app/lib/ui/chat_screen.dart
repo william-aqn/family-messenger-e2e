@@ -42,6 +42,14 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
+  void _startCall(BuildContext context, String convId, {required bool video}) {
+    if (app.voice.channel != null) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(t('voice_leave_first'))));
+      return;
+    }
+    app.calls.startCall(convId, video: video);
+  }
+
   Future<void> _attach() async {
     final result = await FilePicker.platform.pickFiles(withData: true);
     final file = result?.files.firstOrNull;
@@ -86,17 +94,10 @@ class _ChatScreenState extends State<ChatScreen> {
               ),
             ),
             actions: [
-              if (conv.kind == 'direct' && !app.hasBot(conv))
-                IconButton(
-                  icon: const Icon(Icons.call),
-                  onPressed: () {
-                    if (app.voice.channel != null) {
-                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(t('voice_leave_first'))));
-                    } else {
-                      app.calls.startCall(conv.id);
-                    }
-                  },
-                ),
+              if (conv.kind == 'direct' && !app.hasBot(conv)) ...[
+                IconButton(icon: const Icon(Icons.call), tooltip: t('call'), onPressed: () => _startCall(context, conv.id, video: false)),
+                IconButton(icon: const Icon(Icons.videocam), tooltip: t('video_call'), onPressed: () => _startCall(context, conv.id, video: true)),
+              ],
               if (conv.kind == 'group')
                 IconButton(
                   tooltip: t('voice_channel'),

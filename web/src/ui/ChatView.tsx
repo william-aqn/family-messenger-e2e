@@ -194,9 +194,14 @@ export function ChatView() {
         </div>
         <div class="actions">
           {conv.kind === 'direct' && !hasBot(conv) && (
-            <button title={t('voice_call')} onClick={() => void startCall(conv.id)}>
-              📞
-            </button>
+            <>
+              <button title={t('voice_call')} onClick={() => void startCall(conv.id)}>
+                📞
+              </button>
+              <button title={t('video_call')} onClick={() => void startCall(conv.id, true)}>
+                📹
+              </button>
+            </>
           )}
           {conv.kind === 'group' && (
             <button

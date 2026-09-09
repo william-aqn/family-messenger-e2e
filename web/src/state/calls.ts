@@ -1,5 +1,7 @@
-// 1:1 voice calls with screen sharing over WebRTC. Signaling travels inside
-// ephemeral, signed and encrypted envelopes (PROTOCOL.md §8).
+// 1:1 calls with camera video and screen sharing over WebRTC. Signaling
+// travels inside ephemeral, signed and encrypted envelopes (PROTOCOL.md §6).
+// Every call negotiates three slots up front (audio, camera video, screen
+// video), so cameras and screens switch on and off with replaceTrack only.
 import { signal } from '@preact/signals';
 import { http } from '../api/http';
 import type { Payload } from '../api/types';
@@ -31,12 +33,22 @@ export interface CallState {
   direction: 'in' | 'out';
   status: CallStatus;
   muted: boolean;
+  /** Our camera is on. */
+  video: boolean;
+  /** Our screen is shared. */
   sharing: boolean;
+  /** The peer's camera / screen are on (from the call.video / call.share signals). */
+  remoteVideo: boolean;
   remoteSharing: boolean;
   startedAt: number | null;
   endReason: EndReason | null;
+  /** Microphone. */
   localStream: MediaStream | null;
-  remoteStream: MediaStream;
+  /** Camera preview. */
+  localCamera: MediaStream | null;
+  remoteAudio: MediaStream;
+  remoteCamera: MediaStream | null;
+  remoteScreen: MediaStream | null;
 }
 
 export const call = signal<CallState | null>(null);
@@ -44,8 +56,12 @@ export const call = signal<CallState | null>(null);
 const RING_TIMEOUT_MS = 45_000;
 
 let pc: RTCPeerConnection | null = null;
-let videoSender: RTCRtpSender | null = null;
+let cameraSender: RTCRtpSender | null = null;
+let screenSender: RTCRtpSender | null = null;
+let cameraStream: MediaStream | null = null;
 let screenTrack: MediaStreamTrack | null = null;
+/** Placeholder stream announced for the screen slot, so receivers get it apart from the camera. */
+let screenSlot: MediaStream | null = null;
 let pendingOffer: RTCSessionDescriptionInit | null = null;
 let queuedIce: RTCIceCandidateInit[] = [];
 let outgoingIce: RTCIceCandidateInit[] = [];
@@ -82,29 +98,39 @@ function freshState(id: string, convId: string, peer: string, direction: 'in' | 
     direction,
     status,
     muted: false,
+    video: false,
     sharing: false,
+    remoteVideo: false,
     remoteSharing: false,
     startedAt: null,
     endReason: null,
     localStream: null,
-    remoteStream: new MediaStream(),
+    localCamera: null,
+    remoteAudio: new MediaStream(),
+    remoteCamera: null,
+    remoteScreen: null,
   };
 }
 
 async function createPeer(convId: string, callId: string): Promise<RTCPeerConnection> {
   const peer = new RTCPeerConnection({ iceServers: await iceServers() });
   pc = peer;
-  const remoteStream = call.value?.remoteStream ?? new MediaStream();
+  screenSlot = new MediaStream();
+  const remoteAudio = call.value?.remoteAudio ?? new MediaStream();
   peer.ontrack = (ev) => {
-    remoteStream.addTrack(ev.track);
-    if (ev.track.kind === 'video') {
-      const setRemoteSharing = () => update({ remoteSharing: !ev.track.muted && ev.track.readyState === 'live' });
-      ev.track.onunmute = setRemoteSharing;
-      ev.track.onmute = setRemoteSharing;
-      ev.track.onended = setRemoteSharing;
-      setRemoteSharing();
+    if (ev.track.kind === 'audio') {
+      remoteAudio.addTrack(ev.track);
+      update({ remoteAudio });
+      return;
     }
-    update({ remoteStream });
+    // Video slots are told apart by their order: camera first, screen second.
+    const videos = peer.getTransceivers().filter((tr) => tr.receiver.track.kind === 'video');
+    const screen = videos.indexOf(ev.transceiver) === 1;
+    // Whether the slot is in use comes from the call.video / call.share
+    // signals only: browsers unmute every receiver once the transport is up,
+    // frames or not, so the track's mute state says nothing.
+    const stream = new MediaStream([ev.track]);
+    update(screen ? { remoteScreen: stream } : { remoteCamera: stream });
   };
   peer.onicecandidate = (ev) => {
     if (!ev.candidate) return;
@@ -137,18 +163,25 @@ async function createPeer(convId: string, callId: string): Promise<RTCPeerConnec
   return peer;
 }
 
-function ensureVideoSender(peer: RTCPeerConnection): RTCRtpSender {
-  let tx = peer.getTransceivers().find((tr) => tr.receiver.track.kind === 'video');
-  // Announcing the mic stream as the track's stream gives the m-line an msid,
-  // so native receivers (the Flutter app) get the track inside a stream.
-  const streams = call.value?.localStream ? [call.value.localStream] : [];
-  if (!tx) tx = peer.addTransceiver('video', { direction: 'sendrecv', streams });
-  else if (tx.direction !== 'sendrecv') tx.direction = 'sendrecv';
-  videoSender = tx.sender;
-  return tx.sender;
+/**
+ * Finds (or adds) the two video transceivers in slot order and attaches the
+ * current camera and screen tracks. Each slot announces its own stream so
+ * native receivers get the tracks in separate streams.
+ */
+function ensureVideoSlots(peer: RTCPeerConnection): void {
+  const videos = peer.getTransceivers().filter((tr) => tr.receiver.track.kind === 'video');
+  const mic = call.value?.localStream;
+  if (videos.length < 1) videos.push(peer.addTransceiver('video', { direction: 'sendrecv', streams: mic ? [mic] : [] }));
+  if (videos.length < 2) videos.push(peer.addTransceiver('video', { direction: 'sendrecv', streams: screenSlot ? [screenSlot] : [] }));
+  for (const tx of videos.slice(0, 2)) if (tx.direction !== 'sendrecv') tx.direction = 'sendrecv';
+  cameraSender = videos[0].sender;
+  screenSender = videos[1].sender;
+  const cam = cameraStream?.getVideoTracks()[0];
+  if (cam && cameraSender.track !== cam) void cameraSender.replaceTrack(cam).catch(() => {});
+  if (screenTrack && screenSender.track !== screenTrack) void screenSender.replaceTrack(screenTrack).catch(() => {});
 }
 
-export async function startCall(convId: string): Promise<void> {
+export async function startCall(convId: string, video = false): Promise<void> {
   const s = session.value;
   const conv = conversations.value.get(convId);
   if (!s || !conv || conv.kind !== 'direct') return;
@@ -166,10 +199,11 @@ export async function startCall(convId: string): Promise<void> {
   call.value = freshState(id, convId, peerId, 'out', 'ringing-out');
   try {
     const peer = await createPeer(convId, id);
-    ensureVideoSender(peer);
+    if (video) await enableCamera(false);
+    ensureVideoSlots(peer);
     const offer = await peer.createOffer();
     await peer.setLocalDescription(offer);
-    await sendSignal(convId, { t: 'call.offer', call: id, sdp: offer.sdp ?? '' });
+    await sendSignal(convId, { t: 'call.offer', call: id, sdp: offer.sdp ?? '', video: call.value?.video === true });
     ringTimer = setTimeout(() => {
       if (call.value?.id === id && call.value.status === 'ringing-out') {
         void sendSignal(convId, { t: 'call.hangup', call: id });
@@ -204,7 +238,7 @@ export function handleCallSignal(sender: string, senderDevice: string, convId: s
       }
       pendingOffer = { type: 'offer', sdp: payload.sdp };
       queuedIce = [];
-      call.value = freshState(payload.call, convId, sender, 'in', 'ringing-in');
+      call.value = { ...freshState(payload.call, convId, sender, 'in', 'ringing-in'), remoteVideo: payload.video === true };
       ringTimer = setTimeout(() => {
         if (call.value?.id === payload.call && call.value.status === 'ringing-in') endCall('missed', false);
       }, RING_TIMEOUT_MS);
@@ -212,7 +246,7 @@ export function handleCallSignal(sender: string, senderDevice: string, convId: s
     case 'call.answer':
       if (current?.id === payload.call && current.status === 'ringing-out' && pc) {
         clearRing();
-        update({ status: 'connecting' });
+        update({ status: 'connecting', remoteVideo: payload.video === true });
         void pc
           .setRemoteDescription({ type: 'answer', sdp: payload.sdp })
           .then(flushQueuedIce)
@@ -234,9 +268,10 @@ export function handleCallSignal(sender: string, senderDevice: string, convId: s
     case 'call.hangup':
       if (current?.id === payload.call) endCall(current.status === 'ringing-in' ? 'missed' : 'ended', false);
       break;
+    case 'call.video':
+      if (current?.id === payload.call) update({ remoteVideo: payload.on });
+      break;
     case 'call.share':
-      // Explicit start/stop of the peer's screen share: the track's mute/unmute
-      // events are only a fallback, browsers do not fire them reliably.
       if (current?.id === payload.call) update({ remoteSharing: payload.on });
       break;
   }
@@ -256,10 +291,12 @@ export async function acceptCall(): Promise<void> {
   try {
     const peer = await createPeer(current.convId, current.id);
     await peer.setRemoteDescription(pendingOffer);
-    ensureVideoSender(peer);
+    // A video call is answered with the camera on (audio only if it fails).
+    if (current.remoteVideo) await enableCamera(false);
+    ensureVideoSlots(peer);
     const answer = await peer.createAnswer();
     await peer.setLocalDescription(answer);
-    await sendSignal(current.convId, { t: 'call.answer', call: current.id, sdp: answer.sdp ?? '' });
+    await sendSignal(current.convId, { t: 'call.answer', call: current.id, sdp: answer.sdp ?? '', video: call.value?.video === true });
     await flushQueuedIce();
   } catch (e) {
     console.error('answer failed', e);
@@ -289,6 +326,48 @@ export function toggleMute(): void {
   update({ muted });
 }
 
+async function enableCamera(notify: boolean): Promise<boolean> {
+  const current = call.value;
+  if (!current) return false;
+  if (cameraStream) return true;
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' } });
+    if (!call.value || call.value.status === 'ended') {
+      stream.getTracks().forEach((track) => track.stop());
+      return false;
+    }
+    cameraStream = stream;
+    const track = stream.getVideoTracks()[0];
+    if (cameraSender && track) void cameraSender.replaceTrack(track).catch(() => {});
+    update({ video: true, localCamera: stream });
+    if (notify) void sendSignal(current.convId, { t: 'call.video', call: current.id, on: true });
+    return true;
+  } catch {
+    showToast(t('camera_failed'));
+    return false;
+  }
+}
+
+function disableCamera(notify: boolean): void {
+  const current = call.value;
+  if (cameraStream) {
+    cameraStream.getTracks().forEach((track) => track.stop());
+    cameraStream = null;
+  }
+  if (cameraSender && pc) void cameraSender.replaceTrack(null).catch(() => {});
+  if (!current) return;
+  update({ video: false, localCamera: null });
+  if (notify && current.status !== 'ended') void sendSignal(current.convId, { t: 'call.video', call: current.id, on: false });
+}
+
+/** Switches our camera on or off during a call (an audio call becomes a video call). */
+export async function toggleCamera(): Promise<void> {
+  const current = call.value;
+  if (!current || current.status === 'ended') return;
+  if (current.video) disableCamera(true);
+  else await enableCamera(true);
+}
+
 export async function startScreenShare(): Promise<void> {
   const current = call.value;
   if (!current || !pc || current.sharing) return;
@@ -297,11 +376,11 @@ export async function startScreenShare(): Promise<void> {
     return;
   }
   try {
-    const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+    const stream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: { ideal: 15, max: 30 } }, audio: false });
     const track = stream.getVideoTracks()[0];
     if (!track) return;
     screenTrack = track;
-    await ensureVideoSender(pc).replaceTrack(track);
+    if (screenSender) await screenSender.replaceTrack(track);
     track.onended = () => void stopScreenShare();
     update({ sharing: true });
     void sendSignal(current.convId, { t: 'call.share', call: current.id, on: true });
@@ -317,7 +396,7 @@ export async function stopScreenShare(): Promise<void> {
     screenTrack.stop();
     screenTrack = null;
   }
-  if (videoSender && pc) await videoSender.replaceTrack(null).catch(() => {});
+  if (screenSender && pc) await screenSender.replaceTrack(null).catch(() => {});
   update({ sharing: false });
   if (wasSharing && current && current.status !== 'ended') void sendSignal(current.convId, { t: 'call.share', call: current.id, on: false });
 }
@@ -338,13 +417,19 @@ function endCall(reason: EndReason, notify: boolean): void {
     screenTrack.stop();
     screenTrack = null;
   }
-  videoSender = null;
+  if (cameraStream) {
+    cameraStream.getTracks().forEach((track) => track.stop());
+    cameraStream = null;
+  }
+  cameraSender = null;
+  screenSender = null;
+  screenSlot = null;
   const current = call.value;
   current?.localStream?.getTracks().forEach((track) => track.stop());
   pc?.close();
   pc = null;
   if (current && current.status !== 'ended') {
-    call.value = { ...current, status: 'ended', endReason: reason, localStream: null };
+    call.value = { ...current, status: 'ended', endReason: reason, localStream: null, localCamera: null, video: false, sharing: false };
     if (notify) showToast(t('call_ended_reason', { reason: t(`reason_${reason}` as 'reason_no_answer') }));
     if (endTimer) clearTimeout(endTimer);
     endTimer = setTimeout(() => {

@@ -173,8 +173,9 @@ UTF-8 JSON objects with a `t` field. Public keys are standard base64.
 | `conv.rename` | `name` | |
 | `conv.retention` | `seconds` (0 = off) | Signed record of a disappearing-messages change; the server-side timer is set with `PUT /conversations/{id}/retention` |
 | `file` | `blob`, `key`, `nonce`, `name`, `mime`, `size`, optional `thumb` (base64 JPEG ≤ 40 KB), `width`, `height` | Attachment, see §6.1 |
-| `call.offer` | `call` (uuid), `sdp` | EPHEMERAL + URGENT, `direct` conversations only |
-| `call.answer` | `call`, `sdp` | EPHEMERAL + URGENT; other devices of the callee stop ringing |
+| `call.offer` | `call` (uuid), `sdp`, `video` (bool: the caller's camera is on) | EPHEMERAL + URGENT, `direct` conversations only. The offer carries three transceivers in this order: audio, camera video, screen video; cameras and screens are switched with `replaceTrack`, never renegotiated |
+| `call.answer` | `call`, `sdp`, `video` (the callee's camera is on) | EPHEMERAL + URGENT; other devices of the callee stop ringing |
+| `call.video` | `call`, `on` (bool) | EPHEMERAL; the sender switched its camera on or off during the call |
 | `call.ice` | `call`, `candidates[]` = `{candidate, sdpMid, sdpMLineIndex}` | EPHEMERAL |
 | `call.reject` | `call`, `reason` (`declined`/`busy`/`timeout`) | EPHEMERAL + URGENT |
 | `call.hangup` | `call` | EPHEMERAL + URGENT |

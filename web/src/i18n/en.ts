@@ -67,6 +67,7 @@ export const en = {
   members_count: '{n} members',
   unverified_members: 'unverified members',
   voice_call: 'Voice call',
+  video_call: 'Video call',
   members_security: 'Members and security',
   sending: 'sending…',
   failed: 'failed: {reason}',
@@ -126,6 +127,10 @@ export const en = {
   // calls
   calling: 'Calling {peer}…',
   incoming_call: '{peer} is calling',
+  incoming_video_call: 'Incoming video call from {peer}',
+  camera_on: '📷 Camera on',
+  camera_off: '📷 Camera off',
+  camera_failed: 'The camera is not available',
   call_connecting: 'Connecting…',
   in_call: 'In call with {peer} · {time}',
   call_ended: 'Call ended',

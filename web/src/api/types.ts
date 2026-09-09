@@ -156,8 +156,9 @@ export type Payload =
   | { t: 'member.remove'; id: string; members: MemberInfo[] }
   | { t: 'conv.rename'; name: string }
   | { t: 'conv.retention'; seconds: number }
-  | { t: 'call.offer'; call: string; sdp: string }
-  | { t: 'call.answer'; call: string; sdp: string }
+  | { t: 'call.offer'; call: string; sdp: string; video?: boolean }
+  | { t: 'call.answer'; call: string; sdp: string; video?: boolean }
+  | { t: 'call.video'; call: string; on: boolean }
   | { t: 'call.ice'; call: string; candidates: RTCIceCandidateInit[] }
   | { t: 'call.reject'; call: string; reason: string }
   | { t: 'call.hangup'; call: string }

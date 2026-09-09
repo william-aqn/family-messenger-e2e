@@ -60,6 +60,7 @@ export const ru: Partial<Dict> = {
   members_count: 'участников: {n}',
   unverified_members: 'непроверенные участники',
   voice_call: 'Голосовой звонок',
+  video_call: 'Видеозвонок',
   members_security: 'Участники и безопасность',
   sending: 'отправка…',
   failed: 'ошибка: {reason}',
@@ -117,6 +118,10 @@ export const ru: Partial<Dict> = {
 
   calling: 'Звоним {peer}…',
   incoming_call: '{peer} звонит',
+  incoming_video_call: 'Входящий видеозвонок от {peer}',
+  camera_on: '📷 Включить камеру',
+  camera_off: '📷 Выключить камеру',
+  camera_failed: 'Камера недоступна',
   call_connecting: 'Соединение…',
   in_call: 'Разговор с {peer} · {time}',
   call_ended: 'Звонок завершён',

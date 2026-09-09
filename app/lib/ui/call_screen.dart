@@ -1,3 +1,5 @@
+import 'dart:io' show Platform;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 
@@ -15,6 +17,11 @@ class CallScreen extends StatefulWidget {
 class _CallScreenState extends State<CallScreen> {
   bool _fullscreen = false;
 
+  Future<void> _toggleCamera(BuildContext context) async {
+    final err = await app.calls.toggleCamera();
+    if (err != null && context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(t(err))));
+  }
+
   @override
   Widget build(BuildContext context) {
     final calls = app.calls;
@@ -26,7 +33,7 @@ class _CallScreenState extends State<CallScreen> {
       case CallStatus.ringingOut:
         status = '${t('calling')} $peer';
       case CallStatus.ringingIn:
-        status = '${t('incoming_call')}: $peer';
+        status = '${c.remoteVideo ? t('incoming_video_call') : t('incoming_call')}: $peer';
       case CallStatus.connecting:
         status = t('connecting');
       case CallStatus.active:
@@ -34,15 +41,16 @@ class _CallScreenState extends State<CallScreen> {
       case CallStatus.ended:
         status = '${t('call_ended')}${c.endReason != null && c.endReason != 'ended' ? ' (${c.endReason})' : ''}';
     }
-    final video = calls.remoteVideo;
-    if (_fullscreen && video) {
-      // Only the shared screen, edge to edge, with a way back.
+    final remoteMedia = calls.renderersReady && (c.remoteVideo || c.remoteSharing);
+    final stage = _Stage(calls: calls, call: c);
+    if (_fullscreen && remoteMedia) {
+      // Only the remote video, edge to edge, with a way back.
       return Material(
         color: Colors.black,
         child: Stack(
           fit: StackFit.expand,
           children: [
-            GestureDetector(onDoubleTap: () => setState(() => _fullscreen = false), child: RTCVideoView(calls.remoteRenderer, objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitContain)),
+            GestureDetector(onDoubleTap: () => setState(() => _fullscreen = false), child: stage),
             Positioned(
               top: 8,
               right: 8,
@@ -58,6 +66,7 @@ class _CallScreenState extends State<CallScreen> {
         ),
       );
     }
+    final live = c.status == CallStatus.active || c.status == CallStatus.connecting || c.status == CallStatus.ringingOut;
     return Material(
       color: Colors.black.withValues(alpha: 0.92),
       child: SafeArea(
@@ -65,20 +74,21 @@ class _CallScreenState extends State<CallScreen> {
           children: [
             Padding(padding: const EdgeInsets.all(16), child: Text(status, style: const TextStyle(color: Colors.white, fontSize: 18))),
             Expanded(
-              child: video
+              child: remoteMedia || c.video
                   ? Stack(
                       fit: StackFit.expand,
                       children: [
-                        GestureDetector(onDoubleTap: () => setState(() => _fullscreen = true), child: RTCVideoView(calls.remoteRenderer, objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitContain)),
-                        Positioned(
-                          top: 8,
-                          right: 8,
-                          child: IconButton.filledTonal(
-                            icon: const Icon(Icons.fullscreen),
-                            tooltip: t('fullscreen'),
-                            onPressed: () => setState(() => _fullscreen = true),
+                        GestureDetector(onDoubleTap: remoteMedia ? () => setState(() => _fullscreen = true) : null, child: stage),
+                        if (remoteMedia)
+                          Positioned(
+                            top: 8,
+                            right: 8,
+                            child: IconButton.filledTonal(
+                              icon: const Icon(Icons.fullscreen),
+                              tooltip: t('fullscreen'),
+                              onPressed: () => setState(() => _fullscreen = true),
+                            ),
                           ),
-                        ),
                       ],
                     )
                   : const Center(child: Icon(Icons.person, size: 96, color: Colors.white54)),
@@ -94,8 +104,15 @@ class _CallScreenState extends State<CallScreen> {
                     FilledButton.icon(icon: const Icon(Icons.call), label: Text(t('answer')), onPressed: calls.accept),
                     OutlinedButton.icon(icon: const Icon(Icons.call_end), label: Text(t('decline')), onPressed: calls.reject),
                   ],
-                  if (c.status == CallStatus.active || c.status == CallStatus.connecting || c.status == CallStatus.ringingOut) ...[
+                  if (live) ...[
                     OutlinedButton.icon(icon: Icon(c.muted ? Icons.mic_off : Icons.mic), label: Text(c.muted ? t('unmute') : t('mute')), onPressed: calls.toggleMute),
+                    OutlinedButton.icon(
+                      icon: Icon(c.video ? Icons.videocam_off : Icons.videocam),
+                      label: Text(c.video ? t('camera_off') : t('camera_on')),
+                      onPressed: () => _toggleCamera(context),
+                    ),
+                    if (c.video && (Platform.isAndroid || Platform.isIOS))
+                      OutlinedButton.icon(icon: const Icon(Icons.cameraswitch), label: Text(t('switch_camera')), onPressed: calls.switchCamera),
                     OutlinedButton.icon(
                       icon: Icon(c.sharing ? Icons.stop_screen_share : Icons.screen_share),
                       label: Text(c.sharing ? t('stop_sharing') : t('share_screen')),
@@ -115,6 +132,55 @@ class _CallScreenState extends State<CallScreen> {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// The remote screen (if shared) or camera fills the stage; with both, the
+/// camera sits in a corner. Our own camera preview is mirrored in the other
+/// corner.
+class _Stage extends StatelessWidget {
+  const _Stage({required this.calls, required this.call});
+
+  final CallController calls;
+  final CallInfo call;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = call;
+    final ready = calls.renderersReady;
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        if (ready && c.remoteSharing)
+          RTCVideoView(calls.remoteScreen, objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitContain)
+        else if (ready && c.remoteVideo)
+          RTCVideoView(calls.remoteCamera, objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitContain)
+        else
+          const Center(child: Icon(Icons.person, size: 96, color: Colors.white54)),
+        if (ready && c.remoteSharing && c.remoteVideo)
+          Positioned(
+            top: 8,
+            left: 8,
+            width: 160,
+            height: 110,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: RTCVideoView(calls.remoteCamera, objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover),
+            ),
+          ),
+        if (ready && c.video)
+          Positioned(
+            bottom: 8,
+            right: 8,
+            width: 120,
+            height: 160,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: RTCVideoView(calls.localCamera, mirror: true, objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover),
+            ),
+          ),
+      ],
     );
   }
 }
