@@ -366,7 +366,9 @@ function Build-Windows {
   New-Item -ItemType Directory -Force $Dist | Out-Null
   $zip = Join-Path $Dist "family-messenger-windows-x64-$version.zip"
   if (Test-Path $zip) { Remove-Item $zip -Force }
-  Compress-Archive -Path (Join-Path $bundle '*') -DestinationPath $zip
+  # ZipFile writes standard entry names; Compress-Archive on PowerShell 5.1 uses backslashes.
+  Add-Type -AssemblyName System.IO.Compression.FileSystem
+  [IO.Compression.ZipFile]::CreateFromDirectory($bundle, $zip, [IO.Compression.CompressionLevel]::Optimal, $false)
   Step "done: $zip ($([math]::Round((Get-Item $zip).Length / 1MB, 1)) MB); unzip anywhere and run family_messenger_e2e.exe"
 }
 

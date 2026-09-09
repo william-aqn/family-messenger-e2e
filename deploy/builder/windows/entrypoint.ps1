@@ -30,5 +30,7 @@ if ($LASTEXITCODE -ne 0) { throw 'flutter build windows failed' }
 New-Item -ItemType Directory -Force "$src\dist" | Out-Null
 $zip = "$src\dist\family-messenger-windows-x64-$version.zip"
 if (Test-Path $zip) { Remove-Item $zip -Force }
-Compress-Archive -Path "$work\build\windows\x64\runner\Release\*" -DestinationPath $zip
+# ZipFile writes standard entry names; Compress-Archive on PowerShell 5.1 uses backslashes.
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+[IO.Compression.ZipFile]::CreateFromDirectory("$work\build\windows\x64\runner\Release", $zip, [IO.Compression.CompressionLevel]::Optimal, $false)
 Write-Host "==> done: $zip"
