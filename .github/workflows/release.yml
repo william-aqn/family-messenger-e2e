@@ -1,0 +1,184 @@
+name: release
+# Builds every distributable on GitHub-hosted runners (no local toolchains
+# needed): server binaries, the Android APK/App Bundle, the Windows, Linux and
+# macOS desktop apps and an unsigned iOS build. Runs on version tags (v1.2.3)
+# and on demand; tag builds are attached to a GitHub Release.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  FLUTTER_VERSION: 3.47.2
+
+jobs:
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: cd web && npm ci --no-audit --no-fund && npm run build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-dist
+          path: web/dist
+
+  server:
+    needs: web
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/download-artifact@v4
+        with:
+          name: web-dist
+          path: internal/webui/dist
+      - name: Cross-compile the server
+        run: |
+          set -eu
+          mkdir -p dist
+          for target in linux/amd64 linux/arm64 windows/amd64 darwin/amd64 darwin/arm64; do
+            os=${target%/*}; arch=${target#*/}; ext=""
+            [ "$os" = windows ] && ext=.exe
+            CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -trimpath \
+              -ldflags "-s -w -X github.com/william-aqn/family-messenger-e2e/internal/api.Version=${GITHUB_REF_NAME}" \
+              -o "dist/server-$os-$arch$ext" ./cmd/server
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: server
+          path: dist
+
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+      - name: Build APK and App Bundle (debug-signed; add a keystore for Play)
+        working-directory: app
+        run: |
+          flutter pub get
+          flutter build apk --release
+          flutter build appbundle --release
+          mkdir -p "$GITHUB_WORKSPACE/dist"
+          cp build/app/outputs/flutter-apk/app-release.apk "$GITHUB_WORKSPACE/dist/family-messenger-${GITHUB_REF_NAME}.apk"
+          cp build/app/outputs/bundle/release/app-release.aab "$GITHUB_WORKSPACE/dist/family-messenger-${GITHUB_REF_NAME}.aab"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android
+          path: dist
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+      - name: Build Windows desktop app
+        working-directory: app
+        shell: pwsh
+        run: |
+          flutter pub get
+          flutter build windows --release
+          New-Item -ItemType Directory -Force "$env:GITHUB_WORKSPACE\dist" | Out-Null
+          Compress-Archive -Path build\windows\x64\runner\Release\* -DestinationPath "$env:GITHUB_WORKSPACE\dist\family-messenger-windows-x64-$env:GITHUB_REF_NAME.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: dist
+
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libsecret-1-dev
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+      - name: Build Linux desktop app
+        working-directory: app
+        run: |
+          flutter pub get
+          flutter build linux --release
+          mkdir -p "$GITHUB_WORKSPACE/dist"
+          tar -C build/linux/x64/release -czf "$GITHUB_WORKSPACE/dist/family-messenger-linux-x64-${GITHUB_REF_NAME}.tar.gz" bundle
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: dist
+
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+      - name: Build macOS app (unsigned)
+        working-directory: app
+        run: |
+          flutter pub get
+          flutter build macos --release
+          mkdir -p "$GITHUB_WORKSPACE/dist"
+          ditto -c -k --keepParent "build/macos/Build/Products/Release/Family Messenger.app" "$GITHUB_WORKSPACE/dist/family-messenger-macos-${GITHUB_REF_NAME}.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: dist
+
+  # Best effort: an unsigned .app for re-signing/sideloading. A failure here
+  # does not block the release.
+  ios:
+    runs-on: macos-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+      - name: Build iOS app (no code signing)
+        working-directory: app
+        run: |
+          flutter pub get
+          flutter build ios --release --no-codesign
+          mkdir -p "$GITHUB_WORKSPACE/dist"
+          ditto -c -k --keepParent build/ios/iphoneos/Runner.app "$GITHUB_WORKSPACE/dist/family-messenger-ios-unsigned-${GITHUB_REF_NAME}.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios
+          path: dist
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [server, android, windows, linux, macos, ios]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true

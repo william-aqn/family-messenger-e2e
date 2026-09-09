@@ -170,7 +170,7 @@ database yet).
 
 A Docker image with Go, Node, Flutter, the Android SDK/NDK and the Linux
 desktop toolchain builds every artifact without installing anything on the
-host (Windows and macOS/iOS binaries still need their native toolchains):
+host (for Windows and macOS/iOS binaries see the next section):
 
 ```bash
 docker compose -f deploy/builder/docker-compose.yml build              # once, the image is large
@@ -187,6 +187,35 @@ and npm caches persist in named volumes, so the first APK build takes
 several minutes and later ones are fast. The host checkout is left untouched
 (builds run on staging copies inside the container).
 
+### Windows desktop binary
+
+Flutter's Windows build needs MSVC, which does not exist for Linux, so the
+Linux builder above cannot produce it. Two options:
+
+1. **GitHub Actions** (`.github/workflows/release.yml`): pushing a tag such as
+   `v0.1.0` (or running the workflow manually from the Actions tab) builds the
+   Windows zip, the Linux and macOS desktop bundles, the APK/App Bundle, an
+   unsigned iOS app and the server binaries, and attaches them to a GitHub
+   Release. Nothing needs to be installed locally.
+2. **Windows container** (`deploy/builder/windows/`): a Windows Server Core
+   image with Visual Studio Build Tools 2022 and the Flutter SDK. It needs a
+   Windows 10/11 Pro or Enterprise host with the Windows features *Hyper-V*
+   and *Containers* enabled and Docker Desktop (all-users install) switched to
+   Windows containers, so it cannot run on a Linux CI box.
+
+   ```powershell
+   & "C:\Program Files\Docker\Docker\DockerCli.exe" -SwitchWindowsEngine   # once; -SwitchLinuxEngine to go back
+   powershell -ExecutionPolicy Bypass -File deploy\builder\windows\build.ps1
+   ```
+
+   The first run builds the image (about 10 GB, 30-60 minutes; later runs
+   reuse it, add `-SkipImageBuild` to skip the check entirely) and writes
+   `dist/family-messenger-windows-x64-<version>.zip`. The script also works
+   without switching when Docker Desktop exposes a running Windows engine
+   next to the Linux one, and explains what is missing otherwise.
+
+The macOS and iOS apps still need a Mac (or the GitHub Actions workflow).
+
 ## Layout
 
 ```
@@ -197,7 +226,9 @@ web/              Vite + Preact client (crypto in web/src/crypto, translations i
 app/              Flutter client for Android, iOS, Windows, Linux, macOS (crypto in app/lib/crypto)
 protocol/         PROTOCOL.md and shared test vectors
 docs/             BOTS.md (Bot API)
-deploy/           docker-compose.yml, Caddyfile, .env.example
+deploy/           docker-compose.yml, Caddyfile, .env.example, install.sh (one-line installer)
+deploy/builder/   Linux builder image (server, web, APK, Linux desktop) and windows/ (Flutter Windows build)
+.github/          ci.yml (tests), publish.yml (server image to GHCR), release.yml (all client binaries)
 ```
 
 ## Roadmap
