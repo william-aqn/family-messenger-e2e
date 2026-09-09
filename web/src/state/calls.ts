@@ -225,6 +225,11 @@ export function handleCallSignal(sender: string, senderDevice: string, convId: s
     case 'call.hangup':
       if (current?.id === payload.call) endCall(current.status === 'ringing-in' ? 'missed' : 'ended', false);
       break;
+    case 'call.share':
+      // Explicit start/stop of the peer's screen share: the track's mute/unmute
+      // events are only a fallback, browsers do not fire them reliably.
+      if (current?.id === payload.call) update({ remoteSharing: payload.on });
+      break;
   }
 }
 
@@ -290,18 +295,22 @@ export async function startScreenShare(): Promise<void> {
     await ensureVideoSender(pc).replaceTrack(track);
     track.onended = () => void stopScreenShare();
     update({ sharing: true });
+    void sendSignal(current.convId, { t: 'call.share', call: current.id, on: true });
   } catch (e) {
     if (!(e instanceof DOMException && e.name === 'NotAllowedError')) showToast(t('screen_share_failed'));
   }
 }
 
 export async function stopScreenShare(): Promise<void> {
+  const current = call.value;
+  const wasSharing = screenTrack !== null || !!current?.sharing;
   if (screenTrack) {
     screenTrack.stop();
     screenTrack = null;
   }
   if (videoSender && pc) await videoSender.replaceTrack(null).catch(() => {});
   update({ sharing: false });
+  if (wasSharing && current && current.status !== 'ended') void sendSignal(current.convId, { t: 'call.share', call: current.id, on: false });
 }
 
 function clearRing(): void {

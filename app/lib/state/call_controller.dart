@@ -23,6 +23,8 @@ class CallInfo {
   CallStatus status;
   bool muted = false;
   bool sharing = false;
+  // Set from the peer's call.share signal (track mute events are unreliable).
+  bool remoteSharing = false;
   String? endReason;
   DateTime? startedAt;
 }
@@ -46,7 +48,7 @@ class CallController extends ChangeNotifier {
   Timer? _ringTimer;
   Timer? _endTimer;
 
-  bool get remoteVideo => _rendererReady && remoteRenderer.videoWidth > 0;
+  bool get remoteVideo => _rendererReady && (call?.remoteSharing ?? false);
 
   Future<void> _ensureRenderer() async {
     if (_rendererReady) return;
@@ -197,6 +199,11 @@ class CallController extends ChangeNotifier {
         if (current?.id == callId) _end(payload['reason'] == 'busy' ? 'busy' : 'declined');
       case 'call.hangup':
         if (current?.id == callId) _end(current!.status == CallStatus.ringingIn ? 'missed' : 'ended');
+      case 'call.share':
+        if (current?.id == callId) {
+          current!.remoteSharing = payload['on'] == true;
+          notifyListeners();
+        }
     }
   }
 
@@ -288,6 +295,7 @@ class CallController extends ChangeNotifier {
       track.onEnded = () => stopScreenShare();
       current.sharing = true;
       notifyListeners();
+      await _signal(current.convId, {'t': 'call.share', 'call': current.id, 'on': true});
     } catch (e) {
       debugPrint('screen share failed: $e');
     }
@@ -295,6 +303,7 @@ class CallController extends ChangeNotifier {
 
   Future<void> stopScreenShare() async {
     final current = call;
+    final wasSharing = _screen != null || (current?.sharing ?? false);
     if (_screen != null) {
       for (final t in _screen!.getTracks()) {
         await t.stop();
@@ -308,6 +317,9 @@ class CallController extends ChangeNotifier {
     if (Platform.isAndroid && FlutterBackground.isBackgroundExecutionEnabled) await FlutterBackground.disableBackgroundExecution();
     current?.sharing = false;
     notifyListeners();
+    if (wasSharing && current != null && current.status != CallStatus.ended) {
+      await _signal(current.convId, {'t': 'call.share', 'call': current.id, 'on': false});
+    }
   }
 
   void _end(String reason) {

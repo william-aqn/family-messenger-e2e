@@ -136,6 +136,8 @@ export const en = {
   unmute: '🔇 Unmute',
   share_screen: '🖥 Share screen',
   stop_sharing: '🛑 Stop sharing',
+  fullscreen: '⛶ Full screen',
+  exit_fullscreen: '⛶ Exit full screen',
   hang_up: 'Hang up',
   already_in_call: 'You are already in a call',
   screen_share_unavailable: 'Screen sharing is not available in this browser',

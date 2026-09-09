@@ -150,7 +150,8 @@ export type Payload =
   | { t: 'call.answer'; call: string; sdp: string }
   | { t: 'call.ice'; call: string; candidates: RTCIceCandidateInit[] }
   | { t: 'call.reject'; call: string; reason: string }
-  | { t: 'call.hangup'; call: string };
+  | { t: 'call.hangup'; call: string }
+  | { t: 'call.share'; call: string; on: boolean };
 
 // Bots
 export interface BotView {

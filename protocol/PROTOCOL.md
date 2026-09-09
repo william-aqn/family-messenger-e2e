@@ -178,6 +178,7 @@ UTF-8 JSON objects with a `t` field. Public keys are standard base64.
 | `call.ice` | `call`, `candidates[]` = `{candidate, sdpMid, sdpMLineIndex}` | EPHEMERAL |
 | `call.reject` | `call`, `reason` (`declined`/`busy`/`timeout`) | EPHEMERAL + URGENT |
 | `call.hangup` | `call` | EPHEMERAL + URGENT |
+| `call.share` | `call`, `on` (bool) | EPHEMERAL; the sender started (`true`) or stopped (`false`) sharing its screen on the video track. Receivers hide the remote video on `false` instead of relying on track mute events |
 
 Every membership event carries the complete roster, so a device that joins
 later or syncs from scratch reconstructs membership from the latest event

@@ -127,6 +127,8 @@ export const ru: Partial<Dict> = {
   unmute: '🔇 Микрофон вкл',
   share_screen: '🖥 Показать экран',
   stop_sharing: '🛑 Остановить показ',
+  fullscreen: '⛶ Во весь экран',
+  exit_fullscreen: '⛶ Выйти из полного экрана',
   hang_up: 'Завершить',
   already_in_call: 'Вы уже в звонке',
   screen_share_unavailable: 'Демонстрация экрана недоступна в этом браузере',

@@ -5,8 +5,15 @@ import '../i18n/strings.dart';
 import '../main.dart';
 import '../state/call_controller.dart';
 
-class CallScreen extends StatelessWidget {
+class CallScreen extends StatefulWidget {
   const CallScreen({super.key});
+
+  @override
+  State<CallScreen> createState() => _CallScreenState();
+}
+
+class _CallScreenState extends State<CallScreen> {
+  bool _fullscreen = false;
 
   @override
   Widget build(BuildContext context) {
@@ -27,6 +34,30 @@ class CallScreen extends StatelessWidget {
       case CallStatus.ended:
         status = '${t('call_ended')}${c.endReason != null && c.endReason != 'ended' ? ' (${c.endReason})' : ''}';
     }
+    final video = calls.remoteVideo;
+    if (_fullscreen && video) {
+      // Only the shared screen, edge to edge, with a way back.
+      return Material(
+        color: Colors.black,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            GestureDetector(onDoubleTap: () => setState(() => _fullscreen = false), child: RTCVideoView(calls.remoteRenderer, objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitContain)),
+            Positioned(
+              top: 8,
+              right: 8,
+              child: SafeArea(
+                child: IconButton.filledTonal(
+                  icon: const Icon(Icons.fullscreen_exit),
+                  tooltip: t('exit_fullscreen'),
+                  onPressed: () => setState(() => _fullscreen = false),
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
     return Material(
       color: Colors.black.withValues(alpha: 0.92),
       child: SafeArea(
@@ -34,8 +65,22 @@ class CallScreen extends StatelessWidget {
           children: [
             Padding(padding: const EdgeInsets.all(16), child: Text(status, style: const TextStyle(color: Colors.white, fontSize: 18))),
             Expanded(
-              child: calls.remoteVideo
-                  ? RTCVideoView(calls.remoteRenderer, objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitContain)
+              child: video
+                  ? Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        GestureDetector(onDoubleTap: () => setState(() => _fullscreen = true), child: RTCVideoView(calls.remoteRenderer, objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitContain)),
+                        Positioned(
+                          top: 8,
+                          right: 8,
+                          child: IconButton.filledTonal(
+                            icon: const Icon(Icons.fullscreen),
+                            tooltip: t('fullscreen'),
+                            onPressed: () => setState(() => _fullscreen = true),
+                          ),
+                        ),
+                      ],
+                    )
                   : const Center(child: Icon(Icons.person, size: 96, color: Colors.white54)),
             ),
             Padding(

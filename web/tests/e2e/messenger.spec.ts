@@ -71,10 +71,18 @@ test('voice call with screen sharing', async ({ browser }) => {
 
   await alicePage.getByRole('button', { name: 'Share screen' }).click();
   await expect(alicePage.getByRole('button', { name: 'Stop sharing' })).toBeVisible({ timeout: 15_000 });
-  await expect(bobPage.locator('.call video:not(.hidden)')).toBeVisible({ timeout: 20_000 });
+  await expect(bobPage.locator('.call-screen:not(.hidden) video')).toBeVisible({ timeout: 20_000 });
   await expect
     .poll(async () => bobPage.locator('.call video').evaluate((v) => (v as HTMLVideoElement).videoWidth), { timeout: 20_000 })
     .toBeGreaterThan(0);
+
+  // The viewer can go full screen; stopping the share hides it and leaves full screen.
+  await bobPage.getByRole('button', { name: 'Full screen' }).click();
+  await expect.poll(() => bobPage.evaluate(() => document.fullscreenElement?.classList.contains('call-screen') ?? false)).toBe(true);
+  await alicePage.getByRole('button', { name: 'Stop sharing' }).click();
+  await expect(bobPage.locator('.call-screen')).toBeHidden({ timeout: 10_000 });
+  await expect.poll(() => bobPage.evaluate(() => document.fullscreenElement === null)).toBe(true);
+  await expect(alicePage.getByRole('button', { name: 'Share screen' })).toBeVisible();
 
   await bobPage.getByRole('button', { name: 'Hang up' }).click();
   await expect(alicePage.locator('.call-status', { hasText: 'Call ended' })).toBeVisible({ timeout: 10_000 });
