@@ -1,4 +1,9 @@
+import 'dart:async';
+import 'dart:io' show Platform;
+
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'state/app_state.dart';
 import 'ui/call_screen.dart';
@@ -13,6 +18,10 @@ const String appVersion = String.fromEnvironment('APP_VERSION', defaultValue: 'd
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
+  if (!kIsWeb && Platform.isWindows) {
+    // The Windows runner puts the build number into the window title.
+    unawaited(const MethodChannel('family_messenger/window').invokeMethod<void>('setTitle', 'Family Messenger $appVersion').catchError((Object _) {}));
+  }
   app.init();
   runApp(const FamilyMessengerApp());
 }
