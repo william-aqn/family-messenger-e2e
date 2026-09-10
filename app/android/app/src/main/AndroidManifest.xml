@@ -37,9 +37,10 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
-        <!-- flutter_background keeps a foreground service alive while the screen is shared. -->
+        <!-- Screen sharing runs inside this foreground service: Android 14+ allows
+             screen capture only with a running service of type mediaProjection. -->
         <service
-            android:name="de.julianassmann.flutter_background.IsolateHolderService"
+            android:name=".ScreenShareService"
             android:foregroundServiceType="mediaProjection"
             android:exported="false" />
         <meta-data

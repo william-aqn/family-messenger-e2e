@@ -43,6 +43,16 @@ class _CallScreenState extends State<CallScreen> {
     _showNotice(detail == null ? t(err) : '${t(err)}: $detail');
   }
 
+  Future<void> _toggleShare() async {
+    final calls = app.calls;
+    if (calls.call?.sharing ?? false) {
+      await calls.stopScreenShare();
+      return;
+    }
+    final err = await calls.startScreenShare();
+    if (err != null && mounted) _showNotice('${t('voice_share_failed')}: $err');
+  }
+
   @override
   Widget build(BuildContext context) {
     // The app inserts this screen as a const widget, so it has to follow the
@@ -148,7 +158,7 @@ class _CallScreenState extends State<CallScreen> {
                     OutlinedButton.icon(
                       icon: Icon(c.sharing ? Icons.stop_screen_share : Icons.screen_share),
                       label: Text(c.sharing ? t('stop_sharing') : t('share_screen')),
-                      onPressed: c.status == CallStatus.active ? (c.sharing ? calls.stopScreenShare : calls.startScreenShare) : null,
+                      onPressed: c.status == CallStatus.active ? _toggleShare : null,
                     ),
                     FilledButton.icon(
                       style: FilledButton.styleFrom(backgroundColor: Colors.red),

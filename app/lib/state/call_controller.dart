@@ -6,7 +6,7 @@ import 'dart:async';
 import 'dart:io' show Platform;
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter_background/flutter_background.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 
 import '../crypto/envelope.dart';
@@ -15,25 +15,37 @@ import 'app_state.dart';
 
 enum CallStatus { ringingOut, ringingIn, connecting, active, ended }
 
-/// Android needs a foreground service of type mediaProjection before the
-/// system allows screen capture (flutter_background provides it). Shared by
-/// 1:1 calls and group voice channels.
-Future<bool> enableScreenCaptureService() async {
-  if (!Platform.isAndroid) return true;
-  const config = FlutterBackgroundAndroidConfig(
-    notificationTitle: 'Screen sharing',
-    notificationText: 'Family Messenger is sharing your screen',
-    notificationImportance: AndroidNotificationImportance.normal,
-    notificationIcon: AndroidResource(name: 'ic_launcher', defType: 'mipmap'),
-  );
-  final ok = await FlutterBackground.initialize(androidConfig: config);
-  if (!ok) return false;
-  if (!FlutterBackground.isBackgroundExecutionEnabled) return FlutterBackground.enableBackgroundExecution();
-  return true;
+/// The app's own foreground service of type mediaProjection (Android; see
+/// ScreenShareService.kt). Shared by 1:1 calls and group voice channels.
+const MethodChannel _screenShareService = MethodChannel('family_messenger/screen_share');
+
+/// Opens the screen for capture. Android 14+ dictates the order: the user's
+/// consent first, then the foreground service (starting it before the
+/// consent throws a SecurityException and used to crash the app), then the
+/// capture itself, which reuses the consent. Other platforms go straight to
+/// getDisplayMedia.
+Future<MediaStream> captureScreen() async {
+  if (Platform.isAndroid) {
+    // The whole screen, like on the desktop; sharing a single app would only show this messenger.
+    if (!await Helper.requestCapturePermission(fullScreenOnly: true)) throw StateError('screen capture was not allowed');
+    await _screenShareService.invokeMethod<void>('start', {'title': 'Screen sharing', 'text': 'Family Messenger is sharing your screen'});
+  }
+  try {
+    return await navigator.mediaDevices.getDisplayMedia(await displayMediaConstraints());
+  } catch (e) {
+    await disableScreenCaptureService();
+    rethrow;
+  }
 }
 
+/// Stops the foreground service once sharing ends (no-op elsewhere).
 Future<void> disableScreenCaptureService() async {
-  if (Platform.isAndroid && FlutterBackground.isBackgroundExecutionEnabled) await FlutterBackground.disableBackgroundExecution();
+  if (!Platform.isAndroid) return;
+  try {
+    await _screenShareService.invokeMethod<void>('stop');
+  } catch (e) {
+    debugPrint('screen share service stop failed: $e');
+  }
 }
 
 /// Constraints for capturing the screen. Desktop platforms need an explicit
@@ -524,12 +536,12 @@ class CallController extends ChangeNotifier {
     if (track != null) await Helper.switchCamera(track);
   }
 
-  Future<void> startScreenShare() async {
+  /// Shares the screen with the peer. Returns the error text on failure.
+  Future<String?> startScreenShare() async {
     final current = call;
-    if (current == null || _pc == null || current.sharing) return;
+    if (current == null || _pc == null || current.sharing) return null;
     try {
-      if (!await enableScreenCaptureService()) return;
-      final stream = await navigator.mediaDevices.getDisplayMedia(await displayMediaConstraints());
+      final stream = await captureScreen();
       final track = stream.getVideoTracks().first;
       _screen = stream;
       if (_screenTx != null) await _screenTx!.sender.replaceTrack(track);
@@ -537,8 +549,10 @@ class CallController extends ChangeNotifier {
       current.sharing = true;
       notifyListeners();
       await _signal(current.convId, {'t': 'call.share', 'call': current.id, 'on': true});
+      return null;
     } catch (e) {
       debugPrint('screen share failed: $e');
+      return e.toString();
     }
   }
 

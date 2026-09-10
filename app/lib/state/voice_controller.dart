@@ -229,8 +229,7 @@ class VoiceController extends ChangeNotifier {
     final ch = channel;
     if (ch == null || ch.sharing) return null;
     try {
-      if (!await enableScreenCaptureService()) return 'voice_share_failed';
-      final stream = await navigator.mediaDevices.getDisplayMedia(await displayMediaConstraints());
+      final stream = await captureScreen();
       final track = stream.getVideoTracks().first;
       _screen = stream;
       for (final p in _peers.values) {

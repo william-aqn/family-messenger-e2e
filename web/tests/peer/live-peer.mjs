@@ -62,11 +62,16 @@ try {
   while (Date.now() - started < hold) {
     await page.waitForTimeout(5000);
     const status = (await page.locator('.call-status').textContent())?.trim();
-    const video = page.locator('video.call-main');
-    const size = (await video.count()) ? await video.first().evaluate((v) => `${v.videoWidth}x${v.videoHeight}`) : 'no video';
+    const sizeOf = async (selector) => {
+      const video = page.locator(selector);
+      return (await video.count()) ? await video.first().evaluate((v) => `${v.videoWidth}x${v.videoHeight}`) : 'none';
+    };
+    // With a shared screen the stage shows the screen as call-main and the camera as call-pip.
+    const both = (await page.locator('.call-stage.both').count()) > 0;
+    const size = `${both ? 'screen' : 'camera'} ${await sizeOf('video.call-main')}${both ? ` + camera ${await sizeOf('video.call-pip')}` : ''}`;
     const file = path.join(shots, `browser-call-${++shot}.png`);
     await page.screenshot({ path: file });
-    log(`${status} | remote video ${size} | ${file}`);
+    log(`${status} | remote ${size} | ${file}`);
     if (status?.includes('Call ended')) break;
   }
   if (!(await page.locator('.call-status', { hasText: 'Call ended' }).count())) {
