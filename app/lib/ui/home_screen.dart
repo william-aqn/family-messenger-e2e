@@ -8,6 +8,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../api/models.dart';
@@ -451,7 +452,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // ───── settings sheet ────────────────────────────────────────────────────
+  // ───── settings sheet (A13) ──────────────────────────────────────────────
 
   Future<void> _showSettings(BuildContext context) async {
     final k = app.keys!;
@@ -460,78 +461,159 @@ class _HomeScreenState extends State<HomeScreen> {
     // The sheet's own context dies with the sheet: anything opened after
     // closing it (the update dialog, the password dialog) needs the screen's.
     final BuildContext screen = context;
+    // Same for the confirmation of the copy: the messenger has to outlive the
+    // sheet's own element.
+    final ScaffoldMessengerState messenger = ScaffoldMessenger.of(context);
     await showModalBottomSheet<void>(
       context: context,
-      showDragHandle: true,
+      // The sheet is as tall as A13 draws it, not the default 9/16 of the
+      // screen, which cuts the last button off.
+      isScrollControlled: true,
+      // A13 draws its own 32x4 grip, tighter than the Material handle.
+      shape: RoundedRectangleBorder(
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(fmRadius)),
+        side: BorderSide(color: FmColors.of(context).ringStrong),
+      ),
       builder: (BuildContext context) {
         final ThemeData theme = Theme.of(context);
+        final ColorScheme scheme = theme.colorScheme;
         return SafeArea(
           top: false,
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+            padding: const EdgeInsets.only(bottom: 20),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: <Widget>[
-                Text(t('settings'), style: theme.textTheme.titleLarge),
-                const SizedBox(height: 12),
-                Text(t('safety_number'), style: theme.inputDecorationTheme.labelStyle),
-                const SizedBox(height: 4),
-                // Roboto 13 grouped by four: the style the theme keeps for
-                // safety numbers.
-                SelectableText(fp, style: theme.textTheme.bodySmall),
-                const SizedBox(height: 12),
-                Row(
-                  children: <Widget>[
-                    Text(t('language'), style: theme.textTheme.bodyMedium),
-                    const SizedBox(width: 12),
-                    DropdownButton<String>(
-                      value: L10n.current,
-                      isDense: true,
-                      underline: const SizedBox.shrink(),
-                      borderRadius: BorderRadius.circular(fmRadius),
-                      icon: Icon(LucideIcons.chevronDown, size: 16, color: theme.colorScheme.onSurfaceVariant),
-                      style: theme.textTheme.titleMedium,
-                      items: <DropdownMenuItem<String>>[
-                        for (final String c in L10n.codes) DropdownMenuItem<String>(value: c, child: Text(languageNames[c] ?? c)),
-                      ],
-                      onChanged: (String? v) {
-                        if (v != null) {
-                          app.setLanguage(v);
+                const _SheetHandle(),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
+                  child: Text(t('settings'), style: theme.textTheme.headlineSmall?.copyWith(fontSize: 22)),
+                ),
+                // The safety number with the 44px copy button beside it.
+                _SheetSection(
+                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    spacing: 6,
+                    children: <Widget>[
+                      Text(t('safety_number'), style: theme.inputDecorationTheme.labelStyle),
+                      Row(
+                        spacing: 12,
+                        children: <Widget>[
+                          // Roboto 13 grouped by four: the style the theme
+                          // keeps for safety numbers, in the accent colour.
+                          Expanded(child: SelectableText(fp, style: theme.textTheme.bodySmall?.copyWith(color: scheme.primary))),
+                          IconButton(
+                            icon: const Icon(LucideIcons.copy, size: 20),
+                            color: scheme.primary,
+                            tooltip: t('copy'),
+                            onPressed: () async {
+                              await Clipboard.setData(ClipboardData(text: fp));
+                              messenger
+                                ..clearSnackBars()
+                                ..showSnackBar(SnackBar(content: Text(t('copied'))));
+                            },
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                // The 48px language select; picking one closes the sheet.
+                _SheetSection(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    spacing: 4,
+                    children: <Widget>[
+                      Text(t('language'), style: theme.inputDecorationTheme.labelStyle),
+                      Container(
+                        height: 48,
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(fmRadius),
+                          border: Border.all(color: scheme.outline, width: 2),
+                        ),
+                        child: DropdownButtonHideUnderline(
+                          child: DropdownButton<String>(
+                            value: L10n.current,
+                            isExpanded: true,
+                            // The 48 belongs to the box around it, not to the
+                            // button's own 48-high item.
+                            isDense: true,
+                            style: theme.inputDecorationTheme.hintStyle?.copyWith(color: scheme.primary),
+                            iconSize: 12,
+                            icon: Icon(LucideIcons.chevronDown, size: 12, color: scheme.primary),
+                            dropdownColor: scheme.surfaceContainerHighest,
+                            borderRadius: BorderRadius.circular(fmRadius),
+                            focusColor: Colors.transparent,
+                            items: <DropdownMenuItem<String>>[
+                              for (final String c in L10n.codes) DropdownMenuItem<String>(value: c, child: Text(languageNames[c] ?? c)),
+                            ],
+                            onChanged: (String? v) {
+                              if (v != null) {
+                                app.setLanguage(v);
+                                Navigator.pop(context);
+                              }
+                            },
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                // "<server> · @user" behind a lock.
+                _SheetSection(
+                  child: Row(
+                    spacing: 8,
+                    children: <Widget>[
+                      Icon(LucideIcons.lock, size: 16, color: scheme.outline),
+                      Expanded(
+                        child: Text(
+                          '${app.serverUrl} · @${app.session!.username}',
+                          style: theme.inputDecorationTheme.labelStyle,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    mainAxisSize: MainAxisSize.min,
+                    spacing: 12,
+                    children: <Widget>[
+                      OutlinedButton(
+                        style: _secondaryButton(scheme),
+                        onPressed: () {
                           Navigator.pop(context);
-                        }
-                      },
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                Text('${app.serverUrl} · ${app.session!.username}', style: theme.textTheme.labelSmall),
-                const SizedBox(height: 12),
-                OutlinedButton.icon(
-                  icon: const Icon(LucideIcons.lock, size: 20),
-                  label: Text(t('change_password')),
-                  onPressed: () {
-                    Navigator.pop(context);
-                    _changePassword(screen);
-                  },
-                ),
-                const SizedBox(height: 8),
-                OutlinedButton.icon(
-                  icon: const Icon(LucideIcons.refreshCw, size: 20),
-                  label: Text(t('check_updates')),
-                  onPressed: () {
-                    Navigator.pop(context);
-                    _checkUpdates(screen);
-                  },
-                ),
-                const SizedBox(height: 8),
-                OutlinedButton.icon(
-                  icon: const Icon(LucideIcons.logOut, size: 20),
-                  label: Text(t('sign_out')),
-                  onPressed: () {
-                    Navigator.pop(context);
-                    app.logout();
-                  },
+                          _changePassword(screen);
+                        },
+                        child: _iconLabel(LucideIcons.lock, t('change_password')),
+                      ),
+                      OutlinedButton(
+                        style: _secondaryButton(scheme),
+                        onPressed: () {
+                          Navigator.pop(context);
+                          _checkUpdates(screen);
+                        },
+                        child: _iconLabel(LucideIcons.refreshCw, t('check_updates')),
+                      ),
+                      // Destructive outline, and no confirmation: A13.
+                      OutlinedButton(
+                        style: _dangerButton(scheme),
+                        onPressed: () {
+                          Navigator.pop(context);
+                          app.logout();
+                        },
+                        child: _iconLabel(LucideIcons.logOut, t('sign_out')),
+                      ),
+                    ],
+                  ),
                 ),
               ],
             ),
@@ -543,6 +625,118 @@ class _HomeScreenState extends State<HomeScreen> {
 }
 
 // ───── components ──────────────────────────────────────────────────────────
+
+/// The 32x4 grip A13 opens the settings sheet with.
+class _SheetHandle extends StatelessWidget {
+  const _SheetHandle();
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 10, bottom: 4),
+      child: Center(
+        child: Container(
+          width: 32,
+          height: 4,
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.outline,
+            borderRadius: BorderRadius.circular(2),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// A block of the settings sheet, closed by the hairline that separates it
+/// from the next one.
+class _SheetSection extends StatelessWidget {
+  const _SheetSection({required this.child, this.padding = const EdgeInsets.symmetric(horizontal: 20, vertical: 12)});
+
+  final Widget child;
+  final EdgeInsets padding;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: padding,
+      decoration: BoxDecoration(
+        border: Border(bottom: BorderSide(color: Theme.of(context).colorScheme.outlineVariant)),
+      ),
+      child: child,
+    );
+  }
+}
+
+/// The label of a full-width sheet button: its icon 10px in front of the text.
+Widget _iconLabel(IconData icon, String label) => Row(
+      mainAxisSize: MainAxisSize.min,
+      spacing: 10,
+      children: <Widget>[
+        Icon(icon, size: 20),
+        Flexible(child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis)),
+      ],
+    );
+
+/// Secondary button: 48 high, a 2px border, accent text.
+ButtonStyle _secondaryButton(ColorScheme scheme) => OutlinedButton.styleFrom(
+      foregroundColor: scheme.primary,
+      side: BorderSide(color: scheme.outline, width: 2),
+      minimumSize: const Size(0, 48),
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+    );
+
+/// The destructive variant of it: everything in the danger colour.
+ButtonStyle _dangerButton(ColorScheme scheme) => OutlinedButton.styleFrom(
+      foregroundColor: scheme.error,
+      side: BorderSide(color: scheme.error, width: 2),
+      minimumSize: const Size(0, 48),
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+    );
+
+/// The design system's 4px linear progress: the accent over the chrome-3
+/// track. [value] null while the work has no measurable progress.
+Widget _progressBar(ThemeData theme, double? value) => LinearProgressIndicator(
+      value: value,
+      minHeight: 4,
+      backgroundColor: theme.colorScheme.surfaceContainerHigh,
+      borderRadius: BorderRadius.circular(2),
+    );
+
+/// Alarm banner (A14): the danger wash behind a 2px rail.
+Widget _alertBanner(ThemeData theme, String message) {
+  final ColorScheme scheme = theme.colorScheme;
+  return ClipRRect(
+    borderRadius: const BorderRadius.horizontal(right: Radius.circular(fmRadius)),
+    child: IntrinsicHeight(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          Container(width: 2, color: scheme.error),
+          Expanded(
+            child: Container(
+              color: scheme.errorContainer,
+              padding: const EdgeInsets.fromLTRB(10, 12, 12, 12),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                spacing: 12,
+                children: <Widget>[
+                  Icon(LucideIcons.alertTriangle, size: 20, color: scheme.error),
+                  Expanded(
+                    child: Text(
+                      message,
+                      style: theme.textTheme.bodyMedium?.copyWith(fontSize: 13, height: 1.4, color: scheme.onErrorContainer),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+}
 
 /// The design system's banner: a 2px rail, an icon, the text and the actions
 /// as links. Radius 4 on the right only, the rail stays square.
@@ -851,55 +1045,129 @@ Future<void> _checkUpdates(BuildContext context) async {
     builder: (BuildContext context) => ListenableBuilder(
       listenable: updater,
       builder: (BuildContext context, _) {
+        final ThemeData theme = Theme.of(context);
+        final ColorScheme scheme = theme.colorScheme;
         final ReleaseInfo? latest = updater.latest;
+        final bool available = updater.available != null;
+        // A15 draws exactly one status line under "Installed: v…".
         final String text;
+        Color colour = scheme.onSurface;
         if (updater.checking) {
           text = t('update_checking');
         } else if (updater.error != null) {
           text = t('update_check_failed', <String, Object?>{'error': updater.error});
+          colour = scheme.error;
         } else if (latest == null) {
           text = t('update_no_release');
-        } else if (updater.available != null) {
+        } else if (available) {
           text = t('update_available', <String, Object?>{'version': latest.tag});
+          colour = scheme.primary;
         } else if (!updater.isReleaseBuild) {
           text = '${t('update_dev_build')}\n${t('update_latest', <String, Object?>{'version': latest.tag})}';
         } else {
           text = t('update_none');
         }
+        final Widget status = Text(text, style: theme.textTheme.bodyLarge?.copyWith(color: colour, height: 1.4));
+        final double? progress = updater.progress;
         return AlertDialog(
           title: Text(t('check_updates')),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              Text(t('update_installed', <String, Object?>{'version': appVersion}), style: Theme.of(context).textTheme.bodyMedium),
-              const SizedBox(height: 8),
-              Text(text),
-              if (updater.checking) ...<Widget>[const SizedBox(height: 12), const LinearProgressIndicator()],
-              if (updater.installing) ...<Widget>[
-                const SizedBox(height: 12),
-                Text(t('update_downloading'), style: Theme.of(context).textTheme.bodyMedium),
-                const SizedBox(height: 8),
-                LinearProgressIndicator(value: updater.progress),
+          titleTextStyle: theme.textTheme.headlineSmall?.copyWith(fontSize: 22),
+          titlePadding: const EdgeInsets.fromLTRB(24, 24, 24, 0),
+          contentPadding: const EdgeInsets.fromLTRB(24, 16, 24, 0),
+          actionsPadding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
+          buttonPadding: EdgeInsets.zero,
+          content: SizedBox(
+            width: double.maxFinite,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              spacing: 16,
+              children: <Widget>[
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  spacing: 6,
+                  children: <Widget>[
+                    _installedLine(theme),
+                    if (available)
+                      Row(
+                        spacing: 8,
+                        children: <Widget>[
+                          Icon(LucideIcons.refreshCw, size: 16, color: scheme.primary),
+                          Expanded(child: status),
+                        ],
+                      )
+                    else
+                      status,
+                  ],
+                ),
+                if (updater.checking) _progressBar(theme, null),
+                // While installing the bar carries the percentage the updater
+                // already reports.
+                if (updater.installing)
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    mainAxisSize: MainAxisSize.min,
+                    spacing: 8,
+                    children: <Widget>[
+                      _progressBar(theme, progress),
+                      Text(
+                        progress == null
+                            ? t('update_downloading')
+                            : t('update_downloading_percent', <String, Object?>{'percent': (progress * 100).round()}),
+                        style: theme.textTheme.bodyMedium?.copyWith(fontSize: 13),
+                      ),
+                    ],
+                  ),
               ],
-            ],
+            ),
           ),
           actions: <Widget>[
-            if (latest != null && !updater.checking)
-              TextButton(
-                onPressed: () => updater.openReleasePage(),
-                child: Text(t('update_open_page')),
-              ),
-            if (updater.available != null && !updater.checking && Updater.canSelfInstall && latest?.assetUrl != null)
-              FilledButton(
-                onPressed: updater.installing ? null : () => _installUpdate(context),
-                child: Text(t('update_install')),
-              ),
-            TextButton(onPressed: () => Navigator.pop(context), child: Text(t('cancel'))),
+            Wrap(
+              alignment: WrapAlignment.end,
+              spacing: 12,
+              runSpacing: 12,
+              children: <Widget>[
+                OutlinedButton(
+                  style: _secondaryButton(scheme),
+                  onPressed: () => Navigator.pop(context),
+                  child: Text(t('cancel')),
+                ),
+                if (latest != null && !updater.checking && !updater.installing)
+                  OutlinedButton(
+                    style: _secondaryButton(scheme),
+                    onPressed: () => updater.openReleasePage(),
+                    child: Text(t('update_open_page')),
+                  ),
+                if (available && !updater.checking && !updater.installing && Updater.canSelfInstall && latest?.assetUrl != null)
+                  FilledButton(
+                    onPressed: () => _installUpdate(context),
+                    child: Text(t('update_install')),
+                  ),
+              ],
+            ),
           ],
         );
       },
     ),
+  );
+}
+
+/// "Installed: v0.2.3" — the label muted, the version in the body colour.
+Widget _installedLine(ThemeData theme) {
+  final String line = t('update_installed', <String, Object?>{'version': appVersion});
+  final TextStyle? label = theme.textTheme.bodyLarge?.copyWith(color: theme.colorScheme.onSurfaceVariant);
+  final int at = line.indexOf(appVersion);
+  if (at < 0) return Text(line, style: label);
+  return Text.rich(
+    TextSpan(
+      text: line.substring(0, at),
+      children: <InlineSpan>[
+        TextSpan(text: appVersion, style: TextStyle(color: theme.colorScheme.onSurface)),
+        TextSpan(text: line.substring(at + appVersion.length)),
+      ],
+    ),
+    style: label,
   );
 }
 
@@ -954,74 +1222,137 @@ Future<void> _changePassword(BuildContext context) async {
           }
         }
 
+        final ColorScheme scheme = theme.colorScheme;
+        // 48-high fields, with a field's own problem under it in 13px danger.
+        InputDecoration field(String label, String? errorText, {String? helperText}) => InputDecoration(
+              labelText: label,
+              helperText: helperText,
+              errorText: errorText,
+              constraints: const BoxConstraints(minHeight: 48),
+              errorStyle: theme.inputDecorationTheme.errorStyle?.copyWith(fontSize: 13),
+            );
+
         return AlertDialog(
           title: Text(t('change_password')),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: <Widget>[
-                if (error != null)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 8),
-                    child: Row(
+          titleTextStyle: theme.textTheme.headlineSmall?.copyWith(fontSize: 22),
+          titlePadding: const EdgeInsets.fromLTRB(24, 24, 24, 0),
+          contentPadding: const EdgeInsets.fromLTRB(24, 16, 24, 0),
+          actionsPadding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
+          buttonPadding: EdgeInsets.zero,
+          content: SizedBox(
+            width: double.maxFinite,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                spacing: 16,
+                children: <Widget>[
+                  if (error != null)
+                    Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
+                      spacing: 8,
                       children: <Widget>[
-                        Icon(LucideIcons.alertTriangle, size: 16, color: theme.colorScheme.error),
-                        const SizedBox(width: 8),
-                        Expanded(child: Text(error!, style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.error))),
+                        Icon(LucideIcons.alertTriangle, size: 16, color: scheme.error),
+                        Expanded(child: Text(error!, style: theme.textTheme.bodyMedium?.copyWith(color: scheme.error))),
                       ],
                     ),
+                  TextField(
+                    controller: current,
+                    decoration: field(t('current_password'), currentError),
+                    obscureText: true,
+                    autofocus: true,
+                    enabled: !busy,
                   ),
-                TextField(
-                  controller: current,
-                  decoration: InputDecoration(labelText: t('current_password'), errorText: currentError),
-                  obscureText: true,
-                  autofocus: true,
-                  enabled: !busy,
-                ),
-                const SizedBox(height: 8),
-                TextField(
-                  controller: next,
-                  decoration: InputDecoration(
-                    labelText: t('new_password'),
-                    helperText: t('password_min', <String, Object?>{'n': AppState.minPasswordLength}),
-                    errorText: nextError,
+                  TextField(
+                    controller: next,
+                    decoration: field(
+                      t('new_password'),
+                      nextError,
+                      helperText: t('password_min', <String, Object?>{'n': AppState.minPasswordLength}),
+                    ),
+                    obscureText: true,
+                    enabled: !busy,
                   ),
-                  obscureText: true,
-                  enabled: !busy,
-                ),
-                const SizedBox(height: 8),
-                TextField(
-                  controller: repeat,
-                  decoration: InputDecoration(labelText: t('repeat_password'), errorText: repeatError),
-                  obscureText: true,
-                  enabled: !busy,
-                  onSubmitted: (_) => busy ? null : submit(),
-                ),
-                CheckboxListTile(
-                  value: signOutOthers,
-                  onChanged: busy ? null : (bool? v) => setState(() => signOutOthers = v ?? true),
-                  title: Text(t('sign_out_other_devices'), style: theme.textTheme.bodyLarge),
-                  contentPadding: EdgeInsets.zero,
-                  controlAffinity: ListTileControlAffinity.leading,
-                ),
-                Text(t('password_warning'), style: theme.textTheme.labelSmall?.copyWith(color: theme.colorScheme.tertiary)),
-                if (busy) ...<Widget>[
-                  const SizedBox(height: 12),
-                  ListenableBuilder(
-                    listenable: app,
-                    builder: (BuildContext context, _) => Text(app.busyText ?? '…', style: theme.textTheme.bodyMedium),
+                  TextField(
+                    controller: repeat,
+                    decoration: field(t('repeat_password'), repeatError),
+                    obscureText: true,
+                    enabled: !busy,
+                    onSubmitted: (_) => busy ? null : submit(),
                   ),
-                  const SizedBox(height: 8),
-                  const LinearProgressIndicator(),
+                  // The checkbox row of A14: 22px box, 14px label, 44 tall.
+                  InkWell(
+                    onTap: busy ? null : () => setState(() => signOutOthers = !signOutOthers),
+                    borderRadius: BorderRadius.circular(fmRadius),
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(minHeight: 44),
+                      child: Row(
+                        spacing: 10,
+                        children: <Widget>[
+                          Checkbox(
+                            value: signOutOthers,
+                            onChanged: busy ? null : (bool? v) => setState(() => signOutOthers = v ?? true),
+                            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            // A14 keeps the box outlined once it is ticked;
+                            // Material drops the border in that state.
+                            side: WidgetStateBorderSide.resolveWith(
+                              (Set<WidgetState> s) => BorderSide(
+                                color: s.contains(WidgetState.disabled) ? scheme.outline.withValues(alpha: .4) : scheme.outline,
+                                width: 2,
+                              ),
+                            ),
+                          ),
+                          Expanded(
+                            child: Text(t('sign_out_other_devices'), style: theme.textTheme.bodyMedium?.copyWith(color: scheme.onSurface)),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  _alertBanner(theme, t('password_warning')),
+                  if (busy)
+                    ListenableBuilder(
+                      listenable: app,
+                      builder: (BuildContext context, _) => Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        mainAxisSize: MainAxisSize.min,
+                        spacing: 8,
+                        children: <Widget>[
+                          _progressBar(theme, null),
+                          Text(app.busyText ?? '…', style: theme.textTheme.bodyMedium?.copyWith(fontSize: 13)),
+                        ],
+                      ),
+                    ),
                 ],
-              ],
+              ),
             ),
           ),
           actions: <Widget>[
-            TextButton(onPressed: busy ? null : () => Navigator.pop(context), child: Text(t('cancel'))),
-            FilledButton(onPressed: busy ? null : submit, child: Text(t('change_password'))),
+            Wrap(
+              alignment: WrapAlignment.end,
+              spacing: 12,
+              runSpacing: 12,
+              children: <Widget>[
+                OutlinedButton(
+                  style: _secondaryButton(scheme),
+                  onPressed: busy ? null : () => Navigator.pop(context),
+                  child: Text(t('cancel')),
+                ),
+                // While the key is being derived the button keeps its colour
+                // at .7 instead of going grey.
+                Opacity(
+                  opacity: busy ? .7 : 1,
+                  child: FilledButton(
+                    style: FilledButton.styleFrom(
+                      disabledBackgroundColor: scheme.primary,
+                      disabledForegroundColor: scheme.onPrimary,
+                    ),
+                    onPressed: busy ? null : submit,
+                    child: Text(t('change_password')),
+                  ),
+                ),
+              ],
+            ),
           ],
         );
       },

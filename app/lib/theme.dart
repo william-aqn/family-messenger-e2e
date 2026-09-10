@@ -478,6 +478,12 @@ ThemeData _build(
       fillColor: fieldFill,
       labelStyle: TextStyle(fontFamily: _roboto, fontSize: 14, color: scheme.onSurfaceVariant),
       floatingLabelStyle: TextStyle(fontFamily: _roboto, fontSize: 14, color: focus),
+      // The design draws a caption above a field, never inside its border: no
+      // artboard shows a filled field carrying a label. Material's floating
+      // label would also overflow the field at this size and be clipped by the
+      // scroll view of a dialog, so the label stays a placeholder and vanishes
+      // as soon as there is something to read.
+      floatingLabelBehavior: FloatingLabelBehavior.never,
       // 16 in the field itself: this build is phone-first.
       hintStyle: TextStyle(fontFamily: _roboto, fontSize: 16, color: scheme.onSurfaceVariant),
       helperStyle: TextStyle(fontFamily: _roboto, fontSize: 12, color: scheme.onSurfaceVariant),

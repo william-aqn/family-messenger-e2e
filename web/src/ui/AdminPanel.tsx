@@ -1,3 +1,4 @@
+import type { ComponentChildren } from 'preact';
 import { useEffect, useState } from 'preact/hooks';
 import { http } from '../api/http';
 import type { AdminSettings, AdminStats, AdminUser, InviteView } from '../api/types';
@@ -11,6 +12,15 @@ type Tab = 'overview' | 'users' | 'invites' | 'settings';
 
 function when(ts: number): string {
   return ts ? new Date(ts * 1000).toLocaleString() : '—';
+}
+
+/**
+ * The update hint carries the shell command between backticks in both
+ * dictionaries; the board draws that part monospace, so the string is split on
+ * them instead of being duplicated as a second key.
+ */
+function withCommand(text: string): ComponentChildren[] {
+  return text.split('`').map((part, i) => (i % 2 === 1 ? <span class="cmd">{part}</span> : part));
 }
 
 /**
@@ -80,44 +90,48 @@ function Overview() {
       </div>
     );
   const uptime = `${Math.floor(stats.uptime_seconds / 3600)}h ${Math.floor((stats.uptime_seconds % 3600) / 60)}m`;
-  const cells: [string, string][] = [
-    [t('stat_users'), String(stats.accounts)],
-    [t('stat_bots'), String(stats.bots)],
+  const startedAt = new Date((Date.now() / 1000 - stats.uptime_seconds) * 1000).toLocaleDateString();
+  // Ten tiles, five to a row: the bot count and the device total ride under the
+  // value they belong to instead of taking tiles of their own.
+  const cells: [label: string, value: string, sub?: string][] = [
+    [t('stat_users'), String(stats.accounts), `${t('stat_bots')}: ${stats.bots}`],
     [t('stat_conversations'), String(stats.conversations)],
     [t('stat_messages'), String(stats.messages)],
-    [t('stat_attachments'), `${stats.blobs} · ${formatSize(stats.blob_bytes)}`],
-    [t('stat_online'), `${stats.online_devices} / ${stats.devices}`],
+    [t('stat_attachments'), String(stats.blobs), formatSize(stats.blob_bytes)],
+    [t('stat_online'), String(stats.online_devices), t('stat_of_devices', { n: stats.devices })],
     [t('stat_db'), formatSize(stats.db_bytes)],
-    [t('stat_uptime'), uptime],
+    [t('stat_uptime'), uptime, t('stat_since', { date: startedAt })],
     [t('stat_turn'), stats.turn_enabled ? t('configured') : t('not_configured')],
-    [t('server'), `${stats.version} · ${stats.go_version}`],
+    [t('server'), stats.version, stats.go_version],
     [t('stat_latest'), stats.latest_version ? (stats.latest_version === stats.version ? t('up_to_date') : stats.latest_version) : t('not_checked_yet')],
   ];
   const updateHint = stats.latest_version && stats.latest_version !== stats.version;
   return (
     <>
       {updateHint && (
-        <div class="banner update">
+        <div class="banner server-update">
           <Icon name="refresh" size={20} />
-          <span class="grow">{t('update_server_hint', { version: stats.latest_version })}</span>
+          <span class="grow">{withCommand(t('update_server_hint', { version: stats.latest_version }))}</span>
           <a href={stats.latest_url} target="_blank" rel="noreferrer">
             {t('release_page')}
           </a>
         </div>
       )}
       <div class="stat-grid">
-        {cells.map(([label, value]) => (
+        {cells.map(([label, value, sub]) => (
           <div class="stat" key={label}>
             {label}
             <div class="stat-value">{value}</div>
+            {sub && <div class="stat-sub">{sub}</div>}
           </div>
         ))}
       </div>
-      <div class="row">
-        <button type="button" onClick={() => void backup()}>
-          <Icon name="download" size={20} />
+      <div class="row gap-16">
+        <button type="button" class="primary" onClick={() => void backup()}>
+          <Icon name="download" size={16} />
           {t('download_backup')}
         </button>
+        <span class="note">{t('backup_hint')}</span>
       </div>
     </>
   );
@@ -150,7 +164,7 @@ function Users() {
           void load();
         }}
       >
-        <input class="grow" value={q} onInput={(e) => setQ((e.target as HTMLInputElement).value)} placeholder={t('search_users')} />
+        <input class="search grow" value={q} onInput={(e) => setQ((e.target as HTMLInputElement).value)} placeholder={t('search_users')} aria-label={t('search_users')} />
       </form>
       <div class="table-wrap">
         <table class="admin-table">
@@ -160,48 +174,51 @@ function Users() {
               <th>{t('col_created')}</th>
               <th>{t('col_last_seen')}</th>
               <th>{t('col_devices')}</th>
-              <th />
+              <th>{t('col_actions')}</th>
             </tr>
           </thead>
           <tbody>
             {users.map((u) => (
               <tr key={u.id} class={u.disabled ? 'muted' : ''}>
                 <td>
-                  @{u.username}
-                  {u.is_admin && <span class="tag ok">{t('flag_admin')}</span>}
-                  {u.is_bot && (
-                    <span class="tag bot">
-                      <Icon name="bot" size={12} />
-                      {t('flag_bot')}
-                    </span>
-                  )}
-                  {u.disabled && <span class="tag bad">{t('flag_disabled')}</span>}
-                  {u.online && <span class="tag ok">{t('flag_online')}</span>}
-                  {u.owner_username && <div class="muted small">{t('owner_of', { owner: u.owner_username })}</div>}
+                  <div class="cell">
+                    <div class="cell-name">
+                      @{u.username}
+                      {u.is_admin && <span class="tag accent">{t('flag_admin')}</span>}
+                      {u.online && <span class="tag ok">{t('flag_online')}</span>}
+                      {/* Drawn in --warn; `bad` stays so the e2e suite keeps its selector. */}
+                      {u.disabled && <span class="tag bad warn">{t('flag_disabled')}</span>}
+                      {u.is_bot && (
+                        <span class="tag bot">
+                          <Icon name="bot" size={12} />
+                          {t('flag_bot')}
+                        </span>
+                      )}
+                    </div>
+                    {u.owner_username && <span class="cell-sub">{t('owner_of', { owner: u.owner_username })}</span>}
+                  </div>
                 </td>
-                <td>{when(u.created_at)}</td>
-                <td>{when(u.last_seen)}</td>
-                <td>{u.devices}</td>
-                <td class="row wrap">
+                <td class="muted">{when(u.created_at)}</td>
+                <td class="muted">{when(u.last_seen)}</td>
+                <td class="muted">{u.devices}</td>
+                <td>
                   {u.id !== me.accountId && (
-                    <>
-                      <button type="button" class="small" onClick={() => act(() => http.adminPatchUser(u.id, { disabled: !u.disabled }))}>
+                    <div class="link-row">
+                      <button type="button" class="link" onClick={() => act(() => http.adminPatchUser(u.id, { disabled: !u.disabled }))}>
                         {u.disabled ? t('enable') : t('disable')}
                       </button>
                       {!u.is_bot && (
-                        <button type="button" class="small" onClick={() => act(() => http.adminPatchUser(u.id, { is_admin: !u.is_admin }))}>
+                        <button type="button" class="link" onClick={() => act(() => http.adminPatchUser(u.id, { is_admin: !u.is_admin }))}>
                           {u.is_admin ? t('revoke_admin') : t('make_admin')}
                         </button>
                       )}
-                      <button type="button" class="small" onClick={() => act(() => http.adminLogoutUser(u.id))}>
-                        <Icon name="log-out" size={16} />
+                      <button type="button" class="link" onClick={() => act(() => http.adminLogoutUser(u.id))}>
                         {t('sign_out_everywhere')}
                       </button>
-                      <button type="button" class="small danger" onClick={() => setConfirmDelete(u)}>
-                        <Icon name="trash" size={16} />
+                      <button type="button" class="link danger" onClick={() => setConfirmDelete(u)}>
                         {t('delete')}
                       </button>
-                    </>
+                    </div>
                   )}
                 </td>
               </tr>
@@ -257,7 +274,7 @@ function Invites() {
   };
   return (
     <>
-      <form class="row wrap gap-16" onSubmit={create}>
+      <form class="form-grid invite" onSubmit={create}>
         <label>
           {t('invite_count')}
           <input type="number" min={1} max={100} value={count} onInput={(e) => setCount(Number((e.target as HTMLInputElement).value))} />
@@ -271,31 +288,32 @@ function Invites() {
           <input type="number" min={0} value={hours} onInput={(e) => setHours(Number((e.target as HTMLInputElement).value))} />
         </label>
         <button type="submit" class="primary">
-          <Icon name="plus" size={20} />
           {t('create_invites')}
         </button>
       </form>
       {codes.length > 0 && (
         <div class="creds">
-          <div class="muted small">{t('new_codes')}</div>
-          {codes.map((c) => (
-            <div class="row" key={c}>
-              <code class="fp grow">{c}</code>
-              <button
-                type="button"
-                class="small"
-                onClick={() =>
-                  navigator.clipboard
-                    .writeText(c)
-                    .then(() => showToast(t('copied')))
-                    .catch(() => {})
-                }
-              >
-                <Icon name="copy" size={16} />
-                {t('copy')}
-              </button>
-            </div>
-          ))}
+          <span class="block-title">{t('new_codes')}</span>
+          <div class="code-chips">
+            {codes.map((c) => (
+              <span class="code-chip" key={c}>
+                <code>{c}</code>
+                <button
+                  type="button"
+                  class="icon-btn"
+                  title={t('copy')}
+                  onClick={() =>
+                    navigator.clipboard
+                      .writeText(c)
+                      .then(() => showToast(t('copied')))
+                      .catch(() => {})
+                  }
+                >
+                  <Icon name="copy" size={16} />
+                </button>
+              </span>
+            ))}
+          </div>
         </div>
       )}
       <div class="table-wrap">
@@ -313,11 +331,11 @@ function Invites() {
             {invites.map((i) => (
               <tr key={i.code}>
                 <td>
-                  <code class="fp small">{i.code}</code>
+                  <code class="fp">{i.code}</code>
                 </td>
-                <td>{i.note}</td>
-                <td>{i.used_by ? `@${i.used_by}` : t('unused')}</td>
-                <td>{i.expires_at ? when(i.expires_at) : t('never')}</td>
+                <td class={i.note ? '' : 'muted'}>{i.note || '—'}</td>
+                <td class={i.used_by ? '' : 'muted'}>{i.used_by ? `@${i.used_by}` : t('unused')}</td>
+                <td class="muted">{i.expires_at ? when(i.expires_at) : t('never')}</td>
                 <td>
                   {!i.used_by && (
                     <button
@@ -379,37 +397,50 @@ function SettingsTab() {
       })
       .catch((err) => setError(describeError(err)));
   };
+  const modes: [AdminSettings['registration'], string][] = [
+    ['open', t('reg_open')],
+    ['invite', t('reg_invite')],
+    ['closed', t('reg_closed')],
+  ];
   return (
     <form class="section" onSubmit={save}>
-      <label>
-        {t('registration_mode')}
-        <select value={s.registration} onChange={(e) => setS({ ...s, registration: (e.target as HTMLSelectElement).value as AdminSettings['registration'] })}>
-          <option value="open">{t('reg_open')}</option>
-          <option value="invite">{t('reg_invite')}</option>
-          <option value="closed">{t('reg_closed')}</option>
-        </select>
-      </label>
+      {/* Three toggle buttons instead of a select: the group keeps the label's
+          accessible name, every button stays reachable on its own. */}
+      <div class="section tight">
+        <span class="field-label" id="registration-mode">
+          {t('registration_mode')}
+        </span>
+        <div class="toggle-row" role="group" aria-labelledby="registration-mode">
+          {modes.map(([mode, label]) => (
+            <button key={mode} type="button" class={s.registration === mode ? 'soft' : ''} aria-pressed={s.registration === mode} onClick={() => setS({ ...s, registration: mode })}>
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
       <label>
         {t('announcement')}
-        <textarea value={s.announcement} rows={2} onInput={(e) => setS({ ...s, announcement: (e.target as HTMLTextAreaElement).value })} />
+        <textarea class="tall" value={s.announcement} rows={3} onInput={(e) => setS({ ...s, announcement: (e.target as HTMLTextAreaElement).value })} />
       </label>
-      <label>
-        {t('max_attachment_mb')}
-        <input type="number" min={0} value={Math.round(s.max_attachment_bytes / 1048576)} onInput={(e) => setS({ ...s, max_attachment_bytes: Number((e.target as HTMLInputElement).value) * 1048576 })} />
-      </label>
-      <label>
-        {t('retention_days')}
-        <input type="number" min={0} max={3650} value={s.retention_days} onInput={(e) => setS({ ...s, retention_days: Number((e.target as HTMLInputElement).value) })} />
-      </label>
-      <label>
-        {t('max_group_members')}
-        <input type="number" min={2} max={100} value={s.max_group_members} onInput={(e) => setS({ ...s, max_group_members: Number((e.target as HTMLInputElement).value) })} />
-      </label>
-      <label class="check">
+      <div class="form-grid thirds">
+        <label>
+          {t('max_attachment_mb')}
+          <input type="number" min={0} value={Math.round(s.max_attachment_bytes / 1048576)} onInput={(e) => setS({ ...s, max_attachment_bytes: Number((e.target as HTMLInputElement).value) * 1048576 })} />
+        </label>
+        <label>
+          {t('retention_days')}
+          <input type="number" min={0} max={3650} value={s.retention_days} onInput={(e) => setS({ ...s, retention_days: Number((e.target as HTMLInputElement).value) })} />
+        </label>
+        <label>
+          {t('max_group_members')}
+          <input type="number" min={2} max={100} value={s.max_group_members} onInput={(e) => setS({ ...s, max_group_members: Number((e.target as HTMLInputElement).value) })} />
+        </label>
+      </div>
+      <label class="check large">
         <input type="checkbox" checked={s.allow_bots} onChange={(e) => setS({ ...s, allow_bots: (e.target as HTMLInputElement).checked })} />
         {t('allow_bots')}
       </label>
-      <label class="check">
+      <label class="check large">
         <input type="checkbox" checked={s.user_directory} onChange={(e) => setS({ ...s, user_directory: (e.target as HTMLInputElement).checked })} />
         {t('user_directory')}
       </label>
@@ -419,9 +450,12 @@ function SettingsTab() {
           {error}
         </div>
       )}
-      <button type="submit" class="primary">
-        {t('save')}
-      </button>
+      {/* In a row so the button keeps the board's natural width, not the column's. */}
+      <div class="row">
+        <button type="submit" class="primary">
+          {t('save')}
+        </button>
+      </div>
     </form>
   );
 }
@@ -438,11 +472,9 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
     <div class="modal-backdrop" onClick={onClose}>
       <div class="card modal wide" onClick={(e) => e.stopPropagation()}>
         <div class="modal-head">
-          <h2>
-            <Icon name="settings" size={24} class="inline" /> {t('admin_panel')}
-          </h2>
-          <button type="button" class="icon-btn" title={t('back')} onClick={onClose}>
-            <Icon name="arrow-left" size={20} />
+          <h2>{t('admin_panel')}</h2>
+          <button type="button" class="icon-btn" title={t('close')} onClick={onClose}>
+            <Icon name="x" size={20} />
           </button>
         </div>
         <div class="tabs">

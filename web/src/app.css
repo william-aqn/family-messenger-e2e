@@ -3090,3 +3090,545 @@ input[type='file'].hidden-input {
 .app:has(> .banner.update) .announcement {
   bottom: 60px;
 }
+
+/* =============================================================================
+   SCREEN LAYERS — SECOND PASS
+   The screens the first iteration restyled with the kit but never matched to an
+   artboard: the web Settings modal (W11), My bots (W12) and the Admin panel
+   (W13 Overview, W14 Users, W15 Invites + server Settings).
+
+   Everything here is read off those five boards. Where a kit rule turned out to
+   be wrong for them it is overridden in this block, with the reason written
+   down — nothing above this comment was edited.
+   ========================================================================== */
+
+/* -----------------------------------------------------------------------------
+   30. Vocabulary shared by W11-W15
+   The boards use a handful of shapes over and over: a Roboto label above a
+   control that is not a <label>, a 16/500 block heading, a 13px note, a block
+   separated by a rule, a stretched button pair, a cluster of links and the
+   three form grids.
+   -------------------------------------------------------------------------- */
+
+/* The label above a control the markup cannot wrap in a <label> — the safety
+   number, the device list, the notification row. Roboto 14 --muted, i.e. the
+   same ink as a real label. Replaces `class="muted small"`, which forces 12px. */
+.field-label {
+  font-family: var(--font-form);
+  font-size: 14px;
+  color: var(--muted);
+}
+
+/* The heading of a block inside a modal: "Сменить пароль", "Учётные данные
+   бота @name", "Новые коды", "Создать бота". Futura 16/500 on --text. */
+.block-title {
+  font-weight: 500;
+  font-size: 16px;
+  line-height: 1.2;
+  color: var(--text);
+}
+
+/* The 13px explanation beside or under a control ("Полный дамп SQLite и
+   вложений", "Боты отключены на этом сервере."). Futura, unlike .hint. */
+.note {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--muted);
+}
+
+/* The paragraph at the top of a wide modal — W12's explanation of what a bot
+   is: 14/1.5 muted, never wider than 640. */
+.intro {
+  margin: 0;
+  max-width: 640px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+/* A block the board separates from what is above it with a 1px rule: the
+   change-password form and the footer of W11, the create form of W12. The rule
+   is an inset shadow, so it costs no layout, and the gap grows to 12. */
+.ruled {
+  gap: 12px;
+  padding-top: 16px;
+  box-shadow: inset 0 1px 0 var(--divider);
+}
+
+/* A tighter .section — label over a single row (the safety number, W11). */
+.section.tight {
+  gap: 6px;
+}
+
+/* Two buttons sharing a row at equal width: "Мои боты" / "Админ-панель". */
+.btn-row {
+  display: flex;
+  gap: 12px;
+}
+
+.btn-row > button {
+  flex: 1;
+  min-width: 0;
+}
+
+/* A cluster of text actions at the right end of a row (bot rows, table cells).
+   Futura 14; the boards wrap it rather than let it push the row wider. */
+.link-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 16px;
+  flex: none;
+  font-size: 14px;
+}
+
+/* The three form grids the boards draw. Fields keep their own labels, so the
+   grid only sets the tracks; .invite bottom-aligns because its last cell is a
+   button standing beside labelled fields. */
+.form-grid {
+  display: grid;
+  gap: 16px;
+  align-items: start;
+}
+
+.form-grid.bots {
+  grid-template-columns: 1fr 1fr 1.4fr;
+}
+
+.form-grid.invite {
+  grid-template-columns: 120px 1fr 220px auto;
+  align-items: end;
+}
+
+.form-grid.thirds {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+/* A 32px icon button that carries the field's own frame — the copy button
+   beside the safety number (W11). The kit's .icon-btn is borderless and 40
+   (44 on touch); this one is drawn as a small secondary control, so it keeps
+   its size on every pointer. */
+.icon-btn.boxed {
+  width: 32px;
+  height: 32px;
+  border: 2px solid var(--border);
+  color: var(--accent);
+}
+
+.icon-btn.boxed:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: transparent;
+  color: var(--accent);
+}
+
+/* Every board draws the modal's close glyph in accent, not in --text. */
+.modal-head .icon-btn {
+  color: var(--accent);
+}
+
+/* The boards space a checkbox 10 from its label; the server-settings rows of
+   W15 also raise it to 16px. */
+label.check {
+  gap: 10px;
+}
+
+label.check.large {
+  font-size: 16px;
+}
+
+/* "это устройство" (W11): a tag on --faint rather than a status colour. */
+.tag.faint {
+  background: var(--faint);
+  color: var(--text);
+}
+
+/* "админ" (W14) is the accent tag. */
+.tag.accent {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+/* A disabled account (W14) is drawn in --warn, but the e2e suite selects the
+   row's tag as `.tag.bad`. Writing `class="tag bad warn"` alone would not do
+   it: .tag.bad is declared after .tag.warn in the kit and wins at equal
+   specificity. This pair restores the drawn colour without touching either. */
+.tag.bad.warn {
+  background: var(--warn);
+  color: var(--on-warn);
+}
+
+/* The shell command inside the server-update banner (W13). */
+.cmd {
+  font-family: ui-monospace, Consolas, 'Courier New', monospace;
+  font-size: 13px;
+  color: var(--accent);
+}
+
+/* -----------------------------------------------------------------------------
+   31. Settings modal — W11
+   A 420 modal: the account row, the safety number, the language select, the
+   device list, notifications, the two panel buttons, the change-password block
+   and the footer.
+   -------------------------------------------------------------------------- */
+
+/* "● @olga" under the title: the presence dot and the name at 16/500. */
+.settings-account {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 500;
+  font-size: 16px;
+  color: var(--text);
+}
+
+/* The safety number and its copy button. */
+.fp-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* Inside the row the number takes the free width; the button keeps its 32. */
+.fp-row .fp {
+  flex: 1;
+  min-width: 0;
+}
+
+/* The device rows are 8px tall inside their divider, and the name is 16px —
+   the kit list is 10/14 because it was written from the prose table. */
+.devices li {
+  padding: 8px 0;
+  font-size: 16px;
+}
+
+/* -----------------------------------------------------------------------------
+   32. My bots — W12
+   A 900 modal: the intro, the one-time credentials, the bot list and the
+   create form.
+   -------------------------------------------------------------------------- */
+
+/* The credentials block is a soft-accent panel with an accent rail — the same
+   shape as a .live banner, not the kit's --bg-3 card. W15's "Новые коды" block
+   is the same component, so both boards are satisfied here. */
+.creds {
+  gap: 12px;
+  padding: 16px;
+  border-radius: 0 var(--radius) var(--radius) 0;
+  background: var(--accent-soft);
+  box-shadow: -2px 0 0 var(--accent);
+}
+
+/* "Показываются один раз. Сохраните их сейчас." — inside this block the hint
+   is Futura 13 accent, not Roboto 12 muted. */
+.creds .hint {
+  font-family: var(--font-ui);
+  font-size: 13px;
+  color: var(--accent);
+}
+
+/* Any secret shown here is Roboto 13 accent on one line; a long token is
+   ellipsised rather than wrapped, because it is copied by button. */
+.creds code {
+  min-width: 0;
+  font-family: var(--font-form);
+  font-size: 13px;
+  letter-spacing: .02em;
+  color: var(--accent);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  word-break: normal;
+}
+
+/* One credential: label, value, "Копировать". */
+.cred-row {
+  display: grid;
+  grid-template-columns: 120px 1fr auto;
+  align-items: center;
+  gap: 12px;
+}
+
+/* A row of the bot list: the name line over the webhook line, the actions at
+   the right edge, a divider under every row but the last. */
+.bot-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 0;
+  box-shadow: inset 0 -1px 0 var(--divider);
+}
+
+.bot-row:last-child {
+  box-shadow: none;
+}
+
+.bot-row .grow {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* "@pogodabot · Погода" — the display name keeps weight 400. */
+.bot-name {
+  font-weight: 500;
+  font-size: 16px;
+  color: var(--text);
+}
+
+.bot-name .muted {
+  font-weight: 400;
+}
+
+/* "URL вебхука: …" — Roboto 13 muted, ellipsised. */
+.bot-hook {
+  font-family: var(--font-form);
+  font-size: 13px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* -----------------------------------------------------------------------------
+   33. Admin panel, Overview — W13
+   The update banner, the five-across stat tiles and the backup row. The tabs
+   above them are the kit's .tabs, unchanged.
+   -------------------------------------------------------------------------- */
+
+/* The server-update banner sits on --bg with an accent rail — it is inside a
+   --bg-2 modal, so the kit's .update (chrome) would float off the card. */
+.banner.server-update,
+.notice.server-update {
+  background: var(--bg);
+  box-shadow: -2px 0 0 var(--accent);
+  color: var(--text);
+}
+
+.banner.server-update .icon,
+.notice.server-update .icon {
+  color: var(--accent);
+}
+
+/* Ten tiles, five to a row. The kit's auto-fill grid was a guess; the board
+   fixes the count. */
+.stat-grid {
+  grid-template-columns: repeat(5, 1fr);
+}
+
+/* A tile: --bg with the inner .15 ring (--divider is that same half-tone),
+   padding 14 16, a Roboto 12 label over a 24/500 accent value. */
+.stat {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  padding: 14px 16px;
+  background: var(--bg);
+  box-shadow: 0 0 0 1px var(--divider);
+  font-family: var(--font-form);
+  font-size: 12px;
+}
+
+.stat-value {
+  font-family: var(--font-ui);
+  font-weight: 500;
+  font-size: 24px;
+  color: var(--accent);
+  overflow-wrap: anywhere;
+}
+
+/* The caption under the value ("из 12 устройств", a date, a size). */
+.stat-sub {
+  font-family: var(--font-ui);
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* -----------------------------------------------------------------------------
+   34. Admin panel, Users — W14
+   -------------------------------------------------------------------------- */
+
+/* The search field never spans the modal. */
+input.search {
+  max-width: 320px;
+}
+
+/* The table is a framed panel on --bg: the .15 ring, radius 4, a --bg-3 head
+   and Roboto 13 rows. The kit drew it unframed at 14px. border-spacing is
+   zeroed so the head can round its own top corners inside the ring. */
+.admin-table {
+  border-collapse: separate;
+  border-spacing: 0;
+  border-radius: var(--radius);
+  background: var(--bg);
+  box-shadow: 0 0 0 1px var(--divider);
+  font-size: 13px;
+}
+
+.admin-table th {
+  padding: 12px 16px;
+}
+
+.admin-table th:first-child {
+  border-top-left-radius: var(--radius);
+}
+
+.admin-table th:last-child {
+  border-top-right-radius: var(--radius);
+}
+
+.admin-table td {
+  padding: 10px 16px;
+}
+
+/* The last row closes the panel; its divider would double the ring. */
+.admin-table tbody tr:last-child td {
+  box-shadow: none;
+}
+
+/* An invite code inside a table is accent, like the chips it was issued in. */
+.admin-table .fp {
+  color: var(--accent);
+}
+
+/* The identity cell: the name line over an optional 12px sub-line. */
+.admin-table .cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+/* "@pogodabot" plus its tags — Futura 16/500 among the Roboto 13 columns. */
+.cell-name {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-family: var(--font-ui);
+  font-weight: 500;
+  font-size: 16px;
+  color: var(--text);
+}
+
+/* "владелец: @olga" under a bot's name. */
+.cell-sub {
+  font-family: var(--font-ui);
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* The actions column is a link cluster; it sits tighter than a bot row. */
+.admin-table .link-row {
+  gap: 4px 12px;
+}
+
+/* -----------------------------------------------------------------------------
+   35. Admin panel, Invites and server Settings — W15
+   -------------------------------------------------------------------------- */
+
+/* The freshly issued codes inside the .creds block. */
+.code-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+/* One code: 32 high on --bg, the code then the copy glyph. */
+.code-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  height: 32px;
+  padding: 0 8px 0 12px;
+  border-radius: var(--radius);
+  background: var(--bg);
+}
+
+.code-chip code {
+  letter-spacing: .04em;
+  overflow: visible;
+}
+
+/* The chip's copy button is the glyph itself, at the chip's own scale. */
+.code-chip .icon-btn {
+  width: 20px;
+  height: 20px;
+  color: var(--accent);
+}
+
+.code-chip .icon-btn:hover:not(:disabled) {
+  background: transparent;
+  color: var(--accent-hover);
+}
+
+/* "Регистрация": three 44 buttons, the active one soft with an accent border
+   (button.soft from the kit). */
+.toggle-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* The announcement box. */
+textarea.tall {
+  min-height: 88px;
+  padding: 12px;
+  line-height: 1.5;
+  color: var(--text);
+}
+
+/* -----------------------------------------------------------------------------
+   36. The wide modals on a narrow screen
+   The 900 boards are drawn for the desktop; below 720 the modal is already
+   full width, so the grids collapse and the tables scroll in .table-wrap.
+   -------------------------------------------------------------------------- */
+
+@media (max-width: 720px) {
+  .form-grid,
+  .form-grid.bots,
+  .form-grid.invite,
+  .form-grid.thirds {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .stat-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .cred-row {
+    grid-template-columns: 1fr auto;
+  }
+
+  /* The label rides above the value instead of taking a 120 column. */
+  .cred-row > .field-label {
+    grid-column: 1 / -1;
+  }
+
+  .bot-row {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .btn-row {
+    flex-wrap: wrap;
+  }
+
+  input.search {
+    max-width: none;
+  }
+}
+
+/* A caption in a flex row keeps its own width. `.grow` is `flex: 1 1 0%`, so a
+   caption carrying it is sized from the leftover space alone; when that is less
+   than the text, the label has no clipping box and paints over what follows —
+   W11's "Notifications" over its own note. Basis from the content, and no
+   shrinking below it. */
+.row > .field-label {
+  flex-basis: auto;
+  flex-shrink: 0;
+  min-width: max-content;
+}

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'preact/hooks';
 import { http } from '../api/http';
 import type { DeviceView } from '../api/types';
+import { wsClient } from '../api/ws';
 import { fingerprint } from '../crypto/fingerprint';
 import { describeError, lang, languages, setLang, t } from '../i18n';
 import { serverSettings, serverVersion, session, showToast } from '../state/model';
@@ -8,6 +9,17 @@ import { authBusy, changePassword, keys, logout, MIN_PASSWORD_LENGTH } from '../
 import { AdminPanel } from './AdminPanel';
 import { BotsDialog } from './BotsDialog';
 import { Icon } from './Icons';
+
+/**
+ * The smallest copy helper: BotsDialog has one, but it is a whole <CopyField>
+ * row local to that file, and this board draws a bare icon button.
+ */
+function copyToClipboard(value: string) {
+  navigator.clipboard
+    .writeText(value)
+    .then(() => showToast(t('copied')))
+    .catch(() => {});
+}
 
 export function Settings({ onClose }: { onClose: () => void }) {
   const me = session.value!;
@@ -53,19 +65,35 @@ export function Settings({ onClose }: { onClose: () => void }) {
   if (sub === 'bots') return <BotsDialog onClose={() => setSub(null)} onDone={onClose} />;
   if (sub === 'admin') return <AdminPanel onClose={() => setSub(null)} />;
 
+  const fp = fingerprint(k.signPub, k.encPub);
+  const status = wsClient.status.value;
+
   return (
     <div class="modal-backdrop" onClick={onClose}>
       <div class="card modal" onClick={(e) => e.stopPropagation()}>
         <div class="modal-head">
-          <h2>@{me.username}</h2>
+          <h2>{t('settings')}</h2>
           <button type="button" class="icon-btn" title={t('close')} onClick={onClose}>
             <Icon name="x" size={20} />
           </button>
         </div>
-        <div class="section">
-          <div class="muted small">{t('your_safety_number')}</div>
-          <code class="fp">{fingerprint(k.signPub, k.encPub)}</code>
+
+        <div class="settings-account">
+          <span class={`dot ${status}`} title={status} />
+          <span>@{me.username}</span>
         </div>
+
+        <div class="section tight">
+          <span class="field-label">{t('your_safety_number')}</span>
+          <div class="fp-row">
+            <code class="fp">{fp}</code>
+            <button type="button" class="icon-btn boxed" title={t('copy')} onClick={() => copyToClipboard(fp)}>
+              <Icon name="copy" size={16} />
+            </button>
+          </div>
+        </div>
+
+        {/* Stays the first <select> of the modal — the e2e suite picks it that way. */}
         <label>
           {t('language')}
           <select value={lang.value} onChange={(e) => setLang((e.target as HTMLSelectElement).value)}>
@@ -76,16 +104,16 @@ export function Settings({ onClose }: { onClose: () => void }) {
             ))}
           </select>
         </label>
+
         <div class="section">
-          <div class="muted small">{t('devices')}</div>
+          <span class="field-label">{t('devices')}</span>
           <ul class="devices">
             {devices.map((d) => (
               <li key={d.id}>
-                <span>
-                  {d.name}
-                  {d.current && <span class="tag ok">{t('this_device')}</span>}
-                </span>
-                {!d.current && (
+                <span class="grow ellipsis">{d.name}</span>
+                {d.current ? (
+                  <span class="tag faint">{t('this_device')}</span>
+                ) : (
                   <button
                     type="button"
                     class="link danger"
@@ -103,34 +131,40 @@ export function Settings({ onClose }: { onClose: () => void }) {
             ))}
           </ul>
         </div>
-        <div class="section">
-          <div class="muted small">{t('notifications')}</div>
+
+        <div class="row wrap">
+          <span class="field-label grow">{t('notifications')}</span>
           {notifications === 'granted' ? (
             <span class="tags">
               <span class="tag ok">{t('enabled')}</span>
             </span>
           ) : (
-            <button type="button" onClick={() => Notification.requestPermission().then(setNotifications)} disabled={notifications === 'denied'}>
-              {notifications === 'denied' ? t('notifications_blocked') : t('enable_notifications')}
-            </button>
+            <>
+              {notifications === 'denied' && <span class="note">{t('notifications_blocked')}</span>}
+              <button type="button" class="small" onClick={() => Notification.requestPermission().then(setNotifications)} disabled={notifications === 'denied'}>
+                {t('enable_notifications')}
+              </button>
+            </>
           )}
         </div>
-        <div class="row wrap">
+
+        <div class="btn-row">
           {(serverSettings.value?.allow_bots ?? true) && (
             <button type="button" onClick={() => setSub('bots')}>
-              <Icon name="bot" size={20} />
+              <Icon name="bot" size={16} />
               {t('my_bots')}
             </button>
           )}
           {me.isAdmin && (
             <button type="button" onClick={() => setSub('admin')}>
-              <Icon name="settings" size={20} />
+              <Icon name="settings" size={16} />
               {t('admin_panel')}
             </button>
           )}
         </div>
-        <form class="section" onSubmit={submitPassword}>
-          <div class="muted small">{t('change_password')}</div>
+
+        <form class="section ruled" onSubmit={submitPassword}>
+          <span class="block-title">{t('change_password')}</span>
           <label>
             <span>{t('current_password')}</span>
             <input
@@ -166,7 +200,10 @@ export function Settings({ onClose }: { onClose: () => void }) {
             <input type="checkbox" checked={signOutOthers} onChange={(e) => setSignOutOthers((e.target as HTMLInputElement).checked)} />
             {t('sign_out_other_devices')}
           </label>
-          <p class="hint">{t('password_warning')}</p>
+          <div class="banner alert">
+            <Icon name="alert" size={20} />
+            <span class="grow">{t('password_warning')}</span>
+          </div>
           <button type="submit" class={authBusy.value ? 'primary busy' : 'primary'} disabled={!current || !next || !repeat || !!authBusy.value}>
             {authBusy.value ? (
               <>
@@ -177,20 +214,23 @@ export function Settings({ onClose }: { onClose: () => void }) {
               t('change_password')
             )}
           </button>
+          {error && (
+            <div class="error">
+              <Icon name="alert" size={16} />
+              {error}
+            </div>
+          )}
         </form>
-        {error && (
-          <div class="error">
-            <Icon name="alert" size={16} />
-            {error}
-          </div>
-        )}
-        <div class="row between">
-          <span class="muted small">
+
+        <div class="row ruled">
+          <span class="muted small grow">
             {t('server')} {serverVersion.value}
           </span>
           <button type="button" class="danger" onClick={() => void logout()}>
-            <Icon name="log-out" size={20} />
             {t('sign_out')}
+          </button>
+          <button type="button" onClick={onClose}>
+            {t('close')}
           </button>
         </div>
       </div>

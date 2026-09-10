@@ -21,7 +21,8 @@ test('admin panel: invites, registration mode and announcement', async ({ browse
   expect(code).toMatch(/^[a-z0-9]{16}$/);
 
   await adminPage.getByRole('button', { name: 'Settings', exact: true }).last().click();
-  await adminPage.getByLabel('Registration').selectOption('invite');
+  // Registration is three toggle buttons inside a group labelled "Registration".
+  await adminPage.getByLabel('Registration').getByRole('button', { name: 'by invite', exact: true }).click();
   await adminPage.getByLabel('Announcement', { exact: false }).fill('Maintenance tonight');
   await adminPage.getByRole('button', { name: 'Save' }).click();
   await expect(adminPage.locator('.toast', { hasText: 'Settings saved' })).toBeVisible();
@@ -70,7 +71,7 @@ test('admin panel: invites, registration mode and announcement', async ({ browse
     await expect(adminPage.locator('.admin-table tr', { hasText: invited }).locator('.tag.bad')).toBeVisible();
   } finally {
     await adminPage.getByRole('button', { name: 'Settings', exact: true }).last().click();
-    await adminPage.getByLabel('Registration').selectOption('open');
+    await adminPage.getByLabel('Registration').getByRole('button', { name: 'open', exact: true }).click();
     await adminPage.getByLabel('Announcement', { exact: false }).fill('');
     await adminPage.getByRole('button', { name: 'Save' }).click();
     await expect(adminPage.locator('.toast', { hasText: 'Settings saved' })).toBeVisible();
@@ -126,7 +127,8 @@ test('language switch to Russian persists', async ({ browser }) => {
   await page.getByTitle('Settings').click();
   await page.locator('.modal select').first().selectOption('ru');
   await expect(page.getByRole('button', { name: 'Выйти', exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Закрыть' }).click();
+  // The modal has two ways out: the x in its head and the footer button.
+  await page.locator('.modal').getByRole('button', { name: 'Закрыть' }).last().click();
   await expect(page.getByText('Пока нет чатов')).toBeVisible();
   await page.reload();
   await expect(page.getByText('Пока нет чатов')).toBeVisible();
