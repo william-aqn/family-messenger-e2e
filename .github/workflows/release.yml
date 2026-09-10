@@ -104,7 +104,7 @@ jobs:
       # Command-line tools with the licences accepted; Gradle then downloads
       # the platform, build-tools and NDK the app asks for (a few GB, kept
       # on a self-hosted runner between runs).
-      - uses: android-actions/setup-android@v3
+      - uses: android-actions/setup-android@v4
         with:
           packages: 'platform-tools'
       - uses: subosito/flutter-action@v2
@@ -163,6 +163,13 @@ jobs:
           if [ -n "$missing" ]; then
             echo "installing:$missing"
             sudo -n apt-get update && sudo -n apt-get install -y $missing
+          fi
+      - name: Toolchain sanity check (a Debian host also needs the libstdc++ headers)
+        run: |
+          printf 'int main() { return 0; }\n' > "$RUNNER_TEMP/probe.cc"
+          if ! clang++ "$RUNNER_TEMP/probe.cc" -o "$RUNNER_TEMP/probe"; then
+            echo "::error::clang++ cannot build a C++ program on this runner; on Debian/Ubuntu install libstdc++-<N>-dev matching the g++ version (e.g. libstdc++-12-dev)"
+            exit 1
           fi
       - uses: subosito/flutter-action@v2
         with:
