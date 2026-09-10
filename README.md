@@ -223,16 +223,16 @@ and register it in `web/src/i18n/index.ts` (mobile strings live in
 Nothing runs on push. The single workflow `.github/workflows/release.yml` is
 started by hand from the *Actions* tab with a version such as `v0.2.0` and
 two boxes, *pre-release* and *run tests*. It builds the server for
-linux/amd64, linux/arm64, windows/amd64, darwin/amd64 and darwin/arm64 with
-the web client embedded, the Windows, Linux and macOS desktop apps, the
-Android APK and App Bundle and an unsigned iOS app; then it writes
-`sha256sums.txt`, creates the tag on the chosen commit and publishes a GitHub
-Release. With *run tests* ticked the Go, web unit, browser and Flutter tests
-run in parallel with the builds and a failure blocks the release. That
+linux/amd64, linux/arm64 and windows/amd64 with the web client embedded, the
+Windows and Linux desktop apps and the Android APK and App Bundle; then it
+writes `sha256sums.txt`, creates the tag on the chosen commit and publishes a
+GitHub Release. With *run tests* ticked the Go, web unit, browser and Flutter
+tests run in parallel with the builds and a failure blocks the release. That
 release is what the installer's *release* flavour and the app's updater
-download, so the version string is what users see as their build number. The
-Linux jobs and the tests run on the repository's self-hosted runner (label
-`self-hosted`), the other platforms on GitHub-hosted machines. No Docker
+download, so the version string is what users see as their build number.
+Everything but the Windows app runs on the repository's self-hosted Linux
+runner (label `self-hosted`); the Windows app is built on a GitHub-hosted
+Windows machine. macOS and iOS are not built: they need a Mac. No Docker
 image is published: the Docker flavour builds it on the server.
 
 Every build carries its version: `--dart-define=APP_VERSION` for the app,
@@ -330,10 +330,10 @@ Linux builder above cannot produce it. Three options:
    executable is unsigned, so SmartScreen shows its warning on first start.
 2. **GitHub Actions** (`.github/workflows/release.yml`): started by hand from
    the Actions tab with a version such as `v0.2.0`; it builds the Windows zip,
-   the Linux and macOS desktop bundles, the APK/App Bundle, an unsigned iOS
-   app and the server binaries, writes `sha256sums.txt`, creates the tag and
-   attaches everything to a GitHub Release (see *Releases* above). Nothing
-   needs to be installed locally.
+   the Linux desktop bundle, the APK/App Bundle and the server binaries,
+   writes `sha256sums.txt`, creates the tag and attaches everything to a
+   GitHub Release (see *Releases* above). Nothing needs to be installed
+   locally.
 3. **Windows container** (`deploy/builder/windows/`): a Windows Server Core
    image with Visual Studio Build Tools 2022 and the Flutter SDK. It needs a
    Windows 10/11 Pro or Enterprise host with the Windows features *Hyper-V*
@@ -351,7 +351,8 @@ Linux builder above cannot produce it. Three options:
    without switching when Docker Desktop exposes a running Windows engine
    next to the Linux one, and explains what is missing otherwise.
 
-The macOS and iOS apps still need a Mac (or the GitHub Actions workflow).
+The macOS and iOS apps are not part of the release: they need a Mac
+(`flutter build macos` / `flutter build ios` there).
 
 ## Layout
 

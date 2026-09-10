@@ -4,8 +4,8 @@ name: release
 # (the tag is created on the chosen commit). Start it from the Actions tab
 # with the version, e.g. v0.2.0; that string becomes the tag and the build
 # number shown by the clients and the server. The tests run only when the
-# "run tests" box is ticked. The Linux jobs and the tests run on the
-# self-hosted runner, the other platforms on GitHub-hosted machines.
+# "run tests" box is ticked. Everything but the Windows app runs on the
+# self-hosted Linux runner; the Windows app needs a Windows machine.
 on:
   workflow_dispatch:
     inputs:
@@ -146,7 +146,7 @@ jobs:
         run: |
           set -eu
           mkdir -p dist
-          for target in linux/amd64 linux/arm64 windows/amd64 darwin/amd64 darwin/arm64; do
+          for target in linux/amd64 linux/arm64 windows/amd64; do
             os=${target%/*}; arch=${target#*/}; ext=""
             [ "$os" = windows ] && ext=.exe
             CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -trimpath \
@@ -304,53 +304,11 @@ jobs:
           name: bin-linux
           path: dist
 
-  macos:
-    runs-on: macos-latest
-    timeout-minutes: 60
-    steps:
-      - uses: actions/checkout@v4
-      - uses: subosito/flutter-action@v2
-        with:
-          flutter-version: ${{ env.FLUTTER_VERSION }}
-          cache: true
-      - name: Build macOS app (unsigned)
-        working-directory: app
-        run: |
-          flutter pub get
-          flutter build macos --release --dart-define=APP_VERSION=${APP_VERSION}
-          mkdir -p "$GITHUB_WORKSPACE/dist"
-          ditto -c -k --keepParent "build/macos/Build/Products/Release/Family Messenger.app" "$GITHUB_WORKSPACE/dist/family-messenger-macos-${APP_VERSION}.zip"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: bin-macos
-          path: dist
-
-  # Best effort: an unsigned .app for re-signing/sideloading. A failure here
-  # does not block the release.
-  ios:
-    runs-on: macos-latest
-    continue-on-error: true
-    timeout-minutes: 60
-    steps:
-      - uses: actions/checkout@v4
-      - uses: subosito/flutter-action@v2
-        with:
-          flutter-version: ${{ env.FLUTTER_VERSION }}
-          cache: true
-      - name: Build iOS app (no code signing)
-        working-directory: app
-        run: |
-          flutter pub get
-          flutter build ios --release --no-codesign --dart-define=APP_VERSION=${APP_VERSION}
-          mkdir -p "$GITHUB_WORKSPACE/dist"
-          ditto -c -k --keepParent build/ios/iphoneos/Runner.app "$GITHUB_WORKSPACE/dist/family-messenger-ios-unsigned-${APP_VERSION}.zip"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: bin-ios
-          path: dist
+  # No macOS or iOS builds: they need a Mac, and the unsigned bundles a
+  # GitHub-hosted macOS machine could produce are of little use.
 
   release:
-    needs: [test, server, android, windows, linux, macos, ios]
+    needs: [test, server, android, windows, linux]
     # After successful builds and passed tests (or none requested) only.
     if: ${{ !cancelled() && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
     runs-on: self-hosted
