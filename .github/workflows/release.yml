@@ -25,7 +25,31 @@ env:
   APP_VERSION: ${{ inputs.version }}
 
 jobs:
+  # Fast, readable diagnostics for the self-hosted runner: the setup actions
+  # only print obscure errors when the host lacks a tool or a library.
+  check-runner:
+    runs-on: self-hosted
+    steps:
+      - name: Runner facts
+        run: |
+          . /etc/os-release 2>/dev/null && echo "os: $PRETTY_NAME" || true
+          echo "arch: $(uname -m)  user: $(id -un)  cpus: $(nproc)  mem: $(awk '/MemTotal/ {print int($2/1024)}' /proc/meminfo) MB  free disk: $(df -h "$RUNNER_TEMP" | awk 'NR==2 {print $4}')"
+          echo "sudo: $(sudo -n true 2>/dev/null && echo passwordless || echo 'not available without a password')"
+      - name: Required tools
+        run: |
+          missing=""
+          for t in git curl tar gzip xz unzip zip sha256sum; do
+            command -v "$t" >/dev/null 2>&1 || missing="$missing $t"
+          done
+          (ldconfig -p 2>/dev/null || /sbin/ldconfig -p 2>/dev/null) | grep -q 'libatomic.so.1' || missing="$missing libatomic.so.1(node)"
+          if [ -n "$missing" ]; then
+            echo "::error::missing on the runner:$missing. Debian/Ubuntu: apt-get install -y git curl ca-certificates xz-utils unzip zip libatomic1"
+            exit 1
+          fi
+          echo "all required tools are present"
+
   web:
+    needs: check-runner
     runs-on: self-hosted
     steps:
       - uses: actions/checkout@v4
@@ -69,13 +93,20 @@ jobs:
           path: dist
 
   android:
+    needs: check-runner
     runs-on: self-hosted
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
+      # Command-line tools with the licences accepted; Gradle then downloads
+      # the platform, build-tools and NDK the app asks for (a few GB, kept
+      # on a self-hosted runner between runs).
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools'
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
@@ -119,10 +150,20 @@ jobs:
           path: dist
 
   linux:
+    needs: check-runner
     runs-on: self-hosted
     steps:
       - uses: actions/checkout@v4
-      - run: sudo apt-get update && sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libsecret-1-dev
+      - name: Linux desktop build dependencies (a self-hosted runner has them installed once)
+        run: |
+          missing=""
+          for p in clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libsecret-1-dev; do
+            dpkg -s "$p" >/dev/null 2>&1 || missing="$missing $p"
+          done
+          if [ -n "$missing" ]; then
+            echo "installing:$missing"
+            sudo -n apt-get update && sudo -n apt-get install -y $missing
+          fi
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
