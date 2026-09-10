@@ -45,3 +45,5 @@ app/.idea/
 internal/webui/dist/*
 !internal/webui/dist/.keep
 app/test-results/
+docs/
+!docs/BOTS.md
