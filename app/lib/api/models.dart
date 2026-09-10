@@ -107,6 +107,8 @@ class MessageView {
     required this.env,
     required this.sig,
     required this.serverTs,
+    this.deletedSeq,
+    this.deletedSender,
   });
 
   factory MessageView.fromJson(Map<String, dynamic> j) => MessageView(
@@ -115,9 +117,11 @@ class MessageView {
         senderAccount: j['sender_account'] as String,
         senderDevice: j['sender_device'] as String,
         clientMsgId: j['client_msg_id'] as String,
-        env: j['env'] as String,
-        sig: j['sig'] as String,
+        env: (j['env'] as String?) ?? '',
+        sig: (j['sig'] as String?) ?? '',
         serverTs: ((j['server_ts'] as num?) ?? 0).toInt(),
+        deletedSeq: (j['deleted_seq'] as num?)?.toInt(),
+        deletedSender: j['deleted_sender'] as String?,
       );
 
   final String convId;
@@ -128,6 +132,13 @@ class MessageView {
   final String env;
   final String sig;
   final int serverTs;
+
+  /// Set on a deletion record (PROTOCOL.md §6.3): the message at that
+  /// sequence number was removed by [senderAccount].
+  final int? deletedSeq;
+  final String? deletedSender;
+
+  bool get isDeletion => (deletedSeq ?? 0) > 0;
 }
 
 class UserView {

@@ -52,6 +52,9 @@ export interface MessageView {
   env: string;
   sig: string;
   server_ts: number;
+  /** Set on a deletion record (PROTOCOL.md §6.3): the message at that seq was removed by sender_account. */
+  deleted_seq?: number;
+  deleted_sender?: string;
 }
 
 export interface UserView {
@@ -150,6 +153,8 @@ export interface FilePayload {
 
 export type Payload =
   | { t: 'text'; body: string; reply?: string }
+  // Rewrites the sender's own earlier text message `ref` (PROTOCOL.md §6.3).
+  | { t: 'text.edit'; ref: string; body: string }
   | FilePayload
   | { t: 'conv.create'; kind: 'direct' | 'group'; name?: string; members: MemberInfo[] }
   | { t: 'member.add'; member: MemberInfo; members: MemberInfo[] }

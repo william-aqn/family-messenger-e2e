@@ -107,6 +107,12 @@ const Map<String, String> _en = {
   'error': 'Error',
   'sending': 'sending…',
   'chat_settings': 'Chat settings',
+  'edit': 'Edit',
+  'edited': 'edited',
+  'editing_message': 'Editing message',
+  'delete': 'Delete',
+  'copy': 'Copy',
+  'confirm_delete_message': 'Delete this message for everyone?',
 };
 
 const Map<String, String> _ru = {
@@ -212,6 +218,12 @@ const Map<String, String> _ru = {
   'error': 'Ошибка',
   'sending': 'отправка…',
   'chat_settings': 'Настройки чата',
+  'edit': 'Изменить',
+  'edited': 'изменено',
+  'editing_message': 'Редактирование сообщения',
+  'delete': 'Удалить',
+  'copy': 'Копировать',
+  'confirm_delete_message': 'Удалить это сообщение у всех?',
 };
 
 const Map<String, Map<String, String>> _dicts = {'en': _en, 'ru': _ru};

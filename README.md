@@ -14,6 +14,8 @@ building from source stay as options).
   devices read the full history after login.
 - **Disappearing messages** per conversation (1 hour to 30 days) plus an
   optional server-wide retention limit.
+- **Edit and delete** your own messages on every device (edits are signed and
+  encrypted like any message); administrators can remove any message.
 - **Bots** with webhooks or long polling, created by any user and usable in
   direct chats and groups ([docs/BOTS.md](docs/BOTS.md)).
 - **Admin panel**: users, invites, registration mode, limits, announcement,
@@ -373,8 +375,8 @@ deploy/builder/   Linux builder image (server, web, APK, Linux desktop) and wind
 
 Local message database and push notifications for the Flutter app (FCM /
 UnifiedPush, APNs); iOS broadcast extension for screen sharing; group calls
-through an SFU; recovery keys and device pairing by QR; message editing and
-deletion; admin panel and bot management inside the Flutter app.
+through an SFU; recovery keys and device pairing by QR; admin panel and bot
+management inside the Flutter app.
 
 ## License
 

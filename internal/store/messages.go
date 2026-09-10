@@ -7,6 +7,12 @@ import (
 )
 
 // Message is a stored envelope. The server never sees its plaintext.
+//
+// A row with DeletedSeq set is a deletion record instead of a message: it
+// carries no envelope and tells clients that the message at DeletedSeq was
+// removed (PROTOCOL.md §6.3). Records take a sequence number of their own so
+// that every device learns about the deletion in order, even one that was
+// offline when it happened.
 type Message struct {
 	ConvID        string
 	Seq           int64
@@ -16,6 +22,32 @@ type Message struct {
 	Env           []byte
 	Sig           []byte
 	ServerTS      int64
+	DeletedSeq    int64  // deletion records only: the removed message
+	DeletedSender string // deletion records only: who had sent it
+}
+
+// IsDeletion reports whether the row is a deletion record.
+func (m *Message) IsDeletion() bool { return m.DeletedSeq != 0 }
+
+const messageColumns = `conv_id, seq, sender_account, sender_device, client_id, env, sig, server_ts, deleted_seq, deleted_sender`
+
+func scanMessage(row interface{ Scan(...any) error }) (*Message, error) {
+	var m Message
+	var deletedSeq sql.NullInt64
+	var deletedSender sql.NullString
+	if err := row.Scan(&m.ConvID, &m.Seq, &m.SenderAccount, &m.SenderDevice, &m.ClientID, &m.Env, &m.Sig, &m.ServerTS, &deletedSeq, &deletedSender); err != nil {
+		return nil, err
+	}
+	m.DeletedSeq = deletedSeq.Int64
+	m.DeletedSender = deletedSender.String
+	// Empty blobs may scan as nil; clients expect strings, never null.
+	if m.Env == nil {
+		m.Env = []byte{}
+	}
+	if m.Sig == nil {
+		m.Sig = []byte{}
+	}
+	return &m, nil
 }
 
 type querier interface {
@@ -104,24 +136,72 @@ func (s *Store) AppendMessage(ctx context.Context, m *Message, recipients []stri
 	return seq, false, members, nil
 }
 
-// Messages returns up to limit messages with seq > max(after, minSeq) in
-// ascending order.
+// Messages returns up to limit messages (deletion records included) with
+// seq > max(after, minSeq) in ascending order.
 func (s *Store) Messages(ctx context.Context, convID string, after, minSeq, limit int64) ([]Message, error) {
 	if after < minSeq {
 		after = minSeq
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT conv_id, seq, sender_account, sender_device, client_id, env, sig, server_ts FROM messages WHERE conv_id = ? AND seq > ? ORDER BY seq LIMIT ?`, convID, after, limit)
+	rows, err := s.db.QueryContext(ctx, `SELECT `+messageColumns+` FROM messages WHERE conv_id = ? AND seq > ? ORDER BY seq LIMIT ?`, convID, after, limit)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	var out []Message
 	for rows.Next() {
-		var m Message
-		if err := rows.Scan(&m.ConvID, &m.Seq, &m.SenderAccount, &m.SenderDevice, &m.ClientID, &m.Env, &m.Sig, &m.ServerTS); err != nil {
+		m, err := scanMessage(rows)
+		if err != nil {
 			return nil, err
 		}
-		out = append(out, m)
+		out = append(out, *m)
 	}
 	return out, rows.Err()
+}
+
+// Message returns one stored message. Deletion records are not messages and
+// come back as ErrNotFound.
+func (s *Store) Message(ctx context.Context, convID string, seq int64) (*Message, error) {
+	m, err := scanMessage(s.db.QueryRowContext(ctx, `SELECT `+messageColumns+` FROM messages WHERE conv_id = ? AND seq = ? AND deleted_seq IS NULL`, convID, seq))
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	return m, err
+}
+
+// DeleteMessage removes a stored message and appends a deletion record in
+// its place at the next sequence number, attributed to actor. It returns the
+// record, or ErrNotFound when there is no such message (records included).
+func (s *Store) DeleteMessage(ctx context.Context, convID string, seq int64, actor, actorDevice, recordID string, now int64) (*Message, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	var sender string
+	err = tx.QueryRowContext(ctx, `SELECT sender_account FROM messages WHERE conv_id = ? AND seq = ? AND deleted_seq IS NULL`, convID, seq).Scan(&sender)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM messages WHERE conv_id = ? AND seq = ?`, convID, seq); err != nil {
+		return nil, err
+	}
+	var lastSeq int64
+	if err := tx.QueryRowContext(ctx, `SELECT last_seq FROM conversations WHERE id = ?`, convID).Scan(&lastSeq); err != nil {
+		return nil, err
+	}
+	rec := &Message{ConvID: convID, Seq: lastSeq + 1, SenderAccount: actor, SenderDevice: actorDevice, ClientID: recordID, Env: []byte{}, Sig: []byte{}, ServerTS: now, DeletedSeq: seq, DeletedSender: sender}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO messages (conv_id, seq, sender_account, sender_device, client_id, env, sig, server_ts, deleted_seq, deleted_sender) VALUES (?, ?, ?, ?, ?, X'', X'', ?, ?, ?)`,
+		rec.ConvID, rec.Seq, rec.SenderAccount, rec.SenderDevice, rec.ClientID, rec.ServerTS, rec.DeletedSeq, rec.DeletedSender); err != nil {
+		return nil, err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE conversations SET last_seq = ? WHERE id = ?`, rec.Seq, convID); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return rec, nil
 }

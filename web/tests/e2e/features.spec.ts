@@ -1,7 +1,7 @@
 import { createServer, type Server } from 'node:http';
 import { readFileSync } from 'node:fs';
 import { expect, test } from '@playwright/test';
-import { makePng, openDirect, password, register, run, selectConversation, send } from './helpers';
+import { login, makePng, openDirect, password, register, run, selectConversation, send } from './helpers';
 
 // The first account registered on a fresh server becomes the administrator,
 // so this file runs its admin scenario first (files run alphabetically and
@@ -172,4 +172,61 @@ test('bots: a webhook echo bot answers in a direct chat', async ({ browser }) =>
   } finally {
     hook.close();
   }
+});
+
+test('messages: edit and delete your own, the administrator deletes anyone’s', async ({ browser }) => {
+  const alice = `ealice${run}`;
+  const bob = `ebob${run}`;
+  const alicePage = await register(browser, alice);
+  const bobPage = await register(browser, bob);
+  await openDirect(alicePage, bob);
+  await send(alicePage, 'typo mesage');
+  await selectConversation(bobPage, alice);
+  await expect(bobPage.locator('.bubble', { hasText: 'typo mesage' })).toBeVisible();
+
+  // Edit through the message menu: both sides see the new text and the marker.
+  const bubble = alicePage.locator('.bubble.mine', { hasText: 'typo mesage' });
+  await bubble.hover();
+  await bubble.getByTitle('Message actions').click();
+  await alicePage.getByRole('button', { name: 'Edit' }).click();
+  await expect(alicePage.getByPlaceholder('Write a message…')).toHaveValue('typo mesage');
+  await alicePage.getByPlaceholder('Write a message…').fill('fixed message');
+  await alicePage.getByRole('button', { name: 'Save' }).click();
+  await expect(alicePage.locator('.bubble.mine', { hasText: 'fixed message' })).toContainText('edited');
+  await expect(bobPage.locator('.bubble', { hasText: 'fixed message' })).toContainText('edited', { timeout: 10_000 });
+  await expect(bobPage.locator('.bubble', { hasText: 'typo mesage' })).toHaveCount(0);
+  await expect(bobPage.locator('.conv-list li', { hasText: 'fixed message' })).toBeVisible();
+
+  // Bob has no menu on Alice's message; Up in the empty composer edits his own last one.
+  await send(bobPage, 'bob text');
+  await expect(bobPage.locator('.bubble:not(.mine)', { hasText: 'fixed message' }).getByTitle('Message actions')).toHaveCount(0);
+  await bobPage.getByPlaceholder('Write a message…').press('ArrowUp');
+  await expect(bobPage.getByPlaceholder('Write a message…')).toHaveValue('bob text');
+  await bobPage.getByPlaceholder('Write a message…').press('Escape');
+  await expect(bobPage.getByPlaceholder('Write a message…')).toHaveValue('');
+  await expect(bobPage.getByPlaceholder('Write a message…')).toBeVisible();
+
+  // Deleting removes the message on both sides.
+  alicePage.once('dialog', (d) => void d.accept());
+  const edited = alicePage.locator('.bubble.mine', { hasText: 'fixed message' });
+  await edited.hover();
+  await edited.getByTitle('Message actions').click();
+  await alicePage.getByRole('button', { name: 'Delete' }).click();
+  await expect(alicePage.locator('.bubble', { hasText: 'fixed message' })).toHaveCount(0);
+  await expect(bobPage.locator('.bubble', { hasText: 'fixed message' })).toHaveCount(0, { timeout: 10_000 });
+
+  // The administrator (the first account on this server) removes Bob's message in a chat with him.
+  const adminPage = await login(browser, `admin${run}`);
+  await openDirect(adminPage, bob);
+  await selectConversation(bobPage, `admin${run}`);
+  await send(bobPage, 'rude remark');
+  const remark = adminPage.locator('.bubble:not(.mine)', { hasText: 'rude remark' });
+  await expect(remark).toBeVisible();
+  adminPage.once('dialog', (d) => void d.accept());
+  await remark.hover();
+  await remark.getByTitle('Message actions').click();
+  await expect(adminPage.getByRole('button', { name: 'Edit' })).toHaveCount(0);
+  await adminPage.getByRole('button', { name: 'Delete' }).click();
+  await expect(adminPage.locator('.bubble', { hasText: 'rude remark' })).toHaveCount(0);
+  await expect(bobPage.locator('.bubble', { hasText: 'rude remark' })).toHaveCount(0, { timeout: 10_000 });
 });

@@ -1038,3 +1038,93 @@ select.lang {
 .error.small {
   font-size: 12px;
 }
+
+/* message actions: edit and delete */
+.bubble {
+  position: relative;
+}
+
+.bubble .meta {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 4px;
+}
+
+.bubble .more {
+  background: none;
+  border: none;
+  padding: 0 2px;
+  margin-left: 2px;
+  color: inherit;
+  font-size: 14px;
+  line-height: 1;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.bubble:hover .more,
+.bubble .more:focus,
+.bubble.menu-open .more {
+  opacity: 0.85;
+}
+
+@media (hover: none) {
+  .bubble .more {
+    opacity: 0.6;
+  }
+}
+
+.msg-menu {
+  position: absolute;
+  right: 8px;
+  bottom: 28px;
+  min-width: 140px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  z-index: 5;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  white-space: nowrap;
+}
+
+.bubble:not(.mine) .msg-menu {
+  right: auto;
+  left: 8px;
+}
+
+.msg-menu button {
+  background: none;
+  border: none;
+  text-align: left;
+  padding: 6px 10px;
+  border-radius: 6px;
+  color: inherit;
+  font-size: 13px;
+}
+
+.msg-menu button:hover {
+  background: var(--bg-3);
+}
+
+.msg-menu button.danger {
+  color: var(--danger);
+}
+
+.editing-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 14px 0;
+  font-size: 13px;
+  color: var(--muted);
+  border-top: 1px solid var(--border);
+}
+
+.editing-bar + .composer {
+  border-top: none;
+}

@@ -132,7 +132,9 @@ attachments (future).
 
 Wire form (WebSocket and HTTP): `{"env": "<base64>", "sig": "<base64>"}` with
 standard base64 (RFC 4648, with padding). The server adds `seq` (per-conversation
-sequence number assigned by the server) and `server_ts`.
+sequence number assigned by the server) and `server_ts`. A *deletion record*
+(§6.3) travels in the same shape with an empty `env` and `sig` plus
+`deleted_seq` and `deleted_sender`.
 
 ### 5.1 Server checks
 
@@ -167,6 +169,7 @@ UTF-8 JSON objects with a `t` field. Public keys are standard base64.
 | `t` | Fields | Notes |
 |---|---|---|
 | `text` | `body` (string), optional `reply` (client_msg_id) | Chat message |
+| `text.edit` | `ref` (client_msg_id of the sender's own earlier `text` message), `body` | Replaces the text of that message (§6.3); receivers apply it only when it comes from the message's author |
 | `conv.create` | `kind` (`direct`/`group`), `name`, `members[]` = `{id, username, sign_pub, enc_pub}` | Sent by the creator; `members` includes the creator |
 | `member.add` | `member` = `{id, username, sign_pub, enc_pub}`, `members[]` = the full roster after the change | Sent by an owner after the server-side add; sealed to the new member too |
 | `member.remove` | `id`, `members[]` = the remaining roster | Sent by an owner (or by the leaving member) **before** the server-side removal; sealed to the removed member too |
@@ -229,6 +232,37 @@ on the same schedule. The timer is server-visible metadata; the signed
 `conv.retention` event records who changed it. As with any messenger, a
 recipient who copied a message before it expired still has it.
 
+### 6.3 Editing and deleting messages
+
+Editing is end to end. The sender sends a `text.edit` payload whose `ref`
+names its own earlier `text` message, sealed to the current roster like any
+message. Receivers look the original up by (sender, `ref`), check that the
+edit comes from the same account, replace the text and mark the message as
+edited. Edits for messages a device never received, or from anyone but the
+original sender, are ignored, so nobody can rewrite somebody else's words.
+The server only sees that another envelope was sent.
+
+Deletion needs the server, which has to forget the ciphertext:
+
+```
+DELETE /conversations/{id}/messages/{seq}
+```
+
+is allowed to the sender of the message and to administrators, who may
+remove any message (moderation is their job; the content stays unreadable to
+them unless they are a member). The server drops the stored envelope and
+appends a *deletion record* at the next sequence number: a row with an empty
+`env` and `sig`, `sender_account` = whoever deleted, `deleted_seq` = the
+removed message and `deleted_sender` = its author. Because the record is part
+of the sequence, every device, including one offline at the time, learns
+about it in order and removes its local copy; clients never count records
+as unread. The attachment of a deleted `file` message is removed by the
+client with `DELETE /blobs/{id}` (uploader or administrator).
+
+Deletion is a server-side operation by design: the server can already drop
+any envelope (§10), so a signed record would add nothing; and as with
+disappearing messages, a recipient who copied a message keeps the copy.
+
 ## 7. Key discovery and trust
 
 Public keys are fetched from the server (`GET /users/{username}`,
@@ -241,6 +275,8 @@ explicitly accepts the new keys.
 ## 8. Transport summary
 
 - HTTPS JSON API under `/api/v1`, bearer device token.
+  `DELETE /conversations/{id}/messages/{seq}` and `DELETE /blobs/{id}` remove
+  a message and an attachment for everyone (§6.3).
 - WebSocket `/api/v1/ws` with JSON frames `{"t": type, "d": data}`:
   client → server `send` `{env, sig}`; server → client `ack` `{client_msg_id, seq}`,
   `message` `{conv_id, seq, env, sig, server_ts}`, `signal` `{env, sig}` (ephemeral),
@@ -276,7 +312,9 @@ described in `docs/BOTS.md`.
   them). Rotating account keys is not supported in v1.
 - Sender authenticity comes from the Ed25519 signature; the server cannot forge
   or re-route messages (`conv_id` and sender are signed) but can drop or delay
-  them.
+  them. Message deletion (§6.3) is built on that ability: an administrator can
+  remove any message, but cannot read or alter one, and edits are signed by
+  the author like any other message.
 - Trust on first use: verify fingerprints to rule out key substitution by the
   server.
 - Conversations that include a bot are readable by the server by design (§9).

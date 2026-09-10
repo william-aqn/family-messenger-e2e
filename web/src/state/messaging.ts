@@ -5,11 +5,11 @@ import { b64decode, b64encode, utf8Encode } from '../crypto/bytes';
 import { encrypt, FLAG_EPHEMERAL, FLAG_URGENT, type Recipient } from '../crypto/envelope';
 import { newUuid } from '../crypto/ids';
 import { t } from '../i18n';
-import type { Contact, Conversation } from '../store/db';
+import type { Contact, Conversation, StoredMessage } from '../store/db';
 import { putContact, putConversation } from '../store/db';
 import { contacts, conversations, pending, selectedId, session, setContact, setConversation } from './model';
 import { keys } from './session';
-import { observeKeys, refreshConversation, upsertFromServer } from './sync';
+import { observeKeys, refreshConversation, removeLocalMessage, setMessageBody, upsertFromServer } from './sync';
 
 export { FLAG_EPHEMERAL, FLAG_URGENT };
 
@@ -44,7 +44,12 @@ function recipientsFor(conv: Conversation, me: string): Recipient[] {
   return out;
 }
 
-export async function sendPayload(convId: string, payload: Payload, flags = 0): Promise<SendResult> {
+/**
+ * Encrypts, signs and sends a payload. Stored messages show up as pending
+ * bubbles until the server echoes them; `track: false` skips that for
+ * payloads that change an existing message instead of adding one.
+ */
+export async function sendPayload(convId: string, payload: Payload, flags = 0, opts: { track?: boolean } = {}): Promise<SendResult> {
   const s = session.value;
   const k = keys.value;
   const conv = conversations.value.get(convId);
@@ -58,12 +63,12 @@ export async function sendPayload(convId: string, payload: Payload, flags = 0): 
     recipients,
     utf8Encode(JSON.stringify(payload)),
   );
-  const ephemeral = (flags & FLAG_EPHEMERAL) !== 0;
-  if (!ephemeral) pending.value = [...pending.value, { clientMsgId, convId, payload, ts }];
+  const track = (flags & FLAG_EPHEMERAL) === 0 && opts.track !== false;
+  if (track) pending.value = [...pending.value, { clientMsgId, convId, payload, ts }];
   try {
     return await http.send(convId, b64encode(env), b64encode(sig));
   } catch (e) {
-    if (!ephemeral) {
+    if (track) {
       const reason = e instanceof Error ? e.message : String(e);
       pending.value = pending.value.map((p) => (p.clientMsgId === clientMsgId ? { ...p, failed: reason } : p));
     }
@@ -73,6 +78,27 @@ export async function sendPayload(convId: string, payload: Payload, flags = 0): 
 
 export function sendText(convId: string, body: string): Promise<SendResult> {
   return sendPayload(convId, { t: 'text', body });
+}
+
+/** Rewrites one of our own text messages: applied locally at once, then sent as a signed `text.edit` (PROTOCOL.md §6.3). */
+export async function editText(convId: string, original: StoredMessage, body: string): Promise<void> {
+  const s = session.value!;
+  if (original.sender !== s.accountId || original.payload?.t !== 'text') throw new Error('only your own text messages can be edited');
+  const previous = original.payload.body;
+  await setMessageBody(convId, original.seq, body, true);
+  try {
+    await sendPayload(convId, { t: 'text.edit', ref: original.clientMsgId, body }, 0, { track: false });
+  } catch (e) {
+    await setMessageBody(convId, original.seq, previous, !!original.edited);
+    throw e;
+  }
+}
+
+/** Deletes a message for everyone: our own, or anyone's when we administer the server. The attachment goes with it. */
+export async function deleteMessage(convId: string, m: StoredMessage): Promise<void> {
+  await http.deleteMessage(convId, m.seq);
+  await removeLocalMessage(convId, m.seq);
+  if (m.payload?.t === 'file' && m.payload.blob) http.deleteBlob(m.payload.blob).catch(() => undefined);
 }
 
 export function dismissPending(clientMsgId: string): void {

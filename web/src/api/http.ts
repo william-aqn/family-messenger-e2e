@@ -105,6 +105,7 @@ export const http = {
   messages: (convId: string, after: number, limit = 200) =>
     api<{ messages: MessageView[]; has_more: boolean; last_seq: number }>('GET', `/conversations/${convId}/messages?after=${after}&limit=${limit}`),
   send: (convId: string, env: string, sig: string) => api<SendResult>('POST', `/conversations/${convId}/messages`, { env, sig }),
+  deleteMessage: (convId: string, seq: number) => api<void>('DELETE', `/conversations/${convId}/messages/${seq}`),
   markRead: (convId: string, seq: number) => api<void>('PUT', `/conversations/${convId}/read`, { seq }),
   setRetention: (convId: string, seconds: number) => api<void>('PUT', `/conversations/${convId}/retention`, { seconds }),
   uploadBlob: async (convId: string, data: Uint8Array) => {
@@ -119,6 +120,7 @@ export const http = {
     return (await res.json()) as { id: string; size: number };
   },
   downloadBlob: async (id: string) => (await apiBytes('GET', `/blobs/${id}`)).bytes,
+  deleteBlob: (id: string) => api<void>('DELETE', `/blobs/${id}`),
   turn: () => api<{ ice_servers: IceServer[]; ttl: number }>('GET', '/turn'),
   devices: () => api<{ devices: DeviceView[] }>('GET', '/devices'),
 

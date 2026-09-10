@@ -401,7 +401,7 @@ func (s *Store) Stats(ctx context.Context) (*Stats, error) {
 		(SELECT COUNT(*) FROM accounts WHERE is_bot = 0 AND deleted_at IS NULL),
 		(SELECT COUNT(*) FROM accounts WHERE is_bot = 1 AND deleted_at IS NULL),
 		(SELECT COUNT(*) FROM conversations),
-		(SELECT COUNT(*) FROM messages),
+		(SELECT COUNT(*) FROM messages WHERE deleted_seq IS NULL),
 		(SELECT COUNT(*) FROM blobs),
 		COALESCE((SELECT SUM(size) FROM blobs), 0),
 		(SELECT COUNT(*) FROM devices),

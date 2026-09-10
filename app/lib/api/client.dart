@@ -117,6 +117,8 @@ class ApiClient {
   Future<Map<String, dynamic>> send(String convId, String env, String sig) async =>
       (await _json('POST', '/conversations/$convId/messages', body: {'env': env, 'sig': sig})) as Map<String, dynamic>;
 
+  Future<void> deleteMessage(String convId, int seq) => _json('DELETE', '/conversations/$convId/messages/$seq');
+
   Future<void> markRead(String convId, int seq) => _json('PUT', '/conversations/$convId/read', body: {'seq': seq});
 
   Future<void> setRetention(String convId, int seconds) => _json('PUT', '/conversations/$convId/retention', body: {'seconds': seconds});
@@ -137,6 +139,8 @@ class ApiClient {
     if (res.statusCode >= 300) _throw(res);
     return res.bodyBytes;
   }
+
+  Future<void> deleteBlob(String id) => _json('DELETE', '/blobs/$id');
 
   Future<List<Map<String, dynamic>>> devices() async {
     final j = (await _json('GET', '/devices')) as Map<String, dynamic>;

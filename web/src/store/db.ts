@@ -35,7 +35,8 @@ export interface Conversation {
   rosterSeq: number;
   /** Disappearing-messages timer in seconds, 0 = off (server-enforced). */
   retentionSeconds: number;
-  lastMessage: { text: string; ts: number; sender: string } | null;
+  /** Preview of the newest message; seq names it so that edits and deletions can refresh the preview. */
+  lastMessage: { text: string; ts: number; sender: string; seq?: number } | null;
   updatedAt: number;
   removed: boolean;
 }
@@ -50,25 +51,33 @@ export interface StoredMessage {
   serverTs: number;
   payload: Payload | null;
   error?: string;
+  /** The sender replaced the text with a later `text.edit` (PROTOCOL.md §6.3). */
+  edited?: boolean;
 }
 
 interface MsgrDB extends DBSchema {
   meta: { key: string; value: unknown };
   contacts: { key: string; value: Contact };
   conversations: { key: string; value: Conversation };
-  messages: { key: [string, number]; value: StoredMessage; indexes: { byConv: string } };
+  messages: { key: [string, number]; value: StoredMessage; indexes: { byConv: string; byClient: string } };
 }
 
 let dbp: Promise<IDBPDatabase<MsgrDB>> | null = null;
 
 function getDB(): Promise<IDBPDatabase<MsgrDB>> {
-  dbp ??= openDB<MsgrDB>('family-messenger', 1, {
-    upgrade(db) {
-      db.createObjectStore('meta');
-      db.createObjectStore('contacts', { keyPath: 'id' });
-      db.createObjectStore('conversations', { keyPath: 'id' });
-      const messages = db.createObjectStore('messages', { keyPath: ['convId', 'seq'] });
-      messages.createIndex('byConv', 'convId');
+  dbp ??= openDB<MsgrDB>('family-messenger', 2, {
+    upgrade(db, oldVersion, _newVersion, tx) {
+      if (oldVersion < 1) {
+        db.createObjectStore('meta');
+        db.createObjectStore('contacts', { keyPath: 'id' });
+        db.createObjectStore('conversations', { keyPath: 'id' });
+        const messages = db.createObjectStore('messages', { keyPath: ['convId', 'seq'] });
+        messages.createIndex('byConv', 'convId');
+      }
+      if (oldVersion < 2) {
+        // Version 2: edits refer to messages by client id.
+        tx.objectStore('messages').createIndex('byClient', 'clientMsgId');
+      }
     },
   });
   return dbp;
@@ -100,6 +109,20 @@ export async function allConversations(): Promise<Conversation[]> {
 
 export async function putMessage(m: StoredMessage): Promise<void> {
   await (await getDB()).put('messages', m);
+}
+
+export async function getMessage(convId: string, seq: number): Promise<StoredMessage | undefined> {
+  return (await getDB()).get('messages', [convId, seq]);
+}
+
+/** Finds a sender's message by its client id (unique per sender, PROTOCOL.md §2). */
+export async function messageByClientId(convId: string, sender: string, clientMsgId: string): Promise<StoredMessage | undefined> {
+  const list = await (await getDB()).getAllFromIndex('messages', 'byClient', clientMsgId);
+  return list.find((m) => m.convId === convId && m.sender === sender);
+}
+
+export async function deleteStoredMessage(convId: string, seq: number): Promise<void> {
+  await (await getDB()).delete('messages', [convId, seq]);
 }
 
 export async function messagesFor(convId: string): Promise<StoredMessage[]> {

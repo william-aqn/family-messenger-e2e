@@ -426,7 +426,11 @@ func TestBots(t *testing.T) {
 	if status := botc.do("POST", "/api/v1/bot/messages", map[string]any{"conversation_id": direct.ID, "text": "intruder"}, nil); status != http.StatusNotFound {
 		t.Fatalf("bot sending to a foreign conversation status %d", status)
 	}
-	bob.must("POST", "/api/v1/conversations/"+group.ID+"/messages", bob.envelope(group.ID, 0, group.Members, `{"t":"text","body":"bob in group"}`), nil, http.StatusCreated)
+	var bobSent struct {
+		ClientMsgID string `json:"client_msg_id"`
+		Seq         int64  `json:"seq"`
+	}
+	bob.must("POST", "/api/v1/conversations/"+group.ID+"/messages", bob.envelope(group.ID, 0, group.Members, `{"t":"text","body":"bob in group"}`), &bobSent, http.StatusCreated)
 	botc.must("GET", "/api/v1/bot/updates?after="+itoa64(cursor+1), nil, &ups, http.StatusOK)
 	var sawGroup bool
 	for _, up := range ups.Updates {
@@ -436,6 +440,29 @@ func TestBots(t *testing.T) {
 	}
 	if !sawGroup {
 		t.Fatalf("group message update missing: %+v", ups.Updates)
+	}
+	env.srv.WaitForWebhooks()
+
+	// Edits and deletions reach the bot as "edited" and "deleted" updates
+	// that name the original message.
+	bob.must("POST", "/api/v1/conversations/"+group.ID+"/messages", bob.envelope(group.ID, 0, group.Members, `{"t":"text.edit","ref":"`+bobSent.ClientMsgID+`","body":"bob edited"}`), nil, http.StatusCreated)
+	bob.must("DELETE", "/api/v1/conversations/"+group.ID+"/messages/"+itoa64(bobSent.Seq), nil, nil, http.StatusNoContent)
+	botc.must("GET", "/api/v1/bot/updates?after=0", nil, &ups, http.StatusOK)
+	var sawEdit, sawDelete bool
+	for _, up := range ups.Updates {
+		m, _ := up["message"].(map[string]any)
+		if m == nil || m["id"] != bobSent.ClientMsgID {
+			continue
+		}
+		if up["type"] == "edited" && m["text"] == "bob edited" {
+			sawEdit = true
+		}
+		if up["type"] == "deleted" && m["seq"] == float64(bobSent.Seq) && up["from"].(map[string]any)["username"] == "bob" {
+			sawDelete = true
+		}
+	}
+	if !sawEdit || !sawDelete {
+		t.Fatalf("edit/delete updates missing (edit=%v delete=%v): %+v", sawEdit, sawDelete, ups.Updates)
 	}
 	env.srv.WaitForWebhooks()
 
@@ -585,6 +612,115 @@ func TestAttachmentsAndRetention(t *testing.T) {
 	alice.must("GET", "/api/v1/conversations/"+plain.ID+"/messages", nil, &hist, http.StatusOK)
 	if len(hist.Messages) != 0 {
 		t.Fatalf("message survived the global retention: %d", len(hist.Messages))
+	}
+}
+
+func TestMessageDeletion(t *testing.T) {
+	env := newTestEnv(t, "open")
+	base := env.ts.URL
+	admin := register(t, base, "admin", "admin-password-123") // the first account administers the server
+	alice := register(t, base, "alice", "alice-password-123")
+	bob := register(t, base, "bob", "bob-password-123")
+	carol := register(t, base, "carol", "carol-password-123")
+
+	var conv convView
+	alice.must("POST", "/api/v1/conversations", map[string]any{"kind": "direct", "account_id": bob.accountID}, &conv, http.StatusCreated)
+	msgs := "/api/v1/conversations/" + conv.ID + "/messages"
+	bobWS := bob.connectWS()
+	for _, m := range []struct {
+		c    *client
+		body string
+	}{{alice, "first"}, {alice, "second"}, {bob, "from bob"}} {
+		m.c.must("POST", msgs, m.c.envelope(conv.ID, 0, conv.Members, `{"t":"text","body":"`+m.body+`"}`), nil, http.StatusCreated)
+		bobWS.expectMessage()
+	}
+
+	// Only the sender or an administrator may delete; outsiders learn nothing.
+	if status := bob.do("DELETE", msgs+"/1", nil, nil); status != http.StatusForbidden {
+		t.Fatalf("deleting someone else's message status %d", status)
+	}
+	if status := carol.do("DELETE", msgs+"/1", nil, nil); status != http.StatusNotFound {
+		t.Fatalf("outsider delete status %d", status)
+	}
+	if status := alice.do("DELETE", msgs+"/99", nil, nil); status != http.StatusNotFound {
+		t.Fatalf("unknown seq status %d", status)
+	}
+	alice.must("DELETE", msgs+"/1", nil, nil, http.StatusNoContent)
+	rec := bobWS.expectMessage()
+	if rec.Seq != 4 || rec.DeletedSeq != 1 || rec.DeletedSender != alice.accountID || rec.SenderAccount != alice.accountID || len(rec.Env) != 0 || len(rec.Sig) != 0 {
+		t.Fatalf("deletion record: %+v", rec)
+	}
+	var hist struct {
+		Messages []msgView `json:"messages"`
+		LastSeq  int64     `json:"last_seq"`
+	}
+	bob.must("GET", msgs, nil, &hist, http.StatusOK)
+	if len(hist.Messages) != 3 || hist.Messages[0].Seq != 2 || hist.Messages[2].Seq != 4 || hist.Messages[2].DeletedSeq != 1 || hist.LastSeq != 4 {
+		t.Fatalf("history after deletion: %+v last_seq=%d", hist.Messages, hist.LastSeq)
+	}
+	if status := alice.do("DELETE", msgs+"/4", nil, nil); status != http.StatusNotFound {
+		t.Fatalf("deleting a deletion record status %d", status)
+	}
+	if status := alice.do("DELETE", msgs+"/1", nil, nil); status != http.StatusNotFound {
+		t.Fatalf("deleting twice status %d", status)
+	}
+	// The administrator is not a member of the chat but may remove any message.
+	if status := alice.do("DELETE", msgs+"/3", nil, nil); status != http.StatusForbidden {
+		t.Fatalf("non-admin deleting bob's message status %d", status)
+	}
+	admin.must("DELETE", msgs+"/3", nil, nil, http.StatusNoContent)
+	rec = bobWS.expectMessage()
+	if rec.Seq != 5 || rec.DeletedSeq != 3 || rec.SenderAccount != admin.accountID || rec.DeletedSender != bob.accountID {
+		t.Fatalf("admin deletion record: %+v", rec)
+	}
+	var stats struct {
+		Messages int64 `json:"messages"`
+	}
+	admin.must("GET", "/api/v1/admin/stats", nil, &stats, http.StatusOK)
+	if stats.Messages != 1 {
+		t.Fatalf("stats count %d messages, want 1", stats.Messages)
+	}
+
+	// Attachments: the uploader or an administrator drops the ciphertext.
+	data := make([]byte, 100)
+	if _, err := rand.Read(data); err != nil {
+		t.Fatal(err)
+	}
+	upload := func(c *client) string {
+		t.Helper()
+		status, body := c.raw("POST", "/api/v1/conversations/"+conv.ID+"/blobs", data, "application/octet-stream")
+		if status != http.StatusCreated {
+			t.Fatalf("upload status %d: %s", status, body)
+		}
+		var up struct {
+			ID string `json:"id"`
+		}
+		if err := json.Unmarshal(body, &up); err != nil {
+			t.Fatal(err)
+		}
+		return up.ID
+	}
+	blob := upload(alice)
+	if status, _ := bob.raw("DELETE", "/api/v1/blobs/"+blob, nil, ""); status != http.StatusForbidden {
+		t.Fatalf("deleting someone else's attachment status %d", status)
+	}
+	if status, _ := carol.raw("DELETE", "/api/v1/blobs/"+blob, nil, ""); status != http.StatusNotFound {
+		t.Fatalf("outsider attachment delete status %d", status)
+	}
+	alice.must("DELETE", "/api/v1/blobs/"+blob, nil, nil, http.StatusNoContent)
+	if _, err := os.Stat(filepath.Join(env.cfg.DataDir, "blobs", blob)); !os.IsNotExist(err) {
+		t.Fatalf("attachment file not removed: %v", err)
+	}
+	if status, _ := bob.raw("GET", "/api/v1/blobs/"+blob, nil, ""); status != http.StatusNotFound {
+		t.Fatalf("deleted attachment download status %d", status)
+	}
+	if status, _ := alice.raw("DELETE", "/api/v1/blobs/"+blob, nil, ""); status != http.StatusNotFound {
+		t.Fatalf("deleting an attachment twice status %d", status)
+	}
+	blob = upload(bob)
+	admin.must("DELETE", "/api/v1/blobs/"+blob, nil, nil, http.StatusNoContent)
+	if _, err := os.Stat(filepath.Join(env.cfg.DataDir, "blobs", blob)); !os.IsNotExist(err) {
+		t.Fatalf("attachment file not removed by the administrator: %v", err)
 	}
 }
 

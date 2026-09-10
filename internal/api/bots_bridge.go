@@ -139,6 +139,16 @@ func (b *botBridge) onStored(ctx context.Context, p *auth.Principal, e *e2e.Enve
 				upd.Message.Command = cmd
 				upd.Message.Args = strings.TrimSpace(args)
 			}
+		case "text.edit":
+			// The sender changed an earlier message: id names that message.
+			ref, _ := payload["ref"].(string)
+			body, _ := payload["body"].(string)
+			if ref == "" {
+				continue
+			}
+			upd.Type = "edited"
+			upd.Message.ID = ref
+			upd.Message.Text = body
 		case "file":
 			upd.Type = "file"
 			f := &botFileInfo{}
@@ -156,6 +166,44 @@ func (b *botBridge) onStored(ctx context.Context, p *auth.Principal, e *e2e.Enve
 			continue
 		}
 		b.enqueue(ctx, bot, upd)
+	}
+}
+
+// onDeleted queues a "deleted" update for the bots of a conversation when a
+// person removes the stored message m (PROTOCOL.md §6.3).
+func (b *botBridge) onDeleted(ctx context.Context, p *auth.Principal, m *store.Message, members []string) {
+	if p.IsBot {
+		return
+	}
+	bots, err := b.s.store.BotsAmong(ctx, members)
+	if err != nil {
+		b.s.log.Error("bot lookup failed", "err", err)
+		return
+	}
+	if len(bots) == 0 {
+		return
+	}
+	conv, err := b.s.store.ConversationForAccount(ctx, m.ConvID, bots[0].AccountID)
+	if err != nil {
+		return
+	}
+	info := &botMessageInfo{ID: m.ClientID, Seq: m.Seq}
+	if e, err := e2e.Parse(m.Env); err == nil {
+		info.TS = int64(e.TimestampMS)
+	}
+	for i := range bots {
+		bot := &bots[i]
+		if bot.Disabled {
+			continue
+		}
+		b.enqueue(ctx, bot, botUpdate{
+			Type:         "deleted",
+			CreatedAt:    time.Now().UnixMilli(),
+			Bot:          botRef{ID: bot.AccountID, Username: bot.Username},
+			Conversation: botConvRef{ID: m.ConvID, Kind: conv.Kind, Members: len(conv.Members)},
+			From:         &botRef{ID: p.AccountID, Username: p.Username},
+			Message:      info,
+		})
 	}
 }
 

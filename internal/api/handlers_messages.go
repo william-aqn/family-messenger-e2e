@@ -13,6 +13,10 @@ import (
 )
 
 // messageView is a stored or relayed envelope as delivered to clients.
+//
+// A deletion record (PROTOCOL.md §6.3) uses the same shape with an empty
+// env and sig: deleted_seq names the removed message and deleted_sender its
+// author, while sender_account is whoever deleted it.
 type messageView struct {
 	ConvID        string `json:"conv_id"`
 	Seq           int64  `json:"seq"`
@@ -22,6 +26,15 @@ type messageView struct {
 	Env           []byte `json:"env"`
 	Sig           []byte `json:"sig"`
 	ServerTS      int64  `json:"server_ts"`
+	DeletedSeq    int64  `json:"deleted_seq,omitempty"`
+	DeletedSender string `json:"deleted_sender,omitempty"`
+}
+
+func viewOf(m *store.Message) messageView {
+	return messageView{
+		ConvID: m.ConvID, Seq: m.Seq, SenderAccount: m.SenderAccount, SenderDevice: m.SenderDevice, ClientMsgID: m.ClientID,
+		Env: m.Env, Sig: m.Sig, ServerTS: m.ServerTS, DeletedSeq: m.DeletedSeq, DeletedSender: m.DeletedSender,
+	}
 }
 
 type sendRequest struct {
@@ -162,8 +175,57 @@ func (s *Server) listMessages(w http.ResponseWriter, r *http.Request) {
 		msgs = msgs[:limit]
 	}
 	views := make([]messageView, 0, len(msgs))
-	for _, m := range msgs {
-		views = append(views, messageView{ConvID: m.ConvID, Seq: m.Seq, SenderAccount: m.SenderAccount, SenderDevice: m.SenderDevice, ClientMsgID: m.ClientID, Env: m.Env, Sig: m.Sig, ServerTS: m.ServerTS})
+	for i := range msgs {
+		views = append(views, viewOf(&msgs[i]))
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"messages": views, "has_more": hasMore, "last_seq": conv.LastSeq})
+}
+
+// deleteMessage removes a stored message for everyone (PROTOCOL.md §6.3).
+// The sender may delete their own messages; an administrator may delete any
+// message, member of the conversation or not. The ciphertext is dropped and
+// a deletion record is appended to the sequence, so every device learns
+// about it in order.
+func (s *Server) deleteMessage(w http.ResponseWriter, r *http.Request) {
+	p := principal(r)
+	id, err := convIDParam(r)
+	if err != nil {
+		writeError(w, s.log, err)
+		return
+	}
+	seq, err := strconv.ParseInt(r.PathValue("seq"), 10, 64)
+	if err != nil || seq <= 0 {
+		writeError(w, s.log, notFound("not_found", "no such message"))
+		return
+	}
+	if !p.IsAdmin {
+		if _, err := s.store.ConversationForAccount(r.Context(), id, p.AccountID); err != nil {
+			writeError(w, s.log, err)
+			return
+		}
+	}
+	m, err := s.store.Message(r.Context(), id, seq)
+	if err != nil {
+		writeError(w, s.log, err)
+		return
+	}
+	if m.SenderAccount != p.AccountID && !p.IsAdmin {
+		writeError(w, s.log, forbidden("not_your_message", "only the sender or an administrator can delete this message"))
+		return
+	}
+	rec, err := s.store.DeleteMessage(r.Context(), id, seq, p.AccountID, p.DeviceID, newID(), time.Now().UnixMilli())
+	if err != nil {
+		writeError(w, s.log, err)
+		return
+	}
+	members, err := s.store.MemberAccountIDs(r.Context(), id)
+	if err != nil {
+		s.log.Error("cannot list members after deletion", "err", err)
+	}
+	s.hub.SendToAccounts(members, ws.NewFrame("message", viewOf(rec)))
+	s.bots.onDeleted(r.Context(), p, m, members)
+	if m.SenderAccount != p.AccountID {
+		s.log.Info("message deleted by an administrator", "by", p.Username, "conv", id, "seq", seq)
+	}
+	w.WriteHeader(http.StatusNoContent)
 }

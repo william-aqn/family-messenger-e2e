@@ -12,6 +12,9 @@ import {
   type Contact,
   type Conversation,
   deleteMessagesBefore,
+  deleteStoredMessage,
+  getMessage,
+  messageByClientId,
   messagesFor,
   putContact,
   putConversation,
@@ -268,6 +271,10 @@ export async function handleIncoming(view: MessageView, stored: boolean): Promis
   const s = session.value;
   const k = keys.value;
   if (!s || !k) return;
+  if (stored && view.deleted_seq) {
+    await applyDeletion(view);
+    return;
+  }
   let payload: Payload | null = null;
   let error: string | undefined;
   let ts = view.server_ts;
@@ -334,6 +341,11 @@ async function applyStored(msg: StoredMessage): Promise<void> {
   const conv = conversations.value.get(msg.convId);
   if (!conv) return;
   if (isExpired(conv, msg.serverTs)) return;
+  if (msg.payload?.t === 'text.edit') {
+    await applyEdit(conv.id, msg, msg.payload);
+    await advanceSilently(conv.id, msg.seq);
+    return;
+  }
   await putMessage(msg);
   const loaded = messages.value.get(msg.convId);
   if (loaded && !loaded.some((m) => m.seq === msg.seq)) {
@@ -363,7 +375,7 @@ async function applyStored(msg: StoredMessage): Promise<void> {
   }
   const preview = previewOf(p, msg.error);
   if (preview && (!conv.lastMessage || msg.seq >= conv.syncedSeq)) {
-    next.lastMessage = { text: preview, ts: msg.ts, sender: msg.sender };
+    next.lastMessage = { text: preview, ts: msg.ts, sender: msg.sender, seq: msg.seq };
     next.updatedAt = Math.max(conv.updatedAt, msg.serverTs);
   }
   if (msg.sender === s.accountId && msg.seq > next.readSeq) next.readSeq = msg.seq;
@@ -382,6 +394,64 @@ async function applyRoster(members: MemberInfo[]): Promise<string[]> {
     ids.push(m.id);
   }
   return ids;
+}
+
+/** Applies a `text.edit` (PROTOCOL.md §6.3): only the sender may rewrite its own earlier text message. */
+async function applyEdit(convId: string, edit: StoredMessage, p: { ref: string; body: string }): Promise<void> {
+  if (typeof p.ref !== 'string' || typeof p.body !== 'string') return;
+  const original = await messageByClientId(convId, edit.sender, p.ref);
+  if (!original || original.sender !== edit.sender || original.payload?.t !== 'text' || original.seq >= edit.seq) return;
+  await setMessageBody(convId, original.seq, p.body, true);
+}
+
+/** Rewrites the text of a stored message in IndexedDB, in memory and in the conversation preview. */
+export async function setMessageBody(convId: string, seq: number, body: string, edited: boolean): Promise<void> {
+  const m = await getMessage(convId, seq);
+  if (!m || m.payload?.t !== 'text') return;
+  const updated: StoredMessage = { ...m, payload: { ...m.payload, body }, edited };
+  await putMessage(updated);
+  const loaded = messages.value.get(convId);
+  if (loaded) setMessages(convId, loaded.map((x) => (x.seq === seq ? updated : x)));
+  const conv = conversations.value.get(convId);
+  if (conv?.lastMessage?.seq === seq) await persistConversation({ ...conv, lastMessage: { ...conv.lastMessage, text: body } });
+}
+
+/** Applies a deletion record: the message at deleted_seq is gone for everyone. */
+async function applyDeletion(view: MessageView): Promise<void> {
+  if (!conversations.value.has(view.conv_id)) return;
+  await removeLocalMessage(view.conv_id, view.deleted_seq!);
+  await advanceSilently(view.conv_id, view.seq);
+}
+
+/** Forgets a message locally, whether we deleted it or somebody else did. */
+export async function removeLocalMessage(convId: string, seq: number): Promise<void> {
+  await deleteStoredMessage(convId, seq);
+  const loaded = messages.value.get(convId);
+  if (loaded?.some((m) => m.seq === seq)) setMessages(convId, loaded.filter((m) => m.seq !== seq));
+  const conv = conversations.value.get(convId);
+  if (conv?.lastMessage?.seq === seq) await persistConversation({ ...conv, lastMessage: await latestPreview(convId) });
+}
+
+async function latestPreview(convId: string): Promise<Conversation['lastMessage']> {
+  const list = await messagesFor(convId);
+  for (let i = list.length - 1; i >= 0; i--) {
+    const m = list[i];
+    const text = previewOf(m.payload, m.error);
+    if (text) return { text, ts: m.ts, sender: m.sender, seq: m.seq };
+  }
+  return null;
+}
+
+/** Records a sequence entry with nothing new to read (an edit or a deletion): it never shows as unread. */
+async function advanceSilently(convId: string, seq: number): Promise<void> {
+  const conv = conversations.value.get(convId);
+  if (!conv) return;
+  const next: Conversation = { ...conv, syncedSeq: Math.max(conv.syncedSeq, seq), lastSeq: Math.max(conv.lastSeq, seq) };
+  if (conv.readSeq >= seq - 1 && conv.readSeq < seq) {
+    next.readSeq = seq;
+    http.markRead(convId, seq).catch(() => undefined);
+  }
+  await persistConversation(next);
 }
 
 function maybeNotify(conv: Conversation, msg: StoredMessage, body: string): void {

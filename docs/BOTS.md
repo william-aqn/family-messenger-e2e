@@ -53,7 +53,7 @@ conversation the bot belongs to, or when the bot is added to a conversation.
 ```json
 {
   "id": 42,
-  "type": "message",            // message | command | file | joined
+  "type": "message",            // message | command | file | joined | edited | deleted
   "created_at": 1757400000000,   // ms since epoch
   "bot": {"id": "…", "username": "weatherbot"},
   "conversation": {"id": "…", "kind": "direct", "members": 2},
@@ -76,6 +76,12 @@ conversation the bot belongs to, or when the bot is added to a conversation.
 
 `/start@weatherbot` is parsed as command `start`. Updates are kept for seven
 days.
+
+Two update types concern earlier messages: `edited` carries the new `text` of
+a message the user rewrote (`message.id` is the id of that message, `seq` the
+position of the edit), and `deleted` reports a message a user or an
+administrator removed (`message.id` and `message.seq` identify it, `from` is
+who removed it).
 
 ### Option A: webhook (push)
 

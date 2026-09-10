@@ -3,8 +3,8 @@ import type { FilePayload, Payload } from '../api/types';
 import { describeError, formatDuration, t } from '../i18n';
 import { downloadFile, fileUrl, formatSize, sendFile } from '../state/attachments';
 import { startCall } from '../state/calls';
-import { dismissPending, markRead, sendText, unverifiedMembers } from '../state/messaging';
-import { conversationTitle, hasBot, messages, pending, selectedConversation, selectedId, session, usernameOf } from '../state/model';
+import { deleteMessage, dismissPending, editText, markRead, sendText, unverifiedMembers } from '../state/messaging';
+import { conversationTitle, hasBot, messages, pending, selectedConversation, selectedId, session, showToast, usernameOf } from '../state/model';
 import { effectiveRetention, ensureMessagesLoaded } from '../state/sync';
 import { joinVoice, leaveVoice, participantsOf, voice } from '../state/voice';
 import type { StoredMessage } from '../store/db';
@@ -75,8 +75,15 @@ function FileBubble({ p, onOpen }: { p: FilePayload; onOpen: (url: string) => vo
   );
 }
 
-function Bubble({ m, me, onOpen }: { m: StoredMessage; me: string; onOpen: (url: string) => void }) {
+function Bubble({ m, me, isAdmin, onOpen, onEdit }: { m: StoredMessage; me: string; isAdmin: boolean; onOpen: (url: string) => void; onEdit: (m: StoredMessage) => void }) {
   const mine = m.sender === me;
+  const [menu, setMenu] = useState(false);
+  useEffect(() => {
+    if (!menu) return;
+    const close = () => setMenu(false);
+    document.addEventListener('click', close);
+    return () => document.removeEventListener('click', close);
+  }, [menu]);
   if (m.error || !m.payload) {
     return (
       <div class="system error-text" title={m.error}>
@@ -88,11 +95,70 @@ function Bubble({ m, me, onOpen }: { m: StoredMessage; me: string; onOpen: (url:
     const text = describeEvent(m.payload, m.sender, me);
     return text ? <div class="system">{text}</div> : null;
   }
+  // Senders edit and delete their own messages; administrators may delete anyone's.
+  const canEdit = mine && m.payload.t === 'text';
+  const canDelete = mine || isAdmin;
+  const remove = async () => {
+    if (!confirm(t('confirm_delete_message'))) return;
+    try {
+      await deleteMessage(m.convId, m);
+    } catch (e) {
+      showToast(describeError(e));
+    }
+  };
   return (
-    <div class={`bubble ${mine ? 'mine' : ''}`}>
+    <div
+      class={`bubble ${mine ? 'mine' : ''} ${menu ? 'menu-open' : ''}`}
+      onContextMenu={(e) => {
+        if (!canDelete) return;
+        e.preventDefault();
+        setMenu(true);
+      }}
+    >
       {!mine && <div class="author">{usernameOf(m.sender, me)}</div>}
       {m.payload.t === 'text' ? <div class="body">{m.payload.body}</div> : <FileBubble p={m.payload} onOpen={onOpen} />}
-      <div class="meta">{new Date(m.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
+      <div class="meta">
+        {m.edited && <span class="edited">{t('edited')} ·</span>}
+        <span>{new Date(m.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+        {canDelete && (
+          <button
+            type="button"
+            class="more"
+            title={t('message_actions')}
+            onClick={(e) => {
+              e.stopPropagation();
+              setMenu((v) => !v);
+            }}
+          >
+            ⋯
+          </button>
+        )}
+      </div>
+      {menu && (
+        <div class="msg-menu" onClick={(e) => e.stopPropagation()}>
+          {canEdit && (
+            <button
+              type="button"
+              onClick={() => {
+                setMenu(false);
+                onEdit(m);
+              }}
+            >
+              ✎ {t('edit')}
+            </button>
+          )}
+          <button
+            type="button"
+            class="danger"
+            onClick={() => {
+              setMenu(false);
+              void remove();
+            }}
+          >
+            🗑 {t('delete')}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -102,10 +168,12 @@ export function ChatView() {
   const me = session.value!;
   const [showMembers, setShowMembers] = useState(false);
   const [text, setText] = useState('');
+  const [editing, setEditing] = useState<StoredMessage | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
   const [lightbox, setLightbox] = useState<string | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const list = conv ? (messages.value.get(conv.id) ?? []) : [];
   const mine = conv ? pending.value.filter((p) => p.convId === conv.id) : [];
@@ -115,6 +183,8 @@ export function ChatView() {
     setShowMembers(false);
     setError(null);
     setLightbox(null);
+    setEditing(null);
+    setText('');
   }, [conv?.id]);
 
   useEffect(() => {
@@ -131,16 +201,61 @@ export function ChatView() {
     );
   }
 
+  const startEdit = (m: StoredMessage) => {
+    if (m.payload?.t !== 'text') return;
+    setEditing(m);
+    setText(m.payload.body);
+    requestAnimationFrame(() => {
+      const el = inputRef.current;
+      if (!el) return;
+      el.focus();
+      el.setSelectionRange(el.value.length, el.value.length);
+    });
+  };
+
+  const cancelEdit = () => {
+    setEditing(null);
+    setText('');
+  };
+
   const submit = async (e: Event) => {
     e.preventDefault();
     const body = text.trim();
     if (!body) return;
     setText('');
     setError(null);
+    if (editing) {
+      const target = editing;
+      setEditing(null);
+      if (target.payload?.t === 'text' && target.payload.body === body) return;
+      try {
+        await editText(conv.id, target, body);
+      } catch (err) {
+        setError(describeError(err));
+      }
+      return;
+    }
     try {
       await sendText(conv.id, body);
     } catch (err) {
       setError(describeError(err));
+    }
+  };
+
+  const onKey = (e: KeyboardEvent) => {
+    if (e.key === 'Escape' && editing) {
+      e.preventDefault();
+      e.stopPropagation(); // Escape otherwise closes the conversation
+      cancelEdit();
+      return;
+    }
+    if (e.key === 'ArrowUp' && !text && !editing) {
+      // Up in an empty composer edits our last message, as in most messengers.
+      const last = [...list].reverse().find((m) => m.sender === me.accountId && m.payload?.t === 'text');
+      if (last) {
+        e.preventDefault();
+        startEdit(last);
+      }
     }
   };
 
@@ -222,7 +337,7 @@ export function ChatView() {
       <div class="chat-body">
         <div class="messages" ref={listRef}>
           {list.map((m) => (
-            <Bubble key={m.seq} m={m} me={me.accountId} onOpen={setLightbox} />
+            <Bubble key={m.seq} m={m} me={me.accountId} isAdmin={me.isAdmin} onOpen={setLightbox} onEdit={startEdit} />
           ))}
           {mine.map((p) => (
             <div key={p.clientMsgId} class={`bubble mine pending ${p.failed ? 'failed' : ''}`}>
@@ -246,14 +361,31 @@ export function ChatView() {
         </div>
         {showMembers && <MemberPanel conv={conv} onClose={() => setShowMembers(false)} />}
       </div>
+      {editing && (
+        <div class="editing-bar">
+          <span>✎ {t('editing_message')}</span>
+          <button type="button" class="link" onClick={cancelEdit}>
+            {t('cancel')}
+          </button>
+        </div>
+      )}
       <form class="composer" onSubmit={submit}>
         <input ref={fileInput} type="file" multiple hidden onChange={(e) => void sendFiles((e.target as HTMLInputElement).files).then(() => ((e.target as HTMLInputElement).value = ''))} />
         <button type="button" title={t('attach_file')} onClick={() => fileInput.current?.click()}>
           📎
         </button>
-        <input value={text} onInput={(e) => setText((e.target as HTMLInputElement).value)} onPaste={onPaste} placeholder={t('write_message')} autocomplete="off" autofocus />
+        <input
+          ref={inputRef}
+          value={text}
+          onInput={(e) => setText((e.target as HTMLInputElement).value)}
+          onPaste={onPaste}
+          onKeyDown={onKey}
+          placeholder={t('write_message')}
+          autocomplete="off"
+          autofocus
+        />
         <button type="submit" class="primary" disabled={!text.trim()}>
-          {t('send')}
+          {editing ? t('save') : t('send')}
         </button>
       </form>
       {error && <div class="error composer-error">{error}</div>}

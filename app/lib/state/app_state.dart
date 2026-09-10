@@ -48,6 +48,9 @@ class Conversation {
   List<String>? roster;
   int rosterSeq = 0;
   String preview = '';
+  /// Sequence number of the message behind [preview], so that edits and
+  /// deletions can refresh it.
+  int previewSeq = 0;
   int updatedAt = 0;
   bool removed = false;
 }
@@ -75,6 +78,9 @@ class Message {
   final String? error;
   bool pending;
   String? failed;
+
+  /// The sender replaced the text with a later `text.edit` (PROTOCOL.md §6.3).
+  bool edited = false;
 
   String get type => (payload?['t'] as String?) ?? '';
 }
@@ -468,6 +474,10 @@ class AppState extends ChangeNotifier {
     final s = session;
     final k = keys;
     if (s == null || k == null) return;
+    if (stored && view.isDeletion) {
+      _applyDeletion(view);
+      return;
+    }
     Map<String, dynamic>? payload;
     String? error;
     var ts = view.serverTs;
@@ -505,6 +515,11 @@ class AppState extends ChangeNotifier {
     if (conv == null) return;
     final r = effectiveRetention(conv);
     if (r > 0 && msg.serverTs < DateTime.now().millisecondsSinceEpoch - r * 1000) return;
+    if (msg.type == 'text.edit') {
+      _applyEdit(conv, msg);
+      _advanceSilently(conv, msg.seq);
+      return;
+    }
     final list = messages.putIfAbsent(msg.convId, () => []);
     list.removeWhere((m) => m.clientMsgId == msg.clientMsgId && (m.pending || m.seq == msg.seq));
     if (!list.any((m) => m.seq == msg.seq)) {
@@ -531,6 +546,7 @@ class AppState extends ChangeNotifier {
     final preview = previewOf(msg);
     if (preview.isNotEmpty) {
       conv.preview = preview;
+      conv.previewSeq = msg.seq;
       if (msg.serverTs > conv.updatedAt) conv.updatedAt = msg.serverTs;
     }
     if (msg.sender == session!.accountId && msg.seq > conv.readSeq) conv.readSeq = msg.seq;
@@ -551,6 +567,68 @@ class AppState extends ChangeNotifier {
       } catch (_) {}
     }
     return ids;
+  }
+
+  /// Applies a `text.edit` (PROTOCOL.md §6.3): only the sender may rewrite
+  /// its own earlier text message.
+  void _applyEdit(Conversation conv, Message edit) {
+    final ref = edit.payload!['ref'];
+    final body = edit.payload!['body'];
+    if (ref is! String || body is! String) return;
+    for (final m in messages[conv.id] ?? const <Message>[]) {
+      if (m.clientMsgId == ref && m.sender == edit.sender && m.type == 'text' && !m.pending && m.seq < edit.seq) {
+        _setBody(conv, m, body, edited: true);
+        return;
+      }
+    }
+  }
+
+  void _setBody(Conversation? conv, Message m, String body, {required bool edited}) {
+    m.payload!['body'] = body;
+    m.edited = edited;
+    if (conv != null && conv.previewSeq == m.seq) conv.preview = body;
+    notifyListeners();
+  }
+
+  /// Applies a deletion record: the message at deletedSeq is gone for everyone.
+  void _applyDeletion(MessageView view) {
+    final conv = conversations[view.convId];
+    if (conv == null) return;
+    _removeLocal(conv, view.deletedSeq!);
+    _advanceSilently(conv, view.seq);
+  }
+
+  void _removeLocal(Conversation conv, int seq) {
+    messages[conv.id]?.removeWhere((m) => m.seq == seq && !m.pending);
+    if (conv.previewSeq == seq) _refreshPreview(conv);
+    notifyListeners();
+  }
+
+  void _refreshPreview(Conversation conv) {
+    conv.preview = '';
+    conv.previewSeq = 0;
+    for (final m in (messages[conv.id] ?? const <Message>[]).reversed) {
+      if (m.pending) continue;
+      final text = previewOf(m);
+      if (text.isNotEmpty) {
+        conv.preview = text;
+        conv.previewSeq = m.seq;
+        return;
+      }
+    }
+  }
+
+  /// Records a sequence entry with nothing new to read (an edit or a
+  /// deletion): it never shows as unread.
+  void _advanceSilently(Conversation conv, int seq) {
+    if (seq > conv.syncedSeq) conv.syncedSeq = seq;
+    if (seq > conv.lastSeq) conv.lastSeq = seq;
+    if (conv.readSeq >= seq - 1 && conv.readSeq < seq) {
+      conv.readSeq = seq;
+      final client = api;
+      if (client != null) unawaited(client.markRead(conv.id, seq).catchError((_) {}));
+    }
+    notifyListeners();
   }
 
   String previewOf(Message m) {
@@ -611,7 +689,10 @@ class AppState extends ChangeNotifier {
     return ids;
   }
 
-  Future<Map<String, dynamic>> sendPayload(String convId, Map<String, dynamic> payload, {int flags = 0}) async {
+  /// Encrypts, signs and sends a payload. Stored messages show as pending
+  /// bubbles until the server echoes them; [track] false skips that for
+  /// payloads that change an existing message instead of adding one.
+  Future<Map<String, dynamic>> sendPayload(String convId, Map<String, dynamic> payload, {int flags = 0, bool track = true}) async {
     final conv = conversations[convId];
     if (conv == null) throw StateError('unknown conversation');
     final recipients = <Recipient>[];
@@ -625,7 +706,7 @@ class AppState extends ChangeNotifier {
     final ts = DateTime.now().millisecondsSinceEpoch;
     final ephemeral = flags & flagEphemeral != 0;
     Message? pending;
-    if (!ephemeral) {
+    if (!ephemeral && track) {
       pending = Message(convId: convId, seq: 1 << 40, clientMsgId: clientMsgId, sender: session!.accountId, ts: ts, serverTs: ts, payload: payload, pending: true);
       messages.putIfAbsent(convId, () => []).add(pending);
       notifyListeners();
@@ -652,6 +733,38 @@ class AppState extends ChangeNotifier {
   void dismissPending(String convId, String clientMsgId) {
     messages[convId]?.removeWhere((m) => m.clientMsgId == clientMsgId && m.pending);
     notifyListeners();
+  }
+
+  /// Senders edit their own text messages.
+  bool canEdit(Message m) => !m.pending && m.sender == session?.accountId && m.type == 'text';
+
+  /// Senders delete their own messages; administrators delete anyone's.
+  bool canDelete(Message m) => !m.pending && (m.sender == session?.accountId || (session?.isAdmin ?? false));
+
+  /// Rewrites one of our own text messages: applied locally at once, then
+  /// sent as a signed `text.edit` (PROTOCOL.md §6.3).
+  Future<void> editText(String convId, Message original, String body) async {
+    if (!canEdit(original)) throw StateError('only your own text messages can be edited');
+    final conv = conversations[convId];
+    final previous = original.payload!['body'];
+    final wasEdited = original.edited;
+    _setBody(conv, original, body, edited: true);
+    try {
+      await sendPayload(convId, {'t': 'text.edit', 'ref': original.clientMsgId, 'body': body}, track: false);
+    } catch (_) {
+      _setBody(conv, original, previous is String ? previous : '', edited: wasEdited);
+      rethrow;
+    }
+  }
+
+  /// Deletes a message for everyone: our own, or anyone's when we administer
+  /// the server. The attachment goes with it.
+  Future<void> deleteMessage(String convId, Message m) async {
+    await api!.deleteMessage(convId, m.seq);
+    final conv = conversations[convId];
+    if (conv != null) _removeLocal(conv, m.seq);
+    final blob = m.type == 'file' ? m.payload!['blob'] : null;
+    if (blob is String && blob.isNotEmpty) unawaited(api!.deleteBlob(blob).catchError((_) {}));
   }
 
   Future<void> sendFile(String convId, String name, String mime, Uint8List data) async {

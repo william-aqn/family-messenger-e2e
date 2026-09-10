@@ -152,6 +152,61 @@ func TestStoreFlow(t *testing.T) {
 	}
 }
 
+func TestDeleteMessage(t *testing.T) {
+	s, err := Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	ctx := context.Background()
+	now := time.Now().Unix()
+	for _, name := range []string{"alice", "bob"} {
+		a := &Account{ID: name + "-id", Username: name, Salt: []byte("salt"), AuthHash: []byte("hash"), SignPub: []byte("sp"), EncPub: []byte("ep"), KeyBundle: []byte("kb"), CreatedAt: now}
+		d := &Device{ID: name + "-dev", AccountID: a.ID, Name: "dev", TokenHash: []byte(name + "-token"), CreatedAt: now, LastSeen: now}
+		if err := s.CreateAccount(ctx, a, d, "", false); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, _, err := s.CreateDirect(ctx, "c1", "alice-id", "bob-id", now); err != nil {
+		t.Fatal(err)
+	}
+	for i, sender := range []string{"alice-id", "bob-id"} {
+		m := &Message{ConvID: "c1", SenderAccount: sender, SenderDevice: sender + "-dev", ClientID: "m" + string(rune('1'+i)), Env: []byte("env"), Sig: []byte("sig"), ServerTS: now}
+		if _, _, _, err := s.AppendMessage(ctx, m, []string{"alice-id", "bob-id"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	rec, err := s.DeleteMessage(ctx, "c1", 1, "bob-id", "bob-dev", "rec-1", now+5)
+	if err != nil || rec.Seq != 3 || rec.DeletedSeq != 1 || rec.DeletedSender != "alice-id" || rec.SenderAccount != "bob-id" || !rec.IsDeletion() {
+		t.Fatalf("deletion record: %+v %v", rec, err)
+	}
+	if _, err := s.Message(ctx, "c1", 1); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("deleted message still readable: %v", err)
+	}
+	if _, err := s.Message(ctx, "c1", 3); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("a deletion record must not count as a message: %v", err)
+	}
+	if _, err := s.DeleteMessage(ctx, "c1", 3, "bob-id", "bob-dev", "rec-2", now); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("deleting a record: %v", err)
+	}
+	if _, err := s.DeleteMessage(ctx, "c1", 1, "bob-id", "bob-dev", "rec-3", now); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("deleting twice: %v", err)
+	}
+	msgs, err := s.Messages(ctx, "c1", 0, 0, 10)
+	if err != nil || len(msgs) != 2 || msgs[0].Seq != 2 || msgs[1].Seq != 3 || msgs[1].DeletedSeq != 1 || len(msgs[1].Env) != 0 || msgs[1].Env == nil {
+		t.Fatalf("history after deletion: %+v %v", msgs, err)
+	}
+	convs, err := s.ConversationsForAccount(ctx, "alice-id")
+	if err != nil || len(convs) != 1 || convs[0].LastSeq != 3 {
+		t.Fatalf("last_seq after deletion: %+v %v", convs, err)
+	}
+	st, err := s.Stats(ctx)
+	if err != nil || st.Messages != 1 {
+		t.Fatalf("stats must not count deletion records: %+v %v", st, err)
+	}
+}
+
 func TestOpenTwiceKeepsData(t *testing.T) {
 	// A plain temp dir instead of t.TempDir(): on Windows the SQLite files may
 	// still be releasing when the test's cleanup runs, which would fail it.

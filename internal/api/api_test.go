@@ -84,6 +84,8 @@ type msgView struct {
 	ClientMsgID   string `json:"client_msg_id"`
 	Env           []byte `json:"env"`
 	Sig           []byte `json:"sig"`
+	DeletedSeq    int64  `json:"deleted_seq"`
+	DeletedSender string `json:"deleted_sender"`
 }
 
 type client struct {

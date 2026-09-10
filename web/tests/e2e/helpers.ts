@@ -16,6 +16,18 @@ export async function register(browser: Browser, name: string): Promise<Page> {
   return page;
 }
 
+/** Signs an existing account in from a fresh browser context. */
+export async function login(browser: Browser, name: string): Promise<Page> {
+  const ctx = await browser.newContext({ permissions: ['microphone'], locale: 'en-US' });
+  const page = await ctx.newPage();
+  await page.goto('/');
+  await page.getByLabel('Username').fill(name);
+  await page.getByLabel('Password').fill(password(name));
+  await page.getByRole('button', { name: 'Sign in' }).last().click();
+  await expect(page.getByText(`@${name}`)).toBeVisible({ timeout: 60_000 });
+  return page;
+}
+
 export async function openDirect(page: Page, peer: string): Promise<void> {
   await page.getByTitle('New chat').click();
   await page.getByPlaceholder('bob').fill(peer);

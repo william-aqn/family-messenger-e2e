@@ -92,10 +92,12 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("DELETE /api/v1/conversations/{id}/members/{account}", authed(s.removeMember))
 	mux.Handle("GET /api/v1/conversations/{id}/messages", authed(s.listMessages))
 	mux.Handle("POST /api/v1/conversations/{id}/messages", authed(s.sendMessage))
+	mux.Handle("DELETE /api/v1/conversations/{id}/messages/{seq}", authed(s.deleteMessage))
 	mux.Handle("PUT /api/v1/conversations/{id}/read", authed(s.markRead))
 	mux.Handle("PUT /api/v1/conversations/{id}/retention", authed(s.setRetention))
 	mux.Handle("POST /api/v1/conversations/{id}/blobs", authed(s.uploadBlob))
 	mux.Handle("GET /api/v1/blobs/{id}", authed(s.downloadBlob))
+	mux.Handle("DELETE /api/v1/blobs/{id}", authed(s.deleteBlob))
 	mux.Handle("GET /api/v1/turn", authed(s.turn))
 	mux.HandleFunc("GET /api/v1/ws", s.handleWS)
 

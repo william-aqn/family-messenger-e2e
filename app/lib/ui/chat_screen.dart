@@ -1,8 +1,8 @@
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../crypto/fingerprint.dart';
@@ -22,7 +22,11 @@ class ChatScreen extends StatefulWidget {
 
 class _ChatScreenState extends State<ChatScreen> {
   final text = TextEditingController();
+  final inputFocus = FocusNode();
   String? error;
+
+  /// The message whose text is being rewritten in the composer, if any.
+  Message? editing;
 
   @override
   void initState() {
@@ -30,15 +34,113 @@ class _ChatScreenState extends State<ChatScreen> {
     app.markRead(widget.convId);
   }
 
+  @override
+  void dispose() {
+    text.dispose();
+    inputFocus.dispose();
+    super.dispose();
+  }
+
   Future<void> _send() async {
     final body = text.text.trim();
     if (body.isEmpty) return;
+    final target = editing;
     text.clear();
-    setState(() => error = null);
+    setState(() {
+      error = null;
+      editing = null;
+    });
     try {
-      await app.sendText(widget.convId, body);
+      if (target != null) {
+        if ((target.payload?['body'] as String?) != body) await app.editText(widget.convId, target, body);
+      } else {
+        await app.sendText(widget.convId, body);
+      }
     } catch (e) {
       setState(() => error = e.toString());
+    }
+  }
+
+  void _startEdit(Message m) {
+    if (!app.canEdit(m)) return;
+    setState(() {
+      editing = m;
+      error = null;
+      text.text = (m.payload?['body'] as String?) ?? '';
+      text.selection = TextSelection.collapsed(offset: text.text.length);
+    });
+    inputFocus.requestFocus();
+  }
+
+  void _cancelEdit() {
+    setState(() {
+      editing = null;
+      text.clear();
+    });
+  }
+
+  /// Long press or right click on a message: copy, edit (own text) and
+  /// delete (own messages, or any message for an administrator).
+  Future<void> _showActions(BuildContext context, Message m) async {
+    final canEdit = app.canEdit(m);
+    final canDelete = app.canDelete(m);
+    final body = m.type == 'text' ? ((m.payload?['body'] as String?) ?? '') : '';
+    if (body.isEmpty && !canEdit && !canDelete) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      builder: (sheet) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (body.isNotEmpty)
+              ListTile(
+                leading: const Icon(Icons.copy),
+                title: Text(t('copy')),
+                onTap: () async {
+                  await Clipboard.setData(ClipboardData(text: body));
+                  if (sheet.mounted) Navigator.pop(sheet);
+                },
+              ),
+            if (canEdit)
+              ListTile(
+                leading: const Icon(Icons.edit),
+                title: Text(t('edit')),
+                onTap: () {
+                  Navigator.pop(sheet);
+                  _startEdit(m);
+                },
+              ),
+            if (canDelete)
+              ListTile(
+                leading: Icon(Icons.delete, color: Theme.of(sheet).colorScheme.error),
+                title: Text(t('delete'), style: TextStyle(color: Theme.of(sheet).colorScheme.error)),
+                onTap: () {
+                  Navigator.pop(sheet);
+                  _confirmDelete(m);
+                },
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _confirmDelete(Message m) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (dialog) => AlertDialog(
+        content: Text(t('confirm_delete_message')),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialog, false), child: Text(t('cancel'))),
+          FilledButton(onPressed: () => Navigator.pop(dialog, true), child: Text(t('delete'))),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    try {
+      await app.deleteMessage(widget.convId, m);
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
     }
   }
 
@@ -120,10 +222,18 @@ class _ChatScreenState extends State<ChatScreen> {
                   reverse: true,
                   padding: const EdgeInsets.all(12),
                   itemCount: list.length,
-                  itemBuilder: (context, i) => _MessageTile(message: list[list.length - 1 - i], convId: conv.id),
+                  itemBuilder: (context, i) => _MessageTile(message: list[list.length - 1 - i], onActions: (m) => _showActions(context, m)),
                 ),
               ),
               if (error != null) Padding(padding: const EdgeInsets.symmetric(horizontal: 12), child: Text(error!, style: TextStyle(color: Theme.of(context).colorScheme.error))),
+              if (editing != null)
+                ListTile(
+                  dense: true,
+                  leading: const Icon(Icons.edit, size: 18),
+                  title: Text(t('editing_message')),
+                  subtitle: Text((editing!.payload?['body'] as String?) ?? '', maxLines: 1, overflow: TextOverflow.ellipsis),
+                  trailing: IconButton(icon: const Icon(Icons.close), tooltip: t('cancel'), onPressed: _cancelEdit),
+                ),
               SafeArea(
                 child: Row(
                   children: [
@@ -131,6 +241,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     Expanded(
                       child: TextField(
                         controller: text,
+                        focusNode: inputFocus,
                         decoration: InputDecoration(hintText: t('write_message'), border: const OutlineInputBorder()),
                         textInputAction: TextInputAction.send,
                         onSubmitted: (_) => _send(),
@@ -138,7 +249,7 @@ class _ChatScreenState extends State<ChatScreen> {
                         maxLines: 4,
                       ),
                     ),
-                    IconButton(icon: const Icon(Icons.send), onPressed: _send),
+                    IconButton(icon: Icon(editing != null ? Icons.check : Icons.send), tooltip: editing != null ? t('edit') : t('send'), onPressed: _send),
                   ],
                 ),
               ),
@@ -242,10 +353,10 @@ class _ChatScreenState extends State<ChatScreen> {
 }
 
 class _MessageTile extends StatelessWidget {
-  const _MessageTile({required this.message, required this.convId});
+  const _MessageTile({required this.message, required this.onActions});
 
   final Message message;
-  final String convId;
+  final void Function(Message) onActions;
 
   @override
   Widget build(BuildContext context) {
@@ -263,32 +374,36 @@ class _MessageTile extends StatelessWidget {
     }
     final scheme = Theme.of(context).colorScheme;
     final time = TimeOfDay.fromDateTime(DateTime.fromMillisecondsSinceEpoch(message.ts)).format(context);
+    final meta = message.failed != null
+        ? message.failed!
+        : message.pending
+            ? t('sending')
+            : message.edited
+                ? '$time · ${t('edited')}'
+                : time;
     return Align(
       alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
-      child: Container(
-        margin: const EdgeInsets.symmetric(vertical: 3),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.78),
-        decoration: BoxDecoration(
-          color: mine ? scheme.primaryContainer : scheme.surfaceContainerHighest,
-          borderRadius: BorderRadius.circular(14),
-          border: message.failed != null ? Border.all(color: scheme.error) : null,
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (!mine) Text(app.usernameOf(message.sender), style: TextStyle(color: scheme.primary, fontSize: 12)),
-            if (type == 'text') Text(p['body'] as String? ?? '') else _FileBody(payload: p),
-            Text(
-              message.failed != null
-                  ? message.failed!
-                  : message.pending
-                      ? t('sending')
-                      : time,
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-          ],
+      child: GestureDetector(
+        onLongPress: message.pending ? null : () => onActions(message),
+        onSecondaryTap: message.pending ? null : () => onActions(message),
+        child: Container(
+          margin: const EdgeInsets.symmetric(vertical: 3),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.78),
+          decoration: BoxDecoration(
+            color: mine ? scheme.primaryContainer : scheme.surfaceContainerHighest,
+            borderRadius: BorderRadius.circular(14),
+            border: message.failed != null ? Border.all(color: scheme.error) : null,
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (!mine) Text(app.usernameOf(message.sender), style: TextStyle(color: scheme.primary, fontSize: 12)),
+              if (type == 'text') Text(p['body'] as String? ?? '') else _FileBody(payload: p),
+              Text(meta, style: Theme.of(context).textTheme.bodySmall),
+            ],
+          ),
         ),
       ),
     );

@@ -99,6 +99,41 @@ func (s *Server) blobForMember(r *http.Request, id string) (*store.Blob, error) 
 	return b, nil
 }
 
+// deleteBlob removes an attachment's ciphertext, normally right after the
+// message that carried it was deleted (PROTOCOL.md §6.3). The uploader may
+// delete their own attachments, an administrator any.
+func (s *Server) deleteBlob(w http.ResponseWriter, r *http.Request) {
+	p := principal(r)
+	id := r.PathValue("id")
+	if !blobIDRe.MatchString(id) {
+		writeError(w, s.log, notFound("not_found", "no such attachment"))
+		return
+	}
+	b, err := s.store.Blob(r.Context(), id)
+	if err != nil {
+		writeError(w, s.log, err)
+		return
+	}
+	if !p.IsAdmin {
+		if _, err := s.store.ConversationForAccount(r.Context(), b.ConvID, p.AccountID); err != nil {
+			writeError(w, s.log, notFound("not_found", "no such attachment"))
+			return
+		}
+		if b.Uploader != p.AccountID {
+			writeError(w, s.log, forbidden("not_your_attachment", "only the uploader or an administrator can delete this attachment"))
+			return
+		}
+	}
+	if err := s.store.DeleteBlobs(r.Context(), []string{id}); err != nil {
+		writeError(w, s.log, err)
+		return
+	}
+	if err := os.Remove(s.blobPath(id)); err != nil && !os.IsNotExist(err) {
+		s.log.Warn("cannot delete attachment file", "id", id, "err", err)
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (s *Server) downloadBlob(w http.ResponseWriter, r *http.Request) {
 	b, err := s.blobForMember(r, r.PathValue("id"))
 	if err != nil {
