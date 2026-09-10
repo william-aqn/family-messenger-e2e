@@ -48,9 +48,19 @@ function Overview() {
     [t('stat_uptime'), uptime],
     [t('stat_turn'), stats.turn_enabled ? t('configured') : t('not_configured')],
     [t('server'), `${stats.version} · ${stats.go_version}`],
+    [t('stat_latest'), stats.latest_version ? (stats.latest_version === stats.version ? t('up_to_date') : stats.latest_version) : t('not_checked_yet')],
   ];
+  const updateHint = stats.latest_version && stats.latest_version !== stats.version;
   return (
     <>
+      {updateHint && (
+        <div class="notice small">
+          🆕 {t('update_server_hint', { version: stats.latest_version })}{' '}
+          <a href={stats.latest_url} target="_blank" rel="noreferrer">
+            {t('release_page')}
+          </a>
+        </div>
+      )}
       <div class="stat-grid">
         {cells.map(([label, value]) => (
           <div class="stat" key={label}>

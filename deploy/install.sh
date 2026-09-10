@@ -4,25 +4,34 @@
 #   curl -fsSL https://raw.githubusercontent.com/william-aqn/family-messenger-e2e/main/deploy/install.sh | sudo sh
 #
 # The first run asks which flavour to install (remembered in deploy/.env):
-#   docker  server, Caddy and coturn in containers; Docker is installed if missing
-#   native  systemd services without Docker: the server is built from source
-#           (Go and Node are downloaded into INSTALL_DIR/toolchain when the
-#           system has none), Caddy is a static binary, coturn comes from the
-#           distribution's package
+#   release  the prebuilt server from GitHub Releases (default): one static
+#            binary with the web client inside, Caddy as a static binary and
+#            coturn from the distribution, all as systemd services. Nothing is
+#            compiled, so a 1 vCPU / 512 MB box is enough
+#   docker   server, Caddy and coturn in containers; Docker is installed if missing
+#   source   like release, but the server is compiled here from the checkout
+#            (Go and Node are downloaded into INSTALL_DIR/toolchain when the
+#            system has none; needs about 2 GB of memory for the build)
+#
+# Re-running the installer (or `family-messenger update`) updates the flavour
+# in place: the newest release, the newest image, or a fresh build.
 #
 # Non-interactive: pass the answers through the environment, e.g.
-#   INSTALL_MODE=native DOMAIN=chat.example.com curl -fsSL ... | sudo -E sh
+#   INSTALL_MODE=release DOMAIN=chat.example.com curl -fsSL ... | sudo -E sh
 #
-# Optional variables: INSTALL_MODE (docker|native), DOMAIN, EXTERNAL_IP,
-# TURN_SECRET, MSGR_REGISTRATION (open|invite|closed), MSGR_IMAGE (docker only),
-# MSGR_BINARY_URL (native only: use this prebuilt server binary instead of
-# building), INSTALL_DIR (default /opt/family-messenger-e2e), BRANCH (default
-# main), REPO_URL. Running `sh deploy/install.sh` inside a checkout installs
-# that checkout as it is (no clone, no update).
+# Optional variables: INSTALL_MODE (release|docker|source), RELEASE (a tag such
+# as v0.2.0 instead of the newest release), DOMAIN, EXTERNAL_IP, TURN_SECRET,
+# MSGR_REGISTRATION (open|invite|closed), MSGR_IMAGE (docker only),
+# MSGR_BINARY_URL (release only: download this binary instead), INSTALL_DIR
+# (default /opt/family-messenger-e2e), BRANCH (default main), REPO_URL,
+# GITHUB_REPO (owner/name for releases). Running `sh deploy/install.sh` inside
+# a checkout installs that checkout as it is (no clone, no update).
 set -eu
 
 REPO_URL="${REPO_URL:-https://github.com/william-aqn/family-messenger-e2e.git}"
+GITHUB_REPO="${GITHUB_REPO:-william-aqn/family-messenger-e2e}"
 BRANCH="${BRANCH:-main}"
+RELEASE="${RELEASE:-}"
 INSTALL_DIR_GIVEN="${INSTALL_DIR:-}"
 INSTALL_DIR="${INSTALL_DIR:-/opt/family-messenger-e2e}"
 DEFAULT_IMAGE="ghcr.io/william-aqn/family-messenger-e2e:latest"
@@ -67,10 +76,11 @@ ask() {
   if [ -n "$answer" ]; then printf '%s\n' "$answer"; else printf '%s\n' "$default"; fi
 }
 
-# ---------------------------------------------------------------- source tree
+command -v curl >/dev/null 2>&1 || { say "Installing curl"; pkg_install curl ca-certificates; }
 
-# `sh deploy/install.sh` inside a checkout installs that checkout; `curl | sh`
-# clones (or updates) INSTALL_DIR from REPO_URL.
+# ---------------------------------------------------------------- flavour
+
+# `sh deploy/install.sh` inside a checkout installs that checkout.
 LOCAL_CHECKOUT=""
 case "$0" in
   *deploy/install.sh)
@@ -79,46 +89,57 @@ case "$0" in
     ;;
 esac
 if [ -n "$LOCAL_CHECKOUT" ] && [ -z "$INSTALL_DIR_GIVEN" ]; then INSTALL_DIR="$LOCAL_CHECKOUT"; fi
-
-command -v curl >/dev/null 2>&1 || { say "Installing curl"; pkg_install curl ca-certificates; }
-if [ -n "$LOCAL_CHECKOUT" ] && [ "$INSTALL_DIR" = "$LOCAL_CHECKOUT" ]; then
-  say "Installing from the checkout at $INSTALL_DIR"
-else
-  command -v git >/dev/null 2>&1 || { say "Installing git"; pkg_install git; }
-  if [ -d "$INSTALL_DIR/.git" ]; then
-    say "Updating $INSTALL_DIR"
-    if git -C "$INSTALL_DIR" fetch -q origin "$BRANCH" && git -C "$INSTALL_DIR" merge -q --ff-only FETCH_HEAD; then
-      :
-    else
-      warn "could not fast-forward $INSTALL_DIR to origin/$BRANCH; keeping the local version"
-    fi
-  else
-    say "Cloning into $INSTALL_DIR"
-    git clone -q --depth 1 -b "$BRANCH" "$REPO_URL" "$INSTALL_DIR"
-  fi
-fi
-cd "$INSTALL_DIR/deploy"
-
-# ---------------------------------------------------------------- flavour
+mkdir -p "$INSTALL_DIR/deploy"
+ENV_FILE="$INSTALL_DIR/deploy/.env"
 
 INSTALL_MODE="${INSTALL_MODE:-}"
-if [ -z "$INSTALL_MODE" ] && [ -f .env ]; then
-  INSTALL_MODE="$(sed -n 's/^INSTALL_MODE=//p' .env)"
-  # installs made before the native flavour existed
+if [ -z "$INSTALL_MODE" ] && [ -f "$ENV_FILE" ]; then
+  INSTALL_MODE="$(sed -n 's/^INSTALL_MODE=//p' "$ENV_FILE")"
+  # installs made before the flavours existed
   [ -n "$INSTALL_MODE" ] || INSTALL_MODE=docker
 fi
 if [ -z "$INSTALL_MODE" ]; then
   if has_tty; then
     printf '\nHow should Family Messenger run?\n' >/dev/tty
-    printf '  docker  everything in containers (Docker is installed if missing)\n' >/dev/tty
-    printf '  native  systemd services built from source, no Docker\n' >/dev/tty
+    printf '  release  prebuilt server from GitHub Releases as systemd services (recommended, no Docker, nothing to compile)\n' >/dev/tty
+    printf '  docker   everything in containers (Docker is installed if missing)\n' >/dev/tty
+    printf '  source   systemd services with the server compiled here from the source checkout\n' >/dev/tty
   fi
-  INSTALL_MODE="$(ask 'Installation type (docker/native)' docker)"
+  INSTALL_MODE="$(ask 'Installation type (release/docker/source)' release)"
 fi
 case "$INSTALL_MODE" in
-  docker|native) ;;
-  *) die "INSTALL_MODE must be docker or native (got '$INSTALL_MODE')" ;;
+  native) INSTALL_MODE=source ;; # the old name
+  release|docker|source) ;;
+  *) die "INSTALL_MODE must be release, docker or source (got '$INSTALL_MODE')" ;;
 esac
+
+# ---------------------------------------------------------------- source tree
+
+# The docker and source flavours need the checkout (compose files, sources);
+# the release flavour only needs this script.
+if [ "$INSTALL_MODE" != "release" ]; then
+  if [ -n "$LOCAL_CHECKOUT" ] && [ "$INSTALL_DIR" = "$LOCAL_CHECKOUT" ]; then
+    say "Installing from the checkout at $INSTALL_DIR"
+  else
+    command -v git >/dev/null 2>&1 || { say "Installing git"; pkg_install git; }
+    if [ -d "$INSTALL_DIR/.git" ]; then
+      say "Updating $INSTALL_DIR"
+      if git -C "$INSTALL_DIR" fetch -q origin "$BRANCH" && git -C "$INSTALL_DIR" merge -q --ff-only FETCH_HEAD; then
+        :
+      else
+        warn "could not fast-forward $INSTALL_DIR to origin/$BRANCH; keeping the local version"
+      fi
+    else
+      say "Cloning into $INSTALL_DIR"
+      rm -rf "$INSTALL_DIR/deploy/.clone" 2>/dev/null || true
+      git clone -q --depth 1 -b "$BRANCH" "$REPO_URL" "$INSTALL_DIR/deploy/.clone"
+      # keep the .env written by an earlier release install
+      cp -a "$INSTALL_DIR/deploy/.clone/." "$INSTALL_DIR/"
+      rm -rf "$INSTALL_DIR/deploy/.clone"
+    fi
+  fi
+fi
+cd "$INSTALL_DIR/deploy"
 
 # ---------------------------------------------------------------- settings
 
@@ -139,11 +160,14 @@ MSGR_IMAGE=$MSGR_IMAGE
 EOF
   chmod 600 .env
   say "Wrote $INSTALL_DIR/deploy/.env"
-elif ! grep -q '^INSTALL_MODE=' .env; then
-  printf 'INSTALL_MODE=%s\n' "$INSTALL_MODE" >>.env
-elif [ "$(sed -n 's/^INSTALL_MODE=//p' .env)" != "$INSTALL_MODE" ]; then
-  warn "switching the installation type to $INSTALL_MODE; stop the previous one first if it is still running"
-  sed -i "s/^INSTALL_MODE=.*/INSTALL_MODE=$INSTALL_MODE/" .env
+else
+  sed -i 's/^INSTALL_MODE=native$/INSTALL_MODE=source/' .env # the old name of the source flavour
+  if ! grep -q '^INSTALL_MODE=' .env; then
+    printf 'INSTALL_MODE=%s\n' "$INSTALL_MODE" >>.env
+  elif [ "$(sed -n 's/^INSTALL_MODE=//p' .env)" != "$INSTALL_MODE" ]; then
+    warn "switching the installation type to $INSTALL_MODE; stop the previous one first if it is still running"
+    sed -i "s/^INSTALL_MODE=.*/INSTALL_MODE=$INSTALL_MODE/" .env
+  fi
 fi
 DOMAIN="$(sed -n 's/^DOMAIN=//p' .env)"
 EXTERNAL_IP="$(sed -n 's/^EXTERNAL_IP=//p' .env)"
@@ -151,7 +175,7 @@ TURN_SECRET="$(sed -n 's/^TURN_SECRET=//p' .env)"
 MSGR_REGISTRATION="$(sed -n 's/^MSGR_REGISTRATION=//p' .env)"
 
 print_footer() {
-  printf '  Update:          re-run this installer\n'
+  printf '  Update:          family-messenger update   (or re-run this installer)\n'
   printf '  Firewall:        allow 80/tcp, 443/tcp+udp, 3478/tcp+udp and 49160-49200/udp\n'
   case "$DOMAIN" in
     localhost|*.local|*.lan|[0-9]*.[0-9]*.[0-9]*.[0-9]*)
@@ -190,6 +214,7 @@ install_docker() {
   if [ "$MSGR_REGISTRATION" = "invite" ]; then
     invite="$(docker compose exec -T server /server invite -n 1 2>/dev/null | tail -n 1 || true)"
   fi
+  write_wrapper docker
 
   printf '\n\033[1;32mFamily Messenger is running (Docker).\033[0m\n'
   printf '  Open:            https://%s\n' "$DOMAIN"
@@ -199,7 +224,50 @@ install_docker() {
   print_footer
 }
 
-# ---------------------------------------------------------------- native
+# ---------------------------------------------------------------- release download
+
+# Newest release tag from GitHub (empty when the API is unreachable or nothing was published).
+latest_release_tag() {
+  curl -fsSL -H 'Accept: application/vnd.github+json' "https://api.github.com/repos/$GITHUB_REPO/releases/latest" 2>/dev/null \
+    | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -n 1
+}
+
+download_release() {
+  installed="$("$BIN_DIR/server" version 2>/dev/null || true)"
+  if [ -n "${MSGR_BINARY_URL:-}" ]; then
+    say "Downloading the server binary from $MSGR_BINARY_URL"
+    curl -fL --retry 3 -o "$BIN_DIR/server.new" "$MSGR_BINARY_URL"
+  else
+    tag="$RELEASE"
+    if [ -z "$tag" ]; then
+      tag="$(latest_release_tag)"
+      [ -n "$tag" ] || die "no published release found for $GITHUB_REPO (or GitHub is unreachable); publish one with the release workflow, or use INSTALL_MODE=source or docker"
+    fi
+    if [ -n "$installed" ] && [ "$installed" = "$tag" ]; then
+      say "Server $tag is already installed"
+      return 0
+    fi
+    base="https://github.com/$GITHUB_REPO/releases/download/$tag"
+    say "Downloading server $tag (server-linux-$GOARCH)"
+    curl -fL --retry 3 -o "$BIN_DIR/server.new" "$base/server-linux-$GOARCH" || die "could not download $base/server-linux-$GOARCH"
+    if curl -fsL -o "$BIN_DIR/sha256sums.txt" "$base/sha256sums.txt" 2>/dev/null; then
+      expected="$(grep " server-linux-$GOARCH\$" "$BIN_DIR/sha256sums.txt" | awk '{print $1}')"
+      actual="$(sha256sum "$BIN_DIR/server.new" | awk '{print $1}')"
+      if [ -n "$expected" ] && [ "$expected" != "$actual" ]; then
+        rm -f "$BIN_DIR/server.new"
+        die "checksum mismatch for server-linux-$GOARCH (expected $expected, got $actual)"
+      fi
+      say "Checksum verified"
+    else
+      warn "no sha256sums.txt in the release; the download was not verified"
+    fi
+  fi
+  chmod 755 "$BIN_DIR/server.new"
+  "$BIN_DIR/server.new" version >/dev/null 2>&1 || die "the downloaded server binary does not run on this machine"
+  mv -f "$BIN_DIR/server.new" "$BIN_DIR/server"
+}
+
+# ---------------------------------------------------------------- source build
 
 # $1 >= $2 for dotted version numbers.
 version_ge() { [ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | head -n 1)" = "$2" ]; }
@@ -270,13 +338,14 @@ build_server() {
         return 0
       fi ;;
   esac
+  mkdir -p "$TOOLCHAIN"
   ensure_go
   ensure_node
   export PATH="$NODE_BIN:$PATH"
   export GOPATH="$TOOLCHAIN/gopath" GOCACHE="$TOOLCHAIN/gocache" GOFLAGS="-buildvcs=false" GOTOOLCHAIN=local CGO_ENABLED=0
   add_build_swap
   say "Building the web client (Node $(node --version))"
-  (cd "$INSTALL_DIR/web" && npm ci --no-audit --no-fund --loglevel=error && npm run build --silent)
+  (cd "$INSTALL_DIR/web" && npm ci --no-audit --no-fund --loglevel=error && APP_VERSION="$version" npm run build --silent)
   find "$INSTALL_DIR/internal/webui/dist" -mindepth 1 ! -name .keep -exec rm -rf {} + 2>/dev/null || true
   cp -R "$INSTALL_DIR/web/dist/." "$INSTALL_DIR/internal/webui/dist/"
   say "Building the server $version with $("$GO" version | cut -d' ' -f3) (several minutes on a small machine)"
@@ -285,6 +354,8 @@ build_server() {
   printf '%s\n' "$version" >"$BIN_DIR/server.version"
   remove_build_swap
 }
+
+# ---------------------------------------------------------------- systemd services
 
 install_caddy() {
   if [ -x "$BIN_DIR/caddy" ]; then return 0; fi
@@ -308,7 +379,7 @@ write_native_config() {
     localhost|*.local|*.lan|[0-9]*.[0-9]*.[0-9]*.[0-9]*) tls="tls internal" ;;
   esac
   cat >Caddyfile.native <<EOF
-# Generated by install.sh (native mode) from .env; re-run the installer after editing .env.
+# Generated by install.sh from .env; re-run the installer after editing .env.
 $DOMAIN {
 	$tls
 	encode zstd gzip
@@ -333,7 +404,7 @@ EOF
     cp /etc/turnserver.conf /etc/turnserver.conf.orig
   fi
   cat >/etc/turnserver.conf <<EOF
-# Managed by the Family Messenger installer (native mode); edits are overwritten on update.
+# Managed by the Family Messenger installer; edits are overwritten on update.
 listening-port=3478
 realm=$DOMAIN
 use-auth-secret
@@ -410,15 +481,45 @@ ReadWritePaths=$DATA_DIR/caddy
 [Install]
 WantedBy=multi-user.target
 EOF
-  # `family-messenger invite -n 3`, `family-messenger admin list`: runs the
-  # server's subcommands as the service user with the service's environment.
+  systemctl daemon-reload
+}
+
+# `family-messenger invite -n 3`, `family-messenger admin list`, `family-messenger
+# version`: the server's subcommands as the service user with its environment;
+# `family-messenger update`: the newest installer, re-run for this flavour.
+write_wrapper() {
+  flavour="$1"
+  # The release flavour has no checkout, so the last downloaded installer is
+  # kept as the offline fallback (a checkout carries its own copy under git).
+  keep_copy=":"
+  [ "$INSTALL_MODE" != release ] || keep_copy="cp -f \"\$tmp\" \"$INSTALL_DIR/deploy/install.sh\" 2>/dev/null || true"
   cat >/usr/local/bin/family-messenger <<EOF
 #!/bin/sh
 [ "\$(id -u)" -eq 0 ] || { echo "run as root: sudo family-messenger ..." >&2; exit 1; }
+case "\${1:-}" in
+  update)
+    shift
+    tmp="\$(mktemp)"
+    if curl -fsSL "https://raw.githubusercontent.com/$GITHUB_REPO/$BRANCH/deploy/install.sh" -o "\$tmp" 2>/dev/null; then
+      $keep_copy
+      INSTALL_DIR="$INSTALL_DIR" sh "\$tmp" "\$@"; rc=\$?
+      rm -f "\$tmp"; exit \$rc
+    fi
+    rm -f "\$tmp"
+    [ -f "$INSTALL_DIR/deploy/install.sh" ] || { echo "could not download the installer and there is no local copy" >&2; exit 1; }
+    INSTALL_DIR="$INSTALL_DIR" exec sh "$INSTALL_DIR/deploy/install.sh" "\$@" ;;
+esac
+EOF
+  if [ "$flavour" = docker ]; then
+    cat >>/usr/local/bin/family-messenger <<EOF
+cd "$INSTALL_DIR/deploy" && exec docker compose exec -T server /server "\$@"
+EOF
+  else
+    cat >>/usr/local/bin/family-messenger <<EOF
 exec runuser -u $SERVICE_USER -- /bin/sh -c 'set -a; . "$INSTALL_DIR/deploy/server.env"; set +a; exec "$BIN_DIR/server" "\$@"' sh "\$@"
 EOF
+  fi
   chmod 755 /usr/local/bin/family-messenger
-  systemctl daemon-reload
 }
 
 open_firewall() {
@@ -462,16 +563,16 @@ start_native_services() {
   done
 }
 
-install_native() {
-  command -v systemctl >/dev/null 2>&1 || die "the native installation needs systemd; use INSTALL_MODE=docker"
+install_systemd() {
+  command -v systemctl >/dev/null 2>&1 || die "the $INSTALL_MODE installation needs systemd; use INSTALL_MODE=docker"
   case "$(uname -m)" in
     x86_64|amd64) GOARCH=amd64; NODEARCH=x64 ;;
     aarch64|arm64) GOARCH=arm64; NODEARCH=arm64 ;;
-    *) die "unsupported architecture $(uname -m); use INSTALL_MODE=docker or MSGR_BINARY_URL" ;;
+    *) die "unsupported architecture $(uname -m); use INSTALL_MODE=docker" ;;
   esac
   BIN_DIR="$INSTALL_DIR/bin"
   TOOLCHAIN="$INSTALL_DIR/toolchain"
-  mkdir -p "$BIN_DIR" "$TOOLCHAIN" "$DATA_DIR/caddy"
+  mkdir -p "$BIN_DIR" "$DATA_DIR/caddy"
 
   say "Installing packages (ca-certificates, coturn)"
   pkg_install ca-certificates coturn || die "could not install coturn (on RHEL-like systems enable EPEL first)"
@@ -483,18 +584,15 @@ install_native() {
   chown "$SERVICE_USER:$SERVICE_USER" "$DATA_DIR" "$DATA_DIR/caddy"
   chmod 750 "$DATA_DIR"
 
-  if [ -n "${MSGR_BINARY_URL:-}" ]; then
-    say "Downloading the server binary from $MSGR_BINARY_URL"
-    curl -fsSL "$MSGR_BINARY_URL" -o "$BIN_DIR/server.new"
-    chmod 755 "$BIN_DIR/server.new"
-    "$BIN_DIR/server.new" -h >/dev/null 2>&1 || true
-    mv -f "$BIN_DIR/server.new" "$BIN_DIR/server"
+  if [ "$INSTALL_MODE" = "release" ]; then
+    download_release
   else
     build_server
   fi
   install_caddy
   write_native_config
   write_units
+  write_wrapper systemd
   open_firewall
   start_native_services
 
@@ -502,8 +600,9 @@ install_native() {
   if [ "$MSGR_REGISTRATION" = "invite" ]; then
     invite="$(family-messenger invite -n 1 2>/dev/null | tail -n 1 || true)"
   fi
+  installed="$("$BIN_DIR/server" version 2>/dev/null || echo unknown)"
 
-  printf '\n\033[1;32mFamily Messenger is running (native).\033[0m\n'
+  printf '\n\033[1;32mFamily Messenger %s is running (%s).\033[0m\n' "$installed" "$INSTALL_MODE"
   printf '  Open:            https://%s\n' "$DOMAIN"
   [ -z "$invite" ] || printf '  Invite code:     %s   (the first account becomes the administrator)\n' "$invite"
   printf '  More invites:    family-messenger invite -n 3\n'
@@ -515,5 +614,5 @@ install_native() {
   print_footer
 }
 
-if [ "$INSTALL_MODE" = "docker" ]; then install_docker; else install_native; fi
+if [ "$INSTALL_MODE" = "docker" ]; then install_docker; else install_systemd; fi
 exit 0

@@ -244,6 +244,8 @@ explicitly accepts the new keys.
 - WebSocket `/api/v1/ws` with JSON frames `{"t": type, "d": data}`:
   client → server `send` `{env, sig}`; server → client `ack` `{client_msg_id, seq}`,
   `message` `{conv_id, seq, env, sig, server_ts}`, `signal` `{env, sig}` (ephemeral),
+  `hello` `{account_id, device_id, server_ts, version}` (the server's build number, so a
+  client loaded before an update can ask to be reloaded),
   `event` `{kind, ...}`.
 - Calls: WebRTC 1:1, DTLS-SRTP. Because the SDP (with the DTLS fingerprint)
   travels inside signed and encrypted envelopes, the server cannot substitute

@@ -35,6 +35,7 @@ type Server struct {
 	web      http.Handler
 	blobDir  string
 	started  time.Time
+	updates  updateChecker
 }
 
 // New creates a Server, loading runtime settings and preparing the blob

@@ -4,6 +4,9 @@ import preact from '@preact/preset-vite';
 
 export default defineConfig({
   plugins: [preact()],
+  // The build number (git describe or the release tag) travels with the
+  // bundle so the client can tell when the server has a newer one.
+  define: { __APP_VERSION__: JSON.stringify(process.env.APP_VERSION ?? 'dev') },
   server: {
     // During development the Go server runs on :8080; the UI is served by Vite.
     proxy: { '/api': { target: 'http://127.0.0.1:8080', ws: true } },

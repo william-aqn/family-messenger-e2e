@@ -1,7 +1,8 @@
 name: ci
+# Manual only (start it from the Actions tab): Go tests, web unit and browser
+# tests, a Docker image build and the Flutter analysis.
 on:
-  push:
-  pull_request:
+  workflow_dispatch:
 jobs:
   test:
     runs-on: ubuntu-latest

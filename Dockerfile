@@ -1,7 +1,10 @@
 # syntax=docker/dockerfile:1
 
-# 1. Build the web client (always on the build machine's architecture).
+# 1. Build the web client (always on the build machine's architecture). The
+#    version is compiled in so the client can notice when the server moved on.
 FROM --platform=$BUILDPLATFORM node:26-alpine AS web
+ARG VERSION=dev
+ENV APP_VERSION=${VERSION}
 WORKDIR /src/web
 COPY web/package.json web/package-lock.json ./
 RUN npm ci --no-audit --no-fund

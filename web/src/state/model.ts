@@ -33,6 +33,12 @@ export const toast = signal<string | null>(null);
 export const serverSettings = signal<ServerSettings | null>(null);
 export const serverVersion = signal<string>('');
 
+/** This bundle's build number; the server reports its own, and they match unless the server was updated. */
+export const APP_VERSION = __APP_VERSION__;
+
+/** A newer client is being served: the page should be reloaded. Development builds never nag. */
+export const updateAvailable = computed(() => APP_VERSION !== 'dev' && serverVersion.value !== '' && serverVersion.value !== APP_VERSION);
+
 export function setConversation(c: Conversation): void {
   const m = new Map(conversations.value);
   m.set(c.id, c);

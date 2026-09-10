@@ -1,8 +1,9 @@
 # Family Messenger (E2E)
 
-A minimalist self-hosted messenger with end-to-end encryption, 1:1 voice calls
-and screen sharing. One Go binary, one SQLite file, deployable with
-`docker compose`.
+A minimalist self-hosted messenger with end-to-end encryption, 1:1 voice and
+video calls, group voice channels and screen sharing. One Go binary, one
+SQLite file, installed with one command from a prebuilt release (Docker and
+building from source stay as options).
 
 - **End-to-end encrypted** direct and group chats (up to 100 members) with
   encrypted attachments (photos, documents, any files). The server stores only
@@ -34,8 +35,8 @@ requirements are modest. Figures were measured on the reference VPS (1 vCPU,
 
 | | Minimum | Notes |
 |---|---|---|
-| CPU and RAM | 1 vCPU, 1 GB | At rest the server holds about 12 MB of memory, Caddy about 50 MB, coturn about 10 MB; the CPU stays idle unless calls are relayed. Compiling the server on the machine (native install) wants about 2 GB, which the installer covers with a temporary swap file |
-| Disk | 2 GB free | Native install: about 1 GB for the Go and Node toolchain (build time only) plus 60 MB of binaries; Docker install: about 1.2 GB of images. Add the space you expect for attachments, they are stored as files under the data directory |
+| CPU and RAM | 1 vCPU, 512 MB | At rest the server holds about 12 MB of memory, Caddy about 50 MB, coturn about 10 MB; the CPU stays idle unless calls are relayed. The default install downloads a prebuilt server, so nothing is compiled; only the *source* flavour needs about 2 GB for the build, which the installer covers with a temporary swap file |
+| Disk | 500 MB free | Release install: about 100 MB of binaries (server with the web client inside, Caddy, coturn). Source install adds about 1 GB for the Go and Node toolchain (build time only); Docker install: about 1.2 GB of images. Add the space you expect for attachments, they are stored as files under the data directory |
 | System | Linux with systemd, or Docker | The installer handles Debian/Ubuntu, Fedora/RHEL, Arch, openSUSE and Alpine (Docker flavour), on amd64 and arm64 |
 | Network | Public IPv4, a DNS name, open ports 80/tcp, 443/tcp+udp, 3478/tcp+udp and 49160-49200/udp | The DNS name gets a Let's Encrypt certificate automatically (a bare IP works with a self-signed one, browsers warn); 3478 and the UDP range serve STUN/TURN for calls |
 | Bandwidth | Small | Messages and attachments are tiny. Calls, voice channels and screen streams flow peer to peer and touch the server only when a direct connection is impossible; then TURN relays about 100 kbps per audio stream and 1-3 Mbps per shared screen |
@@ -46,29 +47,61 @@ requirements are modest. Figures were measured on the reference VPS (1 vCPU,
 curl -fsSL https://raw.githubusercontent.com/william-aqn/family-messenger-e2e/main/deploy/install.sh | sudo sh
 ```
 
-The script clones the repository into `/opt/family-messenger-e2e`, asks how
-to run the messenger, asks for the domain and public IP, starts everything
-and prints the first invite code. Run it again to update. Two flavours:
+The script asks how to run the messenger, asks for the domain and public IP,
+starts everything and prints the first invite code. Three flavours (the
+answer is remembered in `/opt/family-messenger-e2e/deploy/.env`):
 
-- **docker** (default): installs Docker if needed, pulls the prebuilt image
-  from GHCR (or builds it locally) and runs Caddy, the server and coturn as
-  containers.
-- **native**: no Docker. The server is compiled on the machine (Go and Node
-  are downloaded into `/opt/family-messenger-e2e/toolchain` unless the system
-  already has them; a small VPS gets a temporary swap file for the build),
-  Caddy is fetched as a static binary and coturn comes from the distribution.
-  Everything runs as systemd units `family-messenger`,
-  `family-messenger-caddy` and `coturn` under the `family-messenger` user with
-  data in `/var/lib/family-messenger`; `family-messenger invite -n 3` and
-  `family-messenger admin list` wrap the server's subcommands. Set
-  `MSGR_BINARY_URL` to a prebuilt `server-linux-<arch>` (from a GitHub
-  Release) to skip the compilation.
+- **release** (default): downloads the newest prebuilt server from
+  [GitHub Releases](https://github.com/william-aqn/family-messenger-e2e/releases),
+  one static binary with the web client inside, verified against the
+  release's `sha256sums.txt`; fetches Caddy as a static binary and installs
+  coturn from the distribution. Nothing is compiled and no Docker is needed,
+  so a 1 vCPU / 512 MB box is enough. `RELEASE=v0.2.0` pins a version and
+  `MSGR_BINARY_URL` points at any other `server-linux-<arch>` binary.
+- **docker**: installs Docker if needed, pulls the prebuilt image from GHCR
+  (or builds it locally) and runs Caddy, the server and coturn as containers.
+- **source**: like release, but the server is compiled on the machine from
+  the checkout in `/opt/family-messenger-e2e` (Go and Node are downloaded into
+  `toolchain/` unless the system already has them; a small VPS gets a
+  temporary swap file for the build).
+
+The release and source flavours run as systemd units `family-messenger`,
+`family-messenger-caddy` and `coturn` under the `family-messenger` user with
+data in `/var/lib/family-messenger`; `family-messenger invite -n 3`,
+`family-messenger admin list` and `family-messenger version` wrap the
+server's subcommands.
 
 Answers can come from the environment for a non-interactive run:
-`INSTALL_MODE=native DOMAIN=chat.example.com EXTERNAL_IP=... | sudo -E sh`
-(also `TURN_SECRET`, `MSGR_REGISTRATION`). Running `sudo sh deploy/install.sh`
-inside a checkout installs that checkout as it is, which is handy for testing
-local changes on a server.
+`INSTALL_MODE=release DOMAIN=chat.example.com EXTERNAL_IP=... | sudo -E sh`
+(also `TURN_SECRET`, `MSGR_REGISTRATION`, `RELEASE`). Running
+`sudo sh deploy/install.sh` inside a checkout installs that checkout as it is
+(source or docker flavour), which is handy for testing local changes on a
+server.
+
+### Updating
+
+```bash
+sudo family-messenger update
+```
+
+fetches the newest installer and updates the installed flavour in place: the
+newest release, the newest image, or a fresh build of `main`. The `.env`
+answers are kept; `INSTALL_MODE=release family-messenger update` moves a
+source or Docker install over to releases. Update detection:
+
+- **Server**: checks GitHub for a new release every six hours (disable with
+  `MSGR_UPDATE_CHECK=0`, point forks elsewhere with `MSGR_UPDATE_REPO`). The
+  admin panel's overview shows the newest release next to the running version
+  with a link to its notes.
+- **Web client**: receives the server's version with every connection and
+  shows a *reload the page* bar when the page it is running is older than the
+  server, so nobody keeps a stale client after an update.
+- **Flutter app**: asks GitHub Releases at start and every six hours (and on
+  *Settings → Check for updates*). On Windows and Linux it downloads the
+  archive for its platform, verifies the checksum, swaps the files in place
+  once the app has closed and starts the new version; on Android, macOS and
+  iOS it opens the release page. Development builds (version `dev` or a
+  commit hash) are never nagged.
 
 ## Manual install (Docker Compose)
 
@@ -114,6 +147,8 @@ remove `MSGR_IMAGE` from `.env` and run `docker compose up -d --build` to build 
 | `MSGR_WEB_DIR` | embedded | Serve the web client from a directory instead of the binary |
 | `MSGR_SERVER_SECRET` | generated | HMAC key for anti-enumeration salts (persisted in the data dir when generated) |
 | `MSGR_LOG_JSON`, `MSGR_DEBUG` | off | JSON logs, debug logging |
+| `MSGR_UPDATE_CHECK` | on | `0` stops the six-hourly check of GitHub Releases shown in the admin panel |
+| `MSGR_UPDATE_REPO` | `william-aqn/family-messenger-e2e` | GitHub repository whose releases are checked (for forks) |
 
 Runtime settings (registration mode, attachment size limit, global retention,
 bots on/off, group size, announcement) live in the database and are edited in
@@ -180,6 +215,27 @@ go test ./pkg/e2e -run TestVectors -update
 Adding a UI language: copy `web/src/i18n/en.ts` to `<code>.ts`, translate,
 and register it in `web/src/i18n/index.ts` (mobile strings live in
 `app/lib/i18n/strings.dart`).
+
+### Releases
+
+Nothing runs on push; the three workflows in `.github/workflows/` are started
+by hand from the *Actions* tab:
+
+- **release** asks for a version such as `v0.2.0`, builds the server for
+  linux/amd64, linux/arm64, windows/amd64, darwin/amd64 and darwin/arm64 with
+  the web client embedded, the Windows, Linux and macOS desktop apps, the
+  Android APK and App Bundle and an unsigned iOS app, writes `sha256sums.txt`,
+  creates the tag on the chosen commit and publishes a GitHub Release. That
+  release is what the installer's *release* flavour and the app's updater
+  download, so the version string is what users see as their build number.
+- **publish** builds the server image for an existing release tag and pushes
+  it to GHCR as `<tag>` and `latest` (the Docker flavour).
+- **ci** runs the Go, web and Flutter tests on demand.
+
+Every build carries its version: `--dart-define=APP_VERSION` for the app,
+`APP_VERSION` at `npm run build` for the web client and the `Version` ldflag
+for the server (`family-messenger version` prints it; local builds use
+`git describe`).
 
 ### Flutter app
 
@@ -269,11 +325,12 @@ Linux builder above cannot produce it. Three options:
    what is missing, `-Portable` ignores tools on PATH and uses the downloaded
    ones, `-ToolsDir` (or `FM_TOOLS_DIR`) moves the tool folder. The
    executable is unsigned, so SmartScreen shows its warning on first start.
-2. **GitHub Actions** (`.github/workflows/release.yml`): pushing a tag such as
-   `v0.1.0` (or running the workflow manually from the Actions tab) builds the
-   Windows zip, the Linux and macOS desktop bundles, the APK/App Bundle, an
-   unsigned iOS app and the server binaries, and attaches them to a GitHub
-   Release. Nothing needs to be installed locally.
+2. **GitHub Actions** (`.github/workflows/release.yml`): started by hand from
+   the Actions tab with a version such as `v0.2.0`; it builds the Windows zip,
+   the Linux and macOS desktop bundles, the APK/App Bundle, an unsigned iOS
+   app and the server binaries, writes `sha256sums.txt`, creates the tag and
+   attaches everything to a GitHub Release (see *Releases* above). Nothing
+   needs to be installed locally.
 3. **Windows container** (`deploy/builder/windows/`): a Windows Server Core
    image with Visual Studio Build Tools 2022 and the Flutter SDK. It needs a
    Windows 10/11 Pro or Enterprise host with the Windows features *Hyper-V*
@@ -305,7 +362,7 @@ protocol/         PROTOCOL.md and shared test vectors
 docs/             BOTS.md (Bot API)
 deploy/           docker-compose.yml, Caddyfile, .env.example, install.sh (one-line installer)
 deploy/builder/   Linux builder image (server, web, APK, Linux desktop) and windows/ (Flutter Windows build)
-.github/          ci.yml (tests), publish.yml (server image to GHCR), release.yml (all client binaries)
+.github/          manual workflows: ci.yml (tests), publish.yml (server image to GHCR), release.yml (GitHub Release with every binary)
 ```
 
 ## Roadmap

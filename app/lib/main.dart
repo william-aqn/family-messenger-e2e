@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'state/app_state.dart';
+import 'state/updater.dart';
 import 'ui/call_screen.dart';
 import 'ui/home_screen.dart';
 import 'ui/login_screen.dart';
@@ -16,6 +17,9 @@ AppState app = AppState();
 /// Build identification, passed by the build scripts as `--dart-define=APP_VERSION=` plus `git describe`.
 const String appVersion = String.fromEnvironment('APP_VERSION', defaultValue: 'dev');
 
+/// Looks for newer releases on GitHub and installs them.
+final Updater updater = Updater(appVersion);
+
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
   if (!kIsWeb && Platform.isWindows) {
@@ -24,6 +28,7 @@ void main() {
   }
   app.init();
   runApp(const FamilyMessengerApp());
+  updater.start();
 }
 
 class FamilyMessengerApp extends StatelessWidget {

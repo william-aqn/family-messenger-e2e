@@ -279,7 +279,14 @@ func (c *client) connectWS() *wsClient {
 			}
 		}
 	}()
-	w.expect("hello")
+	// Every connection learns the server's build, so clients can tell when
+	// the page or app they run is older than the server.
+	var hello struct {
+		Version string `json:"version"`
+	}
+	if err := json.Unmarshal(w.expect("hello"), &hello); err != nil || hello.Version == "" {
+		c.t.Fatalf("hello frame without a server version (%v)", err)
+	}
 	return w
 }
 

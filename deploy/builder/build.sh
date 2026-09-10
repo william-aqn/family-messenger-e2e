@@ -46,7 +46,7 @@ stage_app() {
 web() {
   say "web client"
   stage_web
-  (cd /tmp/web && npm ci --no-audit --no-fund && npm run build)
+  (cd /tmp/web && npm ci --no-audit --no-fund && APP_VERSION="$VERSION" npm run build)
   rm -rf "$SRC/web/dist" && cp -r /tmp/web/dist "$SRC/web/dist"
   mkdir -p "$SRC/internal/webui/dist"
   find "$SRC/internal/webui/dist" -mindepth 1 -not -name .keep -exec rm -rf {} + 2>/dev/null || true

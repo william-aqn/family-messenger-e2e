@@ -27,6 +27,7 @@ import {
   pending,
   selectedId,
   serverSettings,
+  serverVersion,
   session,
   setContact,
   setConversation,
@@ -67,7 +68,11 @@ export function startSync(): void {
   if (!s) return;
   stopSync();
   unsubscribers.push(
-    wsClient.on('hello', () => void fullSync()),
+    wsClient.on('hello', (d: { version?: string } | undefined) => {
+      // After a server restart the hello carries the new build number.
+      if (typeof d?.version === 'string' && d.version) serverVersion.value = d.version;
+      void fullSync();
+    }),
     wsClient.on('message', (d: MessageView) => void onLiveMessage(d)),
     wsClient.on('signal', (d: MessageView) => void handleIncoming(d, false)),
     wsClient.on('event', (d: EventPayload) => void onEvent(d)),

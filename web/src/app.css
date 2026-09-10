@@ -537,6 +537,22 @@ code.fp.small {
   z-index: 40;
 }
 
+/* a newer client is served: sits below the connection banner when both show */
+.banner.update {
+  top: auto;
+  bottom: 0;
+  background: var(--accent);
+  color: #fff;
+  border-radius: 8px 8px 0 0;
+  padding: 4px 12px;
+}
+
+.banner.update button.link {
+  color: #fff;
+  margin-left: 8px;
+  text-decoration: underline;
+}
+
 /* calls */
 .call {
   position: fixed;

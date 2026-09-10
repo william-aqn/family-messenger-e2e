@@ -4,6 +4,7 @@
 //	server invite [-n 3] [-note text] [-days 7]   create invite codes and print them
 //	server admin grant|revoke <username>          manage administrators
 //	server admin list                             list administrators
+//	server version                                print the build number
 package main
 
 import (
@@ -26,6 +27,9 @@ import (
 func main() {
 	var err error
 	switch {
+	case len(os.Args) > 1 && (os.Args[1] == "version" || os.Args[1] == "-version" || os.Args[1] == "--version"):
+		fmt.Println(api.Version)
+		return
 	case len(os.Args) > 1 && os.Args[1] == "invite":
 		err = runInvite(os.Args[2:])
 	case len(os.Args) > 1 && os.Args[1] == "admin":
@@ -78,6 +82,7 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	srv.StartJanitor(ctx)
+	srv.StartUpdateChecker(ctx)
 
 	httpSrv := &http.Server{
 		Addr:              cfg.Addr,

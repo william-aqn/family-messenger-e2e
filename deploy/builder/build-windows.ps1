@@ -323,6 +323,7 @@ function Build-Web {
   Step 'web client: npm ci'
   Exec 'npm' @('ci', '--no-audit', '--no-fund') $web
   Step 'web client: vite build'
+  $env:APP_VERSION = Get-Version
   Exec 'npm' @('run', 'build') $web
   $dst = Join-Path $Repo 'internal\webui\dist'
   & (Join-Path $System32 'robocopy.exe') (Join-Path $web 'dist') $dst /MIR /XF .keep /NFL /NDL /NJH /NJS /NP | Out-Null

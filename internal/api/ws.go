@@ -64,7 +64,7 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	s.hub.Add(conn)
 	defer s.hub.Remove(conn)
 	go conn.WriteLoop(ctx)
-	conn.Send(ws.NewFrame("hello", map[string]any{"account_id": p.AccountID, "device_id": p.DeviceID, "server_ts": time.Now().UnixMilli()}))
+	conn.Send(ws.NewFrame("hello", map[string]any{"account_id": p.AccountID, "device_id": p.DeviceID, "server_ts": time.Now().UnixMilli(), "version": Version}))
 
 	for {
 		_, data, err := c.Read(ctx)

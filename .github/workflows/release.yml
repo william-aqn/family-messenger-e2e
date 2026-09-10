@@ -1,18 +1,28 @@
 name: release
-# Builds every distributable on GitHub-hosted runners (no local toolchains
-# needed): server binaries, the Android APK/App Bundle, the Windows, Linux and
-# macOS desktop apps and an unsigned iOS build. Runs on version tags (v1.2.3)
-# and on demand; tag builds are attached to a GitHub Release.
+# Manual only. Builds the server binaries and every client for one version on
+# GitHub-hosted runners and publishes them as a GitHub Release (the tag is
+# created on the chosen commit). Start it from the Actions tab with the
+# version, e.g. v0.2.0; that string becomes the tag and the build number shown
+# by the clients and the server.
 on:
-  push:
-    tags: ['v*']
   workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release, e.g. v0.2.0 (becomes the tag and the build number)'
+        required: true
+        type: string
+      prerelease:
+        description: 'Mark the release as a pre-release'
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: write
 
 env:
   FLUTTER_VERSION: 3.47.2
+  APP_VERSION: ${{ inputs.version }}
 
 jobs:
   web:
@@ -50,7 +60,7 @@ jobs:
             os=${target%/*}; arch=${target#*/}; ext=""
             [ "$os" = windows ] && ext=.exe
             CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -trimpath \
-              -ldflags "-s -w -X github.com/william-aqn/family-messenger-e2e/internal/api.Version=${GITHUB_REF_NAME}" \
+              -ldflags "-s -w -X github.com/william-aqn/family-messenger-e2e/internal/api.Version=${APP_VERSION}" \
               -o "dist/server-$os-$arch$ext" ./cmd/server
           done
       - uses: actions/upload-artifact@v4
@@ -74,11 +84,11 @@ jobs:
         working-directory: app
         run: |
           flutter pub get
-          flutter build apk --release --dart-define=APP_VERSION=${GITHUB_REF_NAME}
-          flutter build appbundle --release --dart-define=APP_VERSION=${GITHUB_REF_NAME}
+          flutter build apk --release --dart-define=APP_VERSION=${APP_VERSION}
+          flutter build appbundle --release --dart-define=APP_VERSION=${APP_VERSION}
           mkdir -p "$GITHUB_WORKSPACE/dist"
-          cp build/app/outputs/flutter-apk/app-release.apk "$GITHUB_WORKSPACE/dist/family-messenger-${GITHUB_REF_NAME}.apk"
-          cp build/app/outputs/bundle/release/app-release.aab "$GITHUB_WORKSPACE/dist/family-messenger-${GITHUB_REF_NAME}.aab"
+          cp build/app/outputs/flutter-apk/app-release.apk "$GITHUB_WORKSPACE/dist/family-messenger-${APP_VERSION}.apk"
+          cp build/app/outputs/bundle/release/app-release.aab "$GITHUB_WORKSPACE/dist/family-messenger-${APP_VERSION}.aab"
       - uses: actions/upload-artifact@v4
         with:
           name: android
@@ -97,9 +107,12 @@ jobs:
         shell: pwsh
         run: |
           flutter pub get
-          flutter build windows --release "--dart-define=APP_VERSION=$env:GITHUB_REF_NAME"
+          flutter build windows --release "--dart-define=APP_VERSION=$env:APP_VERSION"
           New-Item -ItemType Directory -Force "$env:GITHUB_WORKSPACE\dist" | Out-Null
-          Compress-Archive -Path build\windows\x64\runner\Release\* -DestinationPath "$env:GITHUB_WORKSPACE\dist\family-messenger-windows-x64-$env:GITHUB_REF_NAME.zip"
+          # ZipFile rather than Compress-Archive so entries use forward slashes; the
+          # archive root is the app folder itself, which the in-app updater expects.
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          [IO.Compression.ZipFile]::CreateFromDirectory("$PWD\build\windows\x64\runner\Release", "$env:GITHUB_WORKSPACE\dist\family-messenger-windows-x64-$env:APP_VERSION.zip")
       - uses: actions/upload-artifact@v4
         with:
           name: windows
@@ -118,9 +131,9 @@ jobs:
         working-directory: app
         run: |
           flutter pub get
-          flutter build linux --release --dart-define=APP_VERSION=${GITHUB_REF_NAME}
+          flutter build linux --release --dart-define=APP_VERSION=${APP_VERSION}
           mkdir -p "$GITHUB_WORKSPACE/dist"
-          tar -C build/linux/x64/release -czf "$GITHUB_WORKSPACE/dist/family-messenger-linux-x64-${GITHUB_REF_NAME}.tar.gz" bundle
+          tar -C build/linux/x64/release -czf "$GITHUB_WORKSPACE/dist/family-messenger-linux-x64-${APP_VERSION}.tar.gz" bundle
       - uses: actions/upload-artifact@v4
         with:
           name: linux
@@ -138,9 +151,9 @@ jobs:
         working-directory: app
         run: |
           flutter pub get
-          flutter build macos --release --dart-define=APP_VERSION=${GITHUB_REF_NAME}
+          flutter build macos --release --dart-define=APP_VERSION=${APP_VERSION}
           mkdir -p "$GITHUB_WORKSPACE/dist"
-          ditto -c -k --keepParent "build/macos/Build/Products/Release/Family Messenger.app" "$GITHUB_WORKSPACE/dist/family-messenger-macos-${GITHUB_REF_NAME}.zip"
+          ditto -c -k --keepParent "build/macos/Build/Products/Release/Family Messenger.app" "$GITHUB_WORKSPACE/dist/family-messenger-macos-${APP_VERSION}.zip"
       - uses: actions/upload-artifact@v4
         with:
           name: macos
@@ -161,16 +174,15 @@ jobs:
         working-directory: app
         run: |
           flutter pub get
-          flutter build ios --release --no-codesign --dart-define=APP_VERSION=${GITHUB_REF_NAME}
+          flutter build ios --release --no-codesign --dart-define=APP_VERSION=${APP_VERSION}
           mkdir -p "$GITHUB_WORKSPACE/dist"
-          ditto -c -k --keepParent build/ios/iphoneos/Runner.app "$GITHUB_WORKSPACE/dist/family-messenger-ios-unsigned-${GITHUB_REF_NAME}.zip"
+          ditto -c -k --keepParent build/ios/iphoneos/Runner.app "$GITHUB_WORKSPACE/dist/family-messenger-ios-unsigned-${APP_VERSION}.zip"
       - uses: actions/upload-artifact@v4
         with:
           name: ios
           path: dist
 
   release:
-    if: startsWith(github.ref, 'refs/tags/v')
     needs: [server, android, windows, linux, macos, ios]
     runs-on: ubuntu-latest
     steps:
@@ -178,7 +190,13 @@ jobs:
         with:
           path: dist
           merge-multiple: true
+      - name: Checksums (the installer and the app updater verify them)
+        run: cd dist && sha256sum * > sha256sums.txt && cat sha256sums.txt
       - uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ inputs.version }}
+          name: ${{ inputs.version }}
+          target_commitish: ${{ github.sha }}
+          prerelease: ${{ inputs.prerelease }}
           files: dist/*
           generate_release_notes: true

@@ -199,6 +199,11 @@ export interface AdminStats {
   online_devices: number;
   db_bytes: number;
   uptime_seconds: number;
+  /** Newest published release (empty until the server checked GitHub). */
+  latest_version: string;
+  latest_url: string;
+  /** The running build is a published release (a tag), not a development build. */
+  is_release: boolean;
   version: string;
   go_version: string;
   turn_enabled: boolean;

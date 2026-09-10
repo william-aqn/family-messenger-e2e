@@ -2,7 +2,7 @@ import { useEffect } from 'preact/hooks';
 import { wsClient } from '../api/ws';
 import { t } from '../i18n';
 import { call } from '../state/calls';
-import { selectedId, serverSettings, session, toast } from '../state/model';
+import { selectedId, serverSettings, serverVersion, session, toast, updateAvailable } from '../state/model';
 import { booting } from '../state/session';
 import { voice } from '../state/voice';
 import { CallOverlay } from './CallOverlay';
@@ -31,6 +31,14 @@ export function App() {
       {voice.value && <VoiceOverlay />}
       {toast.value && <div class="toast">{toast.value}</div>}
       {wsClient.status.value !== 'online' && <div class="banner">{wsClient.status.value === 'connecting' ? t('connecting') : t('offline')}</div>}
+      {updateAvailable.value && (
+        <div class="banner update">
+          {t('update_available', { version: serverVersion.value })}
+          <button class="link" onClick={() => location.reload()}>
+            {t('reload_page')}
+          </button>
+        </div>
+      )}
       {announcement && <div class="announcement">{announcement}</div>}
     </div>
   );
