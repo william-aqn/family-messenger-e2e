@@ -35,6 +35,15 @@ actual APK, at the UI level, before it is reported as done:
    `win-drive.ps1` `click`/`type`/`key`/`shot`, which refuse to act when the
    app window is not in the foreground. OBS's virtual camera
    (`obs64.exe --startvirtualcam`) stands in for a webcam.
+6. Linux runs inside the builder image (`deploy/builder`, no WSL distro on
+   this machine): `scripts/app-video-call-test-linux.sh` in a container with
+   the repo mounted at `/src` and a screenshot folder at `/out`
+   (`docker run --entrypoint sh -p 18082:18082 -v E:\ai\messanger:/src:ro -v <dir>:/out family-messenger-e2e-builder /src/scripts/app-video-call-test-linux.sh`,
+   plus the `builder_builder-pub`/`-go`/`-gocache` volumes for speed) gives
+   Xvfb, PulseAudio null devices, the server and the integration test with
+   the screen as the camera; the browser peer runs on the host with
+   `TEST_BASE_URL=http://127.0.0.1:18082` and the names from `/out/peer.env`.
+   Screenshots of the X screen land in `/out`.
 
 State-level checks are not enough: the integration test in
 `app/integration_test` reported "VIDEO OK" while the call screen stayed frozen
