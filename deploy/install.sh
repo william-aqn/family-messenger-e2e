@@ -492,7 +492,9 @@ write_wrapper() {
   # The release flavour has no checkout, so the last downloaded installer is
   # kept as the offline fallback (a checkout carries its own copy under git).
   keep_copy=":"
-  [ "$INSTALL_MODE" != release ] || keep_copy="cp -f \"\$tmp\" \"$INSTALL_DIR/deploy/install.sh\" 2>/dev/null || true"
+  if [ "$INSTALL_MODE" = release ] && [ ! -d "$INSTALL_DIR/.git" ]; then
+    keep_copy="cp -f \"\$tmp\" \"$INSTALL_DIR/deploy/install.sh\" 2>/dev/null || true"
+  fi
   cat >/usr/local/bin/family-messenger <<EOF
 #!/bin/sh
 [ "\$(id -u)" -eq 0 ] || { echo "run as root: sudo family-messenger ..." >&2; exit 1; }
