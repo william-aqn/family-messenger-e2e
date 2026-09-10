@@ -135,15 +135,29 @@ jobs:
           org.gradle.workers.max=2
           kotlin.daemon.jvmargs=-Xmx1g
           EOF
+      # The runner is root and tar keeps the archive's owner, so git (which the
+      # flutter launcher runs inside the SDK) would refuse the SDK directory.
+      - name: Trust the SDK checkout as root
+        run: git config --global --add safe.directory '*'
       - name: Build APK and App Bundle (debug-signed; add a keystore for Play)
         working-directory: app
         run: |
-          flutter pub get
-          flutter build apk --release --dart-define=APP_VERSION=${APP_VERSION}
-          flutter build appbundle --release --dart-define=APP_VERSION=${APP_VERSION}
+          {
+            flutter --version
+            flutter pub get
+            flutter build apk --release --dart-define=APP_VERSION=${APP_VERSION}
+            flutter build appbundle --release --dart-define=APP_VERSION=${APP_VERSION}
+          } 2>&1 | tee "$RUNNER_TEMP/build.log"
           mkdir -p "$GITHUB_WORKSPACE/dist"
           cp build/app/outputs/flutter-apk/app-release.apk "$GITHUB_WORKSPACE/dist/family-messenger-${APP_VERSION}.apk"
           cp build/app/outputs/bundle/release/app-release.aab "$GITHUB_WORKSPACE/dist/family-messenger-${APP_VERSION}.aab"
+      # The tail of the build output as an annotation: readable through the
+      # API without access to the job logs.
+      - name: Report the failure
+        if: failure()
+        run: |
+          msg="$(tail -n 40 "$RUNNER_TEMP/build.log" 2>/dev/null | tail -c 3500 | awk '{printf "%s%%0A", $0}')"
+          echo "::error title=Android build failed::${msg:-no build output captured}"
       - uses: actions/upload-artifact@v4
         with:
           name: bin-android
@@ -203,13 +217,23 @@ jobs:
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           cache: true
+      - name: Trust the SDK checkout as root
+        run: git config --global --add safe.directory '*'
       - name: Build Linux desktop app
         working-directory: app
         run: |
-          flutter pub get
-          flutter build linux --release --dart-define=APP_VERSION=${APP_VERSION}
+          {
+            flutter --version
+            flutter pub get
+            flutter build linux --release --dart-define=APP_VERSION=${APP_VERSION}
+          } 2>&1 | tee "$RUNNER_TEMP/build.log"
           mkdir -p "$GITHUB_WORKSPACE/dist"
           tar -C build/linux/x64/release -czf "$GITHUB_WORKSPACE/dist/family-messenger-linux-x64-${APP_VERSION}.tar.gz" bundle
+      - name: Report the failure
+        if: failure()
+        run: |
+          msg="$(tail -n 40 "$RUNNER_TEMP/build.log" 2>/dev/null | tail -c 3500 | awk '{printf "%s%%0A", $0}')"
+          echo "::error title=Linux build failed::${msg:-no build output captured}"
       - uses: actions/upload-artifact@v4
         with:
           name: bin-linux
