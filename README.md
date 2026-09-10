@@ -222,18 +222,18 @@ and register it in `web/src/i18n/index.ts` (mobile strings live in
 
 Nothing runs on push. The single workflow `.github/workflows/release.yml` is
 started by hand from the *Actions* tab with a version such as `v0.2.0` and
-two boxes, *pre-release* and *skip tests*. It runs the Go, web unit, browser
-and Flutter tests (the gate; the box skips them for an emergency rebuild) and
-in parallel builds the server for linux/amd64, linux/arm64, windows/amd64,
-darwin/amd64 and darwin/arm64 with the web client embedded, the Windows,
-Linux and macOS desktop apps, the Android APK and App Bundle and an unsigned
-iOS app; then it writes `sha256sums.txt`, creates the tag on the chosen
-commit and publishes a GitHub Release. That release is what the installer's
-*release* flavour and the app's updater download, so the version string is
-what users see as their build number. The Linux jobs run on the repository's
-self-hosted runner (label `self-hosted`), the tests and the other platforms
-on GitHub-hosted machines. No Docker image is published: the Docker flavour
-builds it on the server.
+two boxes, *pre-release* and *run tests*. It builds the server for
+linux/amd64, linux/arm64, windows/amd64, darwin/amd64 and darwin/arm64 with
+the web client embedded, the Windows, Linux and macOS desktop apps, the
+Android APK and App Bundle and an unsigned iOS app; then it writes
+`sha256sums.txt`, creates the tag on the chosen commit and publishes a GitHub
+Release. With *run tests* ticked the Go, web unit, browser and Flutter tests
+run in parallel with the builds and a failure blocks the release. That
+release is what the installer's *release* flavour and the app's updater
+download, so the version string is what users see as their build number. The
+Linux jobs and the tests run on the repository's self-hosted runner (label
+`self-hosted`), the other platforms on GitHub-hosted machines. No Docker
+image is published: the Docker flavour builds it on the server.
 
 Every build carries its version: `--dart-define=APP_VERSION` for the app,
 `APP_VERSION` at `npm run build` for the web client and the `Version` ldflag

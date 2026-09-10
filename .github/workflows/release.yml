@@ -3,8 +3,9 @@ name: release
 # and every client for one version and publishes them as a GitHub Release
 # (the tag is created on the chosen commit). Start it from the Actions tab
 # with the version, e.g. v0.2.0; that string becomes the tag and the build
-# number shown by the clients and the server. The Linux jobs run on the
-# self-hosted runner, the rest on GitHub-hosted machines.
+# number shown by the clients and the server. The tests run only when the
+# "run tests" box is ticked. The Linux jobs and the tests run on the
+# self-hosted runner, the other platforms on GitHub-hosted machines.
 on:
   workflow_dispatch:
     inputs:
@@ -17,8 +18,8 @@ on:
         required: false
         type: boolean
         default: false
-      skip_tests:
-        description: 'Skip the tests (Go, web, browser, Flutter) that otherwise gate the release'
+      run_tests:
+        description: 'Run the tests first (Go, web, browser, Flutter); a failure blocks the release'
         required: false
         type: boolean
         default: false
@@ -31,38 +32,6 @@ env:
   APP_VERSION: ${{ inputs.version }}
 
 jobs:
-  # Gate: Go, web (unit + browser) and Flutter tests. Skipped only by the
-  # "skip tests" box; the builds run in parallel, the release waits for it.
-  test:
-    if: ${{ !inputs.skip_tests }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 40
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 26
-          cache: npm
-          cache-dependency-path: web/package-lock.json
-      - name: Go tests
-        run: go vet ./... && go test ./...
-      - name: Web unit tests and build
-        working-directory: web
-        run: npm ci --no-audit --no-fund && npm test && npm run build
-      - name: Browser tests (chats, groups, calls and screen sharing with fake media)
-        working-directory: web
-        run: npx playwright install --with-deps chromium && npx playwright test
-      - uses: subosito/flutter-action@v2
-        with:
-          flutter-version: ${{ env.FLUTTER_VERSION }}
-          cache: true
-      - name: Flutter analysis and tests
-        working-directory: app
-        run: flutter pub get && flutter analyze && flutter test
-
   # Fast, readable diagnostics for the self-hosted runner: the setup actions
   # only print obscure errors when the host lacks a tool or a library.
   check-runner:
@@ -86,6 +55,62 @@ jobs:
             exit 1
           fi
           echo "all required tools are present"
+
+  # Optional gate ("run tests" box): Go, web unit, browser and Flutter tests.
+  # The builds run in parallel; the release job waits for this one.
+  test:
+    if: ${{ inputs.run_tests }}
+    needs: check-runner
+    runs-on: self-hosted
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - name: Persistent caches in the runner tool cache
+        run: |
+          {
+            echo "PUB_CACHE=$RUNNER_TOOL_CACHE/pub-cache"
+            echo "PLAYWRIGHT_BROWSERS_PATH=$RUNNER_TOOL_CACHE/ms-playwright"
+          } >> "$GITHUB_ENV"
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Trust the SDK checkout as root
+        run: git config --global --add safe.directory '*'
+      - name: Go tests
+        run: |
+          set -o pipefail
+          { go vet ./... && go test ./...; } 2>&1 | tee -a "$RUNNER_TEMP/test.log"
+      - name: Web unit tests and build
+        working-directory: web
+        run: |
+          set -o pipefail
+          { npm ci --no-audit --no-fund && npm test && npm run build; } 2>&1 | tee -a "$RUNNER_TEMP/test.log"
+      # The browser lands in the tool cache; its system libraries are installed
+      # by apt when the runner image lacks them (root, so no sudo involved).
+      - name: Browser tests (chats, groups, calls and screen sharing with fake media)
+        working-directory: web
+        run: |
+          set -o pipefail
+          { npx playwright install --with-deps chromium && npx playwright test; } 2>&1 | tee -a "$RUNNER_TEMP/test.log"
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+      - name: Flutter analysis and tests
+        working-directory: app
+        run: |
+          set -o pipefail
+          { flutter pub get && flutter analyze && flutter test; } 2>&1 | tee -a "$RUNNER_TEMP/test.log"
+      - name: Report the failure
+        if: failure()
+        run: |
+          msg="$(grep -E -i 'FAIL|error|✘|failed|Exception|Expected' "$RUNNER_TEMP/test.log" 2>/dev/null | tail -n 40 | tail -c 3500 | awk '{printf "%s%%0A", $0}')"
+          echo "::error title=Tests failed::${msg:-no test output captured}"
 
   web:
     needs: check-runner
@@ -180,6 +205,7 @@ jobs:
       - name: Build APK and App Bundle (debug-signed; add a keystore for Play)
         working-directory: app
         run: |
+          set -o pipefail
           {
             flutter --version
             flutter pub get
@@ -260,6 +286,7 @@ jobs:
       - name: Build Linux desktop app
         working-directory: app
         run: |
+          set -o pipefail
           {
             flutter --version
             flutter pub get
@@ -324,7 +351,7 @@ jobs:
 
   release:
     needs: [test, server, android, windows, linux, macos, ios]
-    # After passed (or deliberately skipped) tests and successful builds only.
+    # After successful builds and passed tests (or none requested) only.
     if: ${{ !cancelled() && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
     runs-on: self-hosted
     timeout-minutes: 20
