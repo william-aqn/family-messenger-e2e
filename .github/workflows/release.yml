@@ -65,7 +65,7 @@ jobs:
           done
       - uses: actions/upload-artifact@v4
         with:
-          name: server
+          name: bin-server
           path: dist
 
   android:
@@ -91,7 +91,7 @@ jobs:
           cp build/app/outputs/bundle/release/app-release.aab "$GITHUB_WORKSPACE/dist/family-messenger-${APP_VERSION}.aab"
       - uses: actions/upload-artifact@v4
         with:
-          name: android
+          name: bin-android
           path: dist
 
   windows:
@@ -115,7 +115,7 @@ jobs:
           [IO.Compression.ZipFile]::CreateFromDirectory("$PWD\build\windows\x64\runner\Release", "$env:GITHUB_WORKSPACE\dist\family-messenger-windows-x64-$env:APP_VERSION.zip")
       - uses: actions/upload-artifact@v4
         with:
-          name: windows
+          name: bin-windows
           path: dist
 
   linux:
@@ -136,7 +136,7 @@ jobs:
           tar -C build/linux/x64/release -czf "$GITHUB_WORKSPACE/dist/family-messenger-linux-x64-${APP_VERSION}.tar.gz" bundle
       - uses: actions/upload-artifact@v4
         with:
-          name: linux
+          name: bin-linux
           path: dist
 
   macos:
@@ -156,7 +156,7 @@ jobs:
           ditto -c -k --keepParent "build/macos/Build/Products/Release/Family Messenger.app" "$GITHUB_WORKSPACE/dist/family-messenger-macos-${APP_VERSION}.zip"
       - uses: actions/upload-artifact@v4
         with:
-          name: macos
+          name: bin-macos
           path: dist
 
   # Best effort: an unsigned .app for re-signing/sideloading. A failure here
@@ -179,19 +179,25 @@ jobs:
           ditto -c -k --keepParent build/ios/iphoneos/Runner.app "$GITHUB_WORKSPACE/dist/family-messenger-ios-unsigned-${APP_VERSION}.zip"
       - uses: actions/upload-artifact@v4
         with:
-          name: ios
+          name: bin-ios
           path: dist
 
   release:
     needs: [server, android, windows, linux, macos, ios]
     runs-on: self-hosted
     steps:
+      # Only the binaries: the web-dist artifact (a directory tree consumed by
+      # the server job) must not end up in the release or break sha256sum.
       - uses: actions/download-artifact@v4
         with:
+          pattern: bin-*
           path: dist
           merge-multiple: true
       - name: Checksums (the installer and the app updater verify them)
-        run: cd dist && sha256sum * > sha256sums.txt && cat sha256sums.txt
+        run: |
+          cd dist
+          for f in *; do [ -f "$f" ] && sha256sum "$f"; done > sha256sums.txt
+          cat sha256sums.txt
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ inputs.version }}
