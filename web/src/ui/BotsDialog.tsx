@@ -4,14 +4,17 @@ import type { BotView } from '../api/types';
 import { describeError, t } from '../i18n';
 import { openDirectWith } from '../state/messaging';
 import { serverSettings, showToast } from '../state/model';
+import { Icon } from './Icons';
 
 function CopyField({ label, value }: { label: string; value: string }) {
   return (
     <div class="section">
       <div class="muted small">{label}</div>
       <div class="row">
-        <code class="fp">{value}</code>
+        <code class="fp grow">{value}</code>
         <button
+          type="button"
+          class="small"
           onClick={() =>
             navigator.clipboard
               .writeText(value)
@@ -19,8 +22,39 @@ function CopyField({ label, value }: { label: string; value: string }) {
               .catch(() => {})
           }
         >
+          <Icon name="copy" size={16} />
           {t('copy')}
         </button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The in-app replacement for `confirm()`: the same small modal the chat uses
+ * before deleting a message. Local to this file on purpose — a shared
+ * <ConfirmDialog> is a follow-up, once every screen has landed.
+ */
+function ConfirmDialog({ question, confirmLabel, onCancel, onConfirm }: { question: string; confirmLabel: string; onCancel: () => void; onConfirm: () => void }) {
+  return (
+    <div
+      class="modal-backdrop"
+      onClick={(e) => {
+        e.stopPropagation();
+        onCancel();
+      }}
+    >
+      <div class="card modal confirm" onClick={(e) => e.stopPropagation()}>
+        <h3>{question}</h3>
+        <div class="row end">
+          <button type="button" onClick={onCancel}>
+            {t('cancel')}
+          </button>
+          <button type="button" class="danger fill" onClick={onConfirm}>
+            <Icon name="trash" size={20} />
+            {confirmLabel}
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -33,6 +67,7 @@ export function BotsDialog({ onClose, onDone }: { onClose: () => void; onDone: (
   const [webhook, setWebhook] = useState('');
   const [creds, setCreds] = useState<{ username: string; token: string; secret: string } | null>(null);
   const [editing, setEditing] = useState<BotView | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<BotView | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const allowed = serverSettings.value?.allow_bots ?? true;
@@ -71,8 +106,18 @@ export function BotsDialog({ onClose, onDone }: { onClose: () => void; onDone: (
   return (
     <div class="modal-backdrop" onClick={onClose}>
       <div class="card modal wide" onClick={(e) => e.stopPropagation()}>
-        <h2>🤖 {t('my_bots')}</h2>
-        <p class="muted small">{t('bots_intro')}</p>
+        <div class="modal-head">
+          <h2>
+            <Icon name="bot" size={24} class="inline" /> {t('my_bots')}
+          </h2>
+          <button type="button" class="icon-btn" title={t('back')} onClick={onClose}>
+            <Icon name="arrow-left" size={20} />
+          </button>
+        </div>
+        <div class="banner neutral small">
+          <Icon name="info" size={16} />
+          {t('bots_intro')}
+        </div>
         {creds && (
           <div class="creds">
             <strong>
@@ -81,7 +126,11 @@ export function BotsDialog({ onClose, onDone }: { onClose: () => void; onDone: (
             <div class="hint">{t('bot_credentials_hint')}</div>
             <CopyField label={t('token')} value={creds.token} />
             <CopyField label={t('webhook_secret')} value={creds.secret} />
-            <button onClick={() => setCreds(null)}>{t('close')}</button>
+            <div class="row end">
+              <button type="button" class="small" onClick={() => setCreds(null)}>
+                {t('close')}
+              </button>
+            </div>
           </div>
         )}
         {bots.length === 0 && <div class="muted">{t('no_bots')}</div>}
@@ -120,6 +169,8 @@ export function BotsDialog({ onClose, onDone }: { onClose: () => void; onDone: (
                 </div>
                 <div class="row wrap">
                   <button
+                    type="button"
+                    class="small"
                     onClick={() =>
                       void run(async () => {
                         await openDirectWith(b.id);
@@ -127,10 +178,16 @@ export function BotsDialog({ onClose, onDone }: { onClose: () => void; onDone: (
                       })
                     }
                   >
+                    <Icon name="message" size={16} />
                     {t('chat_with_bot')}
                   </button>
-                  <button onClick={() => setEditing(b)}>{t('rename')}</button>
+                  <button type="button" class="small" onClick={() => setEditing(b)}>
+                    <Icon name="pencil" size={16} />
+                    {t('rename')}
+                  </button>
                   <button
+                    type="button"
+                    class="small"
                     onClick={() =>
                       void run(async () => {
                         const res = await http.rotateBot(b.id);
@@ -138,18 +195,11 @@ export function BotsDialog({ onClose, onDone }: { onClose: () => void; onDone: (
                       })
                     }
                   >
+                    <Icon name="refresh" size={16} />
                     {t('rotate_credentials')}
                   </button>
-                  <button
-                    class="danger"
-                    onClick={() => {
-                      if (!confirm(t('confirm_delete_bot', { name: b.username }))) return;
-                      void run(async () => {
-                        await http.deleteBot(b.id);
-                        await load();
-                      });
-                    }}
-                  >
+                  <button type="button" class="small danger" onClick={() => setConfirmDelete(b)}>
+                    <Icon name="trash" size={16} />
                     {t('delete_bot')}
                   </button>
                 </div>
@@ -163,8 +213,9 @@ export function BotsDialog({ onClose, onDone }: { onClose: () => void; onDone: (
             <input value={username} onInput={(e) => setUsername((e.target as HTMLInputElement).value)} placeholder="weatherbot" required minLength={4} maxLength={32} pattern="[A-Za-z0-9._]*bot" />
             <input value={displayName} onInput={(e) => setDisplayName((e.target as HTMLInputElement).value)} placeholder={t('bot_display_name')} />
             <input value={webhook} onInput={(e) => setWebhook((e.target as HTMLInputElement).value)} placeholder="https://example.com/hook" />
-            <div class="muted small">{t('webhook_hint')}</div>
-            <button type="submit" class="primary" disabled={busy}>
+            <p class="hint">{t('webhook_hint')}</p>
+            <button type="submit" class={busy ? 'primary busy' : 'primary'} disabled={busy}>
+              {busy && <span class="spinner" />}
               {t('create_bot')}
             </button>
           </form>
@@ -174,10 +225,27 @@ export function BotsDialog({ onClose, onDone }: { onClose: () => void; onDone: (
         <a class="small" href="https://github.com/william-aqn/family-messenger-e2e/blob/main/docs/BOTS.md" target="_blank" rel="noreferrer">
           {t('bot_api_docs')}
         </a>
-        {error && <div class="error">{error}</div>}
-        <div class="row end">
-          <button onClick={onClose}>{t('back')}</button>
-        </div>
+        {error && (
+          <div class="error">
+            <Icon name="alert" size={16} />
+            {error}
+          </div>
+        )}
+        {confirmDelete && (
+          <ConfirmDialog
+            question={t('confirm_delete_bot', { name: confirmDelete.username })}
+            confirmLabel={t('delete')}
+            onCancel={() => setConfirmDelete(null)}
+            onConfirm={() => {
+              const bot = confirmDelete;
+              setConfirmDelete(null);
+              void run(async () => {
+                await http.deleteBot(bot.id);
+                await load();
+              });
+            }}
+          />
+        )}
       </div>
     </div>
   );

@@ -78,7 +78,8 @@ void main() {
       // "Calling…" for the whole call once passed the state checks.
       await tester.pump();
       expect(find.textContaining(t('in_call')), findsOneWidget, reason: 'the call screen must show the active call');
-      expect(find.text(t('camera_off')), findsOneWidget, reason: 'the camera button must reflect the camera being on');
+      // The controls are icon-only in the redesign; each carries the string it used to show as its tooltip.
+      expect(find.byTooltip(t('camera_off')), findsOneWidget, reason: 'the camera button must reflect the camera being on');
       expect(find.textContaining(t('calling')), findsNothing, reason: 'the ringing status must be gone');
     }
 
@@ -107,14 +108,14 @@ void main() {
       say('VIDEO OK ${state()}');
 
       // Screen sharing: the peer sees the screen beside the camera, then only the camera again.
-      await tester.tap(find.text(t('share_screen')));
+      await tester.tap(find.byTooltip(t('share_screen')));
       await waitFor(tester, () => calls.call?.sharing == true, 'sharing to start', timeout: const Duration(seconds: 30));
-      expect(find.text(t('stop_sharing')), findsOneWidget, reason: 'the share button must flip');
+      expect(find.byTooltip(t('stop_sharing')), findsOneWidget, reason: 'the share button must flip');
       say('SHARE ON');
       await Future<void>.delayed(const Duration(seconds: 8));
-      await tester.tap(find.text(t('stop_sharing')));
+      await tester.tap(find.byTooltip(t('stop_sharing')));
       await waitFor(tester, () => calls.call?.sharing == false, 'sharing to stop', timeout: const Duration(seconds: 20));
-      expect(find.text(t('share_screen')), findsOneWidget, reason: 'the share button must flip back');
+      expect(find.byTooltip(t('share_screen')), findsOneWidget, reason: 'the share button must flip back');
       say('SHARE OFF');
       await Future<void>.delayed(const Duration(seconds: 4));
       await hangUpAndWaitForTheOverlay();

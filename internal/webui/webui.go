@@ -7,6 +7,7 @@ import (
 	"embed"
 	"io"
 	"io/fs"
+	"mime"
 	"net/http"
 	"os"
 	"path"
@@ -16,6 +17,19 @@ import (
 
 //go:embed all:dist
 var dist embed.FS
+
+func init() {
+	// Go's built-in table has no font types, and on Windows the registry may
+	// not either; the client ships its own faces, so register them by hand.
+	for ext, typ := range map[string]string{
+		".woff2": "font/woff2",
+		".woff":  "font/woff",
+		".ttf":   "font/ttf",
+		".otf":   "font/otf",
+	} {
+		_ = mime.AddExtensionType(ext, typ)
+	}
+}
 
 const placeholder = `<!doctype html><meta charset="utf-8"><title>Family Messenger</title>
 <body style="font-family:system-ui;margin:3rem"><h1>Family Messenger server is running</h1>
@@ -72,7 +86,7 @@ func Handler(dir string) http.Handler {
 			return
 		}
 		if st, err := fs.Stat(fsys, p); err == nil && !st.IsDir() {
-			if strings.HasPrefix(p, "assets/") {
+			if strings.HasPrefix(p, "assets/") || strings.HasPrefix(p, "fonts/") {
 				w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 			} else {
 				w.Header().Set("Cache-Control", "no-cache")

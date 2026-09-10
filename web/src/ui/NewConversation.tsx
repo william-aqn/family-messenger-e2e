@@ -4,6 +4,7 @@ import type { DirectoryUser } from '../api/types';
 import { describeError, t } from '../i18n';
 import { createDirect, createGroup } from '../state/messaging';
 import { serverSettings, session } from '../state/model';
+import { Icon } from './Icons';
 
 const MAX_SUGGESTIONS = 12;
 
@@ -20,11 +21,11 @@ function Suggestions({ users, query, exclude, onPick }: { users: DirectoryUser[]
     <div class="suggestions">
       {matches.slice(0, MAX_SUGGESTIONS).map((u) => (
         <button type="button" key={u.id} onClick={() => onPick(u)} title={u.display_name || u.username}>
-          {u.is_bot ? '🤖 ' : ''}
+          {u.is_bot && <Icon name="bot" size={16} />}
           {u.username}
         </button>
       ))}
-      {matches.length > MAX_SUGGESTIONS && <span class="muted small">{t('more_users', { n: matches.length - MAX_SUGGESTIONS })}</span>}
+      {matches.length > MAX_SUGGESTIONS && <span class="muted">{t('more_users', { n: matches.length - MAX_SUGGESTIONS })}</span>}
     </div>
   );
 }
@@ -86,7 +87,12 @@ export function NewConversation({ onClose }: { onClose: () => void }) {
   return (
     <div class="modal-backdrop" onClick={onClose}>
       <form class="card modal" onClick={(e) => e.stopPropagation()} onSubmit={submit}>
-        <h2>{t('new_conversation')}</h2>
+        <div class="modal-head">
+          <h2>{t('new_conversation')}</h2>
+          <button type="button" class="icon-btn" title={t('close')} onClick={onClose}>
+            <Icon name="x" size={20} />
+          </button>
+        </div>
         <div class="tabs">
           <button type="button" class={kind === 'direct' ? 'active' : ''} onClick={() => setKind('direct')}>
             {t('direct')}
@@ -116,12 +122,18 @@ export function NewConversation({ onClose }: { onClose: () => void }) {
             <Suggestions users={directory} query={typing} exclude={chosen} onPick={pickMember} />
           </>
         )}
-        {error && <div class="error">{error}</div>}
+        {error && (
+          <div class="error">
+            <Icon name="alert" size={16} />
+            {error}
+          </div>
+        )}
         <div class="row end">
           <button type="button" onClick={onClose}>
             {t('cancel')}
           </button>
-          <button type="submit" class="primary" disabled={busy}>
+          <button type="submit" class={busy ? 'primary busy' : 'primary'} disabled={busy}>
+            {busy && <span class="spinner" />}
             {busy ? t('creating') : t('create')}
           </button>
         </div>

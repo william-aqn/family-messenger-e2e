@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Crimson Lab canvas: the splash matches the app's background in both modes. -->
+    <color name="launch_background">#151515</color>
+</resources>

@@ -5,6 +5,7 @@ import { acceptNewKeys, addMember, removeMember, renameGroup, setRetention, setV
 import { contacts, session } from '../state/model';
 import { keys } from '../state/session';
 import type { Conversation } from '../store/db';
+import { Icon } from './Icons';
 
 const RETENTION_OPTIONS = [0, 3600, 86400, 7 * 86400, 30 * 86400];
 
@@ -17,6 +18,7 @@ export function MemberPanel({ conv, onClose }: { conv: Conversation; onClose: ()
   const unverified = new Set(unverifiedMembers(conv));
   const isOwner = conv.role === 'owner';
   const canSetRetention = conv.kind === 'direct' || isOwner;
+  const title = conv.kind === 'group' ? t('members') : t('security');
 
   const run = async (fn: () => Promise<void>) => {
     setError(null);
@@ -47,14 +49,20 @@ export function MemberPanel({ conv, onClose }: { conv: Conversation; onClose: ()
 
   return (
     <aside class="panel">
-      <header>
-        <strong>{conv.kind === 'group' ? t('members') : t('security')}</strong>
-        <button onClick={onClose}>✕</button>
-      </header>
-      <p class="muted small">{t('safety_hint')}</p>
+      <div class="panel-head">
+        <h3>{title}</h3>
+        <button type="button" class="icon-btn" title={t('close')} onClick={onClose}>
+          <Icon name="x" size={20} />
+        </button>
+      </div>
+      {/* The phone sheet has no head of its own — the chat header serves as one. */}
+      <div class="panel-title">{title}</div>
+      <p class="panel-hint">{t('safety_hint')}</p>
       <div class="member">
         <div class="member-name">
-          @{me.username} ({t('you')})
+          <span>
+            @{me.username} <span class="muted">({t('you')})</span>
+          </span>
         </div>
         <code class="fp">{fingerprint(myKeys.signPub, myKeys.encPub)}</code>
       </div>
@@ -66,40 +74,53 @@ export function MemberPanel({ conv, onClose }: { conv: Conversation; onClose: ()
           return (
             <div class="member" key={id}>
               <div class="member-name">
-                @{c.username}
-                {c.isBot && <span class="tag bot">🤖 {t('bot')}</span>}
-                {c.verified && !c.isBot && <span class="tag ok">{t('verified')}</span>}
-                {unverified.has(id) && <span class="tag warn">{t('not_in_roster')}</span>}
-                {c.pendingKeys && <span class="tag bad">{t('keys_changed')}</span>}
-              </div>
-              <code class="fp">{fingerprint(c.signPub, c.encPub)}</code>
-              {c.pendingKeys && (
-                <div class="row">
-                  <code class="fp small">
-                    {t('new_keys')} {fingerprint(c.pendingKeys.signPub, c.pendingKeys.encPub)}
-                  </code>
-                  <button onClick={() => run(() => acceptNewKeys(id))}>{t('accept_new_keys')}</button>
-                </div>
-              )}
-              <div class="row">
-                {!c.isBot && (
-                  <label class="check">
-                    <input type="checkbox" checked={c.verified} onChange={(e) => run(() => setVerified(id, (e.target as HTMLInputElement).checked))} />
-                    {t('i_verified')}
-                  </label>
-                )}
+                <span>@{c.username}</span>
+                <span class="tags">
+                  {c.isBot && (
+                    <span class="tag bot">
+                      <Icon name="bot" size={12} />
+                      {t('bot')}
+                    </span>
+                  )}
+                  {c.verified && !c.isBot && <span class="tag ok">{t('verified')}</span>}
+                  {unverified.has(id) && <span class="tag warn">{t('not_in_roster')}</span>}
+                  {c.pendingKeys && <span class="tag bad">{t('keys_changed')}</span>}
+                </span>
                 {conv.kind === 'group' && isOwner && (
-                  <button class="danger" onClick={() => run(() => removeMember(conv.id, id))}>
+                  <button type="button" class="link danger" onClick={() => run(() => removeMember(conv.id, id))}>
                     {t('remove')}
                   </button>
                 )}
               </div>
+              {c.pendingKeys ? (
+                <>
+                  <code class="fp old">{fingerprint(c.signPub, c.encPub)}</code>
+                  <code class="fp">
+                    <span class="fp-label">{t('new_keys')}</span> {fingerprint(c.pendingKeys.signPub, c.pendingKeys.encPub)}
+                  </code>
+                  <button type="button" class="soft small" onClick={() => run(() => acceptNewKeys(id))}>
+                    {t('accept_new_keys')}
+                  </button>
+                </>
+              ) : (
+                <code class="fp">{fingerprint(c.signPub, c.encPub)}</code>
+              )}
+              {!c.isBot && (
+                <label class="check">
+                  <input type="checkbox" checked={c.verified} onChange={(e) => run(() => setVerified(id, (e.target as HTMLInputElement).checked))} />
+                  {t('i_verified')}
+                </label>
+              )}
             </div>
           );
         })}
       <div class="section">
-        <div class="muted small">⏱ {t('disappearing_messages')}</div>
+        <span class="muted">
+          <Icon name="timer" size={16} />
+          {t('disappearing_messages')}
+        </span>
         <select
+          class="small"
           value={conv.retentionSeconds}
           disabled={!canSetRetention}
           onChange={(e) => run(() => setRetention(conv.id, Number((e.target as HTMLSelectElement).value)))}
@@ -110,10 +131,10 @@ export function MemberPanel({ conv, onClose }: { conv: Conversation; onClose: ()
             </option>
           ))}
         </select>
-        {!canSetRetention && <span class="muted small">{t('retention_owner_only')}</span>}
+        {!canSetRetention && <p class="hint">{t('retention_owner_only')}</p>}
       </div>
       {conv.kind === 'group' && (
-        <>
+        <div class="section group">
           {isOwner && (
             <form
               class="row"
@@ -125,8 +146,13 @@ export function MemberPanel({ conv, onClose }: { conv: Conversation; onClose: ()
                 });
               }}
             >
-              <input value={newMember} onInput={(e) => setNewMember((e.target as HTMLInputElement).value)} placeholder={t('username_to_add')} />
-              <button type="submit" disabled={!newMember.trim()}>
+              <input
+                class="small"
+                value={newMember}
+                onInput={(e) => setNewMember((e.target as HTMLInputElement).value)}
+                placeholder={t('username_to_add')}
+              />
+              <button type="submit" class="small" disabled={!newMember.trim()}>
                 {t('add')}
               </button>
             </form>
@@ -138,17 +164,24 @@ export function MemberPanel({ conv, onClose }: { conv: Conversation; onClose: ()
               void run(() => renameGroup(conv.id, newName));
             }}
           >
-            <input value={newName} onInput={(e) => setNewName((e.target as HTMLInputElement).value)} placeholder={t('group_name_field')} />
-            <button type="submit" disabled={!newName.trim() || newName.trim() === conv.name}>
+            <input class="small" value={newName} onInput={(e) => setNewName((e.target as HTMLInputElement).value)} placeholder={t('group_name_field')} />
+            <button type="submit" class="small" disabled={!newName.trim() || newName.trim() === conv.name}>
               {t('rename')}
             </button>
           </form>
-          <button class="danger" onClick={() => run(() => removeMember(conv.id, me.accountId))}>
+          <button type="button" class="danger" onClick={() => run(() => removeMember(conv.id, me.accountId))}>
             {t('leave_group')}
           </button>
-        </>
+        </div>
       )}
-      {error && <div class="error">{error}</div>}
+      {error && (
+        <div class="section">
+          <div class="error">
+            <Icon name="alert" size={16} />
+            {error}
+          </div>
+        </div>
+      )}
     </aside>
   );
 }

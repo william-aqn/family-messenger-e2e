@@ -1,18 +1,153 @@
-:root {
-  --bg: #161a22;
-  --bg-2: #1d222c;
-  --bg-3: #252b37;
-  --border: #303745;
-  --text: #e6e9ef;
-  --muted: #8b93a3;
-  --accent: #4f8cff;
-  --accent-2: #3b6fd6;
-  --danger: #e5534b;
-  --ok: #3fb950;
-  --warn: #d29922;
-  --radius: 10px;
-  color-scheme: dark;
+/* =============================================================================
+   Family Messenger — web stylesheet
+   Design system: SpecMash geometry x Crimson Lab colour.
+
+   This file has two halves:
+     1. FOUNDATION (this part) — fonts, design tokens, base element styles, the
+        icon rules and the component kit (buttons, fields, tabs, tags, banners,
+        toasts, cards, modals, tables).
+     2. SCREEN LAYERS (appended below the marker at the end) — layout and the
+        per-screen rules that build on the kit.
+
+   System rules that hold everywhere:
+     - one radius, 4px; 16px pill only for small tags;
+     - no shadows: a shadow becomes a 1px ring, box-shadow 0 0 0 1px
+       rgba(228,196,159,.25) for surfaces and .3 for things that float;
+     - Lucide icons only, stroke 2, sizes 12 / 16 / 20 / 24, colour inherited;
+     - motion is colour only, 120ms ease — no transforms, no ripples.
+   ========================================================================== */
+
+/* -----------------------------------------------------------------------------
+   1. Fonts
+   Futura PT (Book 400, Medium 500) is the interface face; FuturaFuturisC is the
+   Cyrillic fallback shipped with it. Both are self-hosted from /public/fonts.
+   Roboto is NOT fetched from Google Fonts: the client is self-hosted and must
+   work offline, so form text falls back through the local stack
+   Roboto -> Helvetica Neue -> Arial -> sans-serif.
+   -------------------------------------------------------------------------- */
+
+@font-face {
+  font-family: 'Futura PT';
+  src: url('/fonts/FuturaPT-Book.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
 }
+
+@font-face {
+  font-family: 'Futura PT';
+  src: url('/fonts/FuturaPT-Medium.woff2') format('woff2');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'FuturaFuturisC';
+  src: url('/fonts/FuturaFuturisC.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* -----------------------------------------------------------------------------
+   2. Design tokens
+   The block below is the handoff contract (specification, section 6) and is
+   reproduced value for value. Crimson Lab is the default theme and needs no
+   data-theme attribute.
+   -------------------------------------------------------------------------- */
+
+:root {
+  --font-ui: 'Futura PT', 'FuturaFuturisC', 'Trebuchet MS', sans-serif;
+  --font-form: Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --radius: 4px;            /* the only radius */
+  --radius-pill: 16px;      /* tags only */
+}
+
+/* ───── Main theme: Crimson Lab (default, no data-theme needed) ───── */
+:root, [data-theme='crimson'] {
+  color-scheme: dark;
+  --sand: 228, 196, 159;                      /* #E4C49F as an RGB triple for half-tones */
+  --chrome: #0D0D0D;  --chrome-2: #1F1E1C;  --chrome-3: #27231E;
+  --on-chrome: #EAEAEA;  --on-chrome-muted: #917E68;  --on-chrome-faint: #685B4C;
+  --bg: #151515;  --bg-2: #1F1E1C;  --bg-3: #27231E;  --bg-4: #27231E;
+  --text: #EAEAEA;  --text-2: #E4C49F;  --muted: #917E68;  --faint: #685B4C;
+  --accent: #E4C49F;  --on-accent: #151515;  --accent-2: #E4C49F;  --accent-hover: #D2B18C;
+  --accent-soft: rgba(var(--sand), .15);  --accent-soft-2: rgba(var(--sand), .25);
+  --border: rgba(var(--sand), .4);  --border-focus: #E4C49F;  --divider: rgba(var(--sand), .15);
+  --bubble-own: rgba(var(--sand), .15);  --bubble-own-text: #EAEAEA;  --bubble-own-meta: #E4C49F;
+  --bubble-other: #1F1E1C;  --sender: #E4C49F;
+  --danger: #e74c3c;  --danger-bg: rgba(231, 76, 60, .15);
+  --ok: #6fcf6f;  --ok-bg: rgba(111, 207, 111, .15);  --busy: #d6a84a;  --warn: #e0a458;  --offline: #e0795f;
+  --tag-bot: rgba(var(--sand), .2);  --unread: #E4C49F;  --on-unread: #151515;
+  --shadow-card: 0 0 0 1px rgba(var(--sand), .25);   /* a 1px ring instead of a shadow */
+  --shadow-pop: 0 0 0 1px rgba(var(--sand), .3);
+}
+
+/* ───── SpecMash variants (guideline only) ─────
+   These exist so the system is documented in all three themes. Nothing in the
+   product selects them: there is no theme switcher in the UI. They are reached
+   by setting data-theme="light" | "dark" on the root element by hand. ───── */
+[data-theme='light'], [data-theme='dark'] {
+  --chrome: #242A35;  --chrome-2: #313640;  --chrome-3: #3E4249;
+  --on-chrome: #FFFFFF;  --on-chrome-muted: #969696;  --on-chrome-faint: #7E8489;
+  --accent: #F46C32;  --on-accent: #FFFFFF;  --accent-hover: #E45112;  --accent-soft: #FFE0D3;  --accent-soft-2: #FDBCA1;
+  --danger: #FF2B2B;  --ok: #219653;  --ok-bg: #E1F4EA;  --busy: #FFC978;  --warn: #FFC978;  --offline: #FF2B2B;
+  --tag-bot: #A8D2E4;  --unread: #E4632C;  --on-unread: #FFFFFF;
+}
+
+[data-theme='light'] {
+  color-scheme: light;
+  --bg: #F8F8F8;  --bg-2: #FFFFFF;  --bg-3: #F4F4F4;  --bg-4: #E8E8E8;
+  --text: #000000;  --text-2: #313640;  --muted: #7E8489;  --faint: #969696;
+  --border: #C4C4C4;  --border-focus: #EE5E20;  --divider: #F4F4F4;  --accent-2: #EE5E20;
+  --bubble-own: #FFE0D3;  --bubble-own-text: #000000;  --bubble-own-meta: #313640;
+  --bubble-other: #FFFFFF;  --sender: #EE5E20;  --danger-bg: #FFDFDF;
+  --shadow-card: 0 1px 4px rgba(0,0,0,.15);  --shadow-pop: 0 4px 12px rgba(0,0,0,.1);
+}
+
+[data-theme='dark'] {
+  color-scheme: dark;
+  --bg: #313640;  --bg-2: #3E4249;  --bg-3: #242A35;  --bg-4: #3E4249;
+  --text: #FFFFFF;  --text-2: #FFFFFF;  --muted: #969696;  --faint: #7E8489;
+  --border: #3E4249;  --border-focus: #F46C32;  --divider: #242A35;  --accent-2: #FDBCA1;
+  --bubble-own: #F46C32;  --bubble-own-text: #242A35;  --bubble-own-meta: #242A35;
+  --bubble-other: #3E4249;  --sender: #FDBCA1;  --danger-bg: #3E4249;
+  --shadow-card: 0 1px 4px rgba(0,0,0,.4);  --shadow-pop: 0 4px 12px rgba(0,0,0,.4);
+}
+
+/* ───── Supplementary tokens ─────
+   Not part of the handoff contract above: the text colours that sit on the
+   status fills, the modal scrim, and the two data-URI marks (select chevron,
+   checkbox tick) that cannot use currentColor. Kept per theme so the guideline
+   variants stay legible. ───── */
+:root, [data-theme='crimson'] {
+  --on-ok: #151515;
+  --on-warn: #151515;
+  --on-danger: #EAEAEA;
+  --on-tag-bot: #E4C49F;
+  --scrim: rgba(13, 13, 13, .6);
+  --scrim-strong: rgba(13, 13, 13, .92);
+  --rail-neutral: rgba(var(--sand), .5);
+  --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23E4C49F' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  --check-mark: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23E4C49F' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E");
+}
+
+[data-theme='light'], [data-theme='dark'] {
+  --on-ok: #FFFFFF;
+  --on-warn: #313640;
+  --on-danger: #FFFFFF;
+  --on-tag-bot: #313640;
+  --scrim: rgba(0, 0, 0, .5);
+  --scrim-strong: rgba(0, 0, 0, .92);
+  --rail-neutral: #C4C4C4;
+  --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23F46C32' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  --check-mark: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23F46C32' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E");
+}
+
+/* -----------------------------------------------------------------------------
+   3. Base
+   -------------------------------------------------------------------------- */
 
 * {
   box-sizing: border-box;
@@ -28,234 +163,627 @@ body,
 body {
   background: var(--bg);
   color: var(--text);
-  font: 15px/1.45 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  font: 16px/1.4 var(--font-ui);
+  -webkit-font-smoothing: antialiased;
 }
+
+/* Headings follow the type scale: card / modal title 24, section title 20. */
+h1,
+h2,
+h3 {
+  margin: 0;
+  font-weight: 500;
+  line-height: 1.2;
+}
+
+h1 { font-size: 24px; }
+h2 { font-size: 24px; }
+h3 { font-size: 20px; }
+
+p {
+  margin: 0;
+}
+
+/* Forms are the one place the interface face steps aside for Roboto. */
+input,
+select,
+textarea,
+label {
+  font-family: var(--font-form);
+  font-size: 14px;
+  color: var(--text-2);
+}
+
+a {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+a:hover {
+  color: var(--accent-2);
+  text-decoration-thickness: 2px;
+}
+
+::placeholder {
+  color: var(--muted);
+  opacity: 1;
+}
+
+::selection {
+  background: var(--accent-soft-2);
+}
+
+/* -----------------------------------------------------------------------------
+   4. Icons
+   The sprite is one hidden <svg class="icon-sprite"> at the root of the tree
+   holding every <symbol>; an icon is <svg class="icon"><use href="#i-name"/>.
+   CSS cannot reach inside the shadow tree that <use> clones, but the SVG paint
+   properties are inherited — so the stroke styling is declared on .icon itself
+   and repeated on .icon g for icons that are inlined rather than referenced.
+   The upshot: an icon always draws in the current text colour.
+   -------------------------------------------------------------------------- */
+
+.icon-sprite {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+}
+
+.icon {
+  display: block;
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.icon g {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* An icon set inline in a sentence sits on the text baseline instead. */
+.icon.inline {
+  display: inline-block;
+  vertical-align: -2px;
+}
+
+/* -----------------------------------------------------------------------------
+   5. Motion
+   Colour only, 120ms ease. No transforms, no ripples, no bounces.
+   -------------------------------------------------------------------------- */
 
 button,
-input {
-  font: inherit;
-  color: inherit;
+a,
+input,
+select,
+textarea,
+summary,
+.icon-btn,
+.tag,
+.tabs button,
+.conv-list li,
+.msg-menu button {
+  transition:
+    background-color .12s ease,
+    color .12s ease,
+    border-color .12s ease,
+    box-shadow .12s ease;
 }
 
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition-duration: .001ms !important;
+    animation-duration: .001ms !important;
+  }
+}
+
+/* -----------------------------------------------------------------------------
+   6. Buttons
+   The bare <button> is the secondary button: 44 high, 2px --border, transparent.
+   Modifiers layer on top of it.
+   -------------------------------------------------------------------------- */
+
 button {
-  background: var(--bg-3);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 6px 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 44px;
+  padding: 0 24px;
+  border: 2px solid var(--border);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text-2);
+  font-family: var(--font-ui);
+  font-weight: 500;
+  font-size: 16px;
+  line-height: 1;
   cursor: pointer;
 }
 
 button:hover:not(:disabled) {
   border-color: var(--accent);
+  color: var(--accent);
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+a:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
 }
 
 button:disabled {
-  opacity: 0.5;
-  cursor: default;
+  opacity: .4;
+  cursor: not-allowed;
 }
 
+/* Primary — accent fill, no border, no shadow. */
 button.primary {
+  border-color: transparent;
   background: var(--accent);
-  border-color: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
 }
 
 button.primary:hover:not(:disabled) {
-  background: var(--accent-2);
+  background: var(--accent-hover);
+  border-color: transparent;
+  color: var(--on-accent);
 }
 
+/* Secondary is the default; the class exists so intent can be written down. */
+button.secondary {
+  border: 2px solid var(--border);
+  background: transparent;
+  color: var(--text-2);
+}
+
+/* Soft — the "on" state of a toggle: soft accent fill with an accent border. */
+button.soft {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+button.soft:hover:not(:disabled) {
+  background: var(--accent-soft-2);
+}
+
+/* Danger — outline by default (W05 "Выйти из группы"),
+   filled with .fill (W08 "Отклонить", A07 "Удалить"). */
 button.danger {
   border-color: var(--danger);
+  background: transparent;
   color: var(--danger);
 }
 
+button.danger:hover:not(:disabled) {
+  border-color: var(--danger);
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+
+button.danger.fill {
+  border-color: transparent;
+  background: var(--danger);
+  color: var(--on-danger);
+}
+
+button.danger.fill:hover:not(:disabled) {
+  border-color: transparent;
+  background: var(--danger);
+  color: var(--on-danger);
+  box-shadow: inset 0 0 0 2px var(--on-danger);
+}
+
+/* Small — 32 high, 14px. Used for chips, inline actions, panel controls. */
+button.small {
+  height: 32px;
+  padding: 0 16px;
+  font-size: 14px;
+}
+
+/* A borderless text button that reads as a link. */
 button.link {
-  background: none;
-  border: none;
+  height: auto;
   padding: 0;
-  color: var(--accent);
+  border: 0;
+  background: none;
+  color: inherit;
+  font-family: var(--font-ui);
+  font-weight: 400;
+  font-size: 14px;
   text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
 }
 
-input {
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 8px 10px;
+button.link:hover:not(:disabled) {
+  border-color: transparent;
+  color: var(--accent);
+  text-decoration-thickness: 2px;
+}
+
+button.link.strong {
+  font-weight: 500;
+}
+
+button.link.danger {
+  color: var(--danger);
+  background: none;
+}
+
+/* Icon button — 40 on the web, 44 where a finger has to hit it. */
+.icon-btn {
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  gap: 0;
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text);
+}
+
+.icon-btn:hover:not(:disabled) {
+  border-color: transparent;
+  background: var(--bg-3);
+  color: var(--text);
+}
+
+/* The button whose panel or mode is currently open. */
+.icon-btn.active {
+  background: var(--bg-3);
+  color: var(--accent);
+}
+
+.icon-btn.touch {
+  width: 44px;
+  height: 44px;
+}
+
+@media (hover: none) {
+  .icon-btn {
+    width: 44px;
+    height: 44px;
+  }
+}
+
+/* An icon button that carries a label or a counter beside the glyph. */
+.icon-btn.wide {
+  width: auto;
+  padding: 0 10px;
+  gap: 6px;
+}
+
+/* -----------------------------------------------------------------------------
+   7. Busy state
+   A busy button keeps its width, swaps its label for progress text and grows a
+   14px ring spinner on the left. Never a size change, never a transform.
+   -------------------------------------------------------------------------- */
+
+@keyframes fm-spin {
+  to { transform: rotate(360deg); }
+}
+
+.spinner {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(21, 21, 21, .3);
+  border-top-color: #151515;
+  border-radius: 50%;
+  box-sizing: border-box;
+  animation: fm-spin .8s linear infinite;
+}
+
+/* On a dark surface — connection banners, secondary buttons — the ring is sand. */
+.spinner.muted {
+  border-color: rgba(var(--sand), .3);
+  border-top-color: var(--accent);
+}
+
+button.busy {
+  cursor: progress;
+  gap: 10px;
+}
+
+/* -----------------------------------------------------------------------------
+   8. Fields
+   44 high (48 under a finger), 2px border, padding 0 12, Roboto 14. The label
+   sits above the field, the hint below it.
+   -------------------------------------------------------------------------- */
+
+input,
+select,
+textarea {
   width: 100%;
+  height: 44px;
+  padding: 0 12px;
+  border: 2px solid var(--border);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text-2);
+  font-family: var(--font-form);
+  font-size: 14px;
 }
 
-input:focus {
+input:focus,
+select:focus,
+textarea:focus {
   outline: none;
-  border-color: var(--accent);
+  border-color: var(--border-focus);
 }
 
+input:disabled,
+select:disabled,
+textarea:disabled {
+  opacity: .4;
+  cursor: not-allowed;
+}
+
+/* Invalid input, and the field a form error points at. */
+input.error,
+select.error,
+textarea.error,
+input[aria-invalid='true'],
+select[aria-invalid='true'],
+textarea[aria-invalid='true'] {
+  display: block;          /* outranks the .error text rule below */
+  border-color: var(--danger);
+  color: var(--text-2);
+}
+
+textarea {
+  height: auto;
+  min-height: 44px;
+  padding: 10px 12px;
+  line-height: 1.4;
+  resize: vertical;
+}
+
+/* The select draws its own chevron; the native arrow is switched off. */
+select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 32px;
+  background-image: var(--chevron);
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 12px 12px;
+  cursor: pointer;
+}
+
+/* A compact select, 32 high: disappearing-message timer, language picker. */
+select.small,
+input.small,
+select.lang {
+  height: 32px;
+  font-size: 14px;
+}
+
+select.lang {
+  width: auto;
+  padding: 0 32px 0 10px;
+  color: var(--text-2);
+}
+
+@media (hover: none) {
+  input,
+  select,
+  textarea {
+    height: 48px;
+    font-size: 16px;
+  }
+
+  select.small,
+  input.small,
+  select.lang {
+    height: 40px;
+  }
+}
+
+/* Label above, field below. */
 label {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  font-size: 13px;
+  font-family: var(--font-form);
+  font-size: 14px;
   color: var(--muted);
 }
 
+/* The 20x20 checkbox: radius 2, 2px border, a 12px accent tick. */
 label.check {
   flex-direction: row;
   align-items: center;
   gap: 8px;
-}
-
-label.check input {
-  width: auto;
-}
-
-code.fp {
-  display: block;
-  font-size: 13px;
-  letter-spacing: 0.04em;
   color: var(--text);
-  background: var(--bg);
-  padding: 6px 8px;
-  border-radius: 6px;
-  word-break: break-all;
+  cursor: pointer;
 }
 
-code.fp.small {
+label.check input,
+input[type='checkbox'] {
+  appearance: none;
+  -webkit-appearance: none;
+  flex: none;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 2px solid var(--border);
+  border-radius: 2px;
+  background: transparent;
+  cursor: pointer;
+}
+
+input[type='checkbox']:checked {
+  background-image: var(--check-mark);
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 12px 12px;
+}
+
+input[type='checkbox']:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+/* File inputs are hidden behind a paperclip icon button. */
+input[type='file'].hidden-input {
+  display: none;
+}
+
+/* The hint under a field. */
+.hint {
+  margin: 0;
+  font-family: var(--font-form);
   font-size: 12px;
-}
-
-.muted {
   color: var(--muted);
 }
 
-.small {
-  font-size: 12px;
-}
-
-.hint {
-  font-size: 12px;
-  color: var(--warn);
-  margin: 0;
-}
-
+/* A form or request error: 14px danger text with an alert-triangle beside it. */
 .error {
-  color: var(--danger);
-  font-size: 13px;
-}
-
-.center {
-  height: 100%;
   display: flex;
   align-items: center;
-  justify-content: center;
-  padding: 16px;
+  gap: 8px;
+  font-family: var(--font-ui);
+  font-size: 14px;
+  color: var(--danger);
 }
 
-.card {
-  background: var(--bg-2);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 24px;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  width: min(420px, 100%);
+.error.small {
+  font-size: 12px;
 }
 
-.card h1,
-.card h2 {
-  margin: 0;
-}
-
-.card p {
-  margin: 0;
-}
+/* -----------------------------------------------------------------------------
+   9. Tabs
+   Gap 24, a 2px accent rail under the active tab, a 1px divider under the row.
+   -------------------------------------------------------------------------- */
 
 .tabs {
   display: flex;
-  gap: 6px;
+  gap: 24px;
+  box-shadow: inset 0 -1px 0 var(--divider);
 }
 
 .tabs button {
-  flex: 1;
+  height: auto;
+  padding: 0 0 10px;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  color: var(--muted);
+  font-family: var(--font-ui);
+  font-weight: 500;
+  font-size: 16px;
+}
+
+.tabs button:hover:not(:disabled) {
+  border-color: transparent;
+  color: var(--text);
 }
 
 .tabs button.active {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #fff;
+  color: var(--text);
+  box-shadow: inset 0 -2px 0 var(--accent);
 }
 
-.row {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-}
+/* -----------------------------------------------------------------------------
+   10. Tags, badges, presence dots
+   -------------------------------------------------------------------------- */
 
-.row.end {
-  justify-content: flex-end;
-}
-
+/* A tag is the only pill in the system: height 20, padding 0 8, Futura 500/12. */
 .tag {
-  font-size: 11px;
-  padding: 1px 6px;
-  border-radius: 999px;
-  margin-left: 6px;
-  border: 1px solid;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 20px;
+  margin-left: 6px;      /* legacy inline usage; .tags containers zero it out */
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: var(--bg-4);
+  color: var(--muted);
+  font-family: var(--font-ui);
+  font-weight: 500;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+/* The container the new markup wraps a row of tags in. */
+.tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+}
+
+.tags .tag {
+  margin-left: 0;
 }
 
 .tag.ok {
-  color: var(--ok);
-  border-color: var(--ok);
+  background: var(--ok);
+  color: var(--on-ok);
 }
 
 .tag.warn {
-  color: var(--warn);
-  border-color: var(--warn);
+  background: var(--warn);
+  color: var(--on-warn);
 }
 
+.tag.danger,
 .tag.bad {
-  color: var(--danger);
-  border-color: var(--danger);
-}
-
-/* layout */
-.app {
-  display: grid;
-  grid-template-columns: 320px 1fr;
-  height: 100%;
-}
-
-.sidebar {
-  border-right: 1px solid var(--border);
-  background: var(--bg-2);
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-}
-
-.sidebar-header,
-.chat-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px 14px;
-  border-bottom: 1px solid var(--border);
-  gap: 8px;
-  min-height: 58px;
-}
-
-.me {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.dot {
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
   background: var(--danger);
+  color: var(--on-danger);
+}
+
+.tag.bot {
+  background: var(--tag-bot);
+  color: var(--on-tag-bot);
+}
+
+.tag.neutral {
+  background: var(--bg-4);
+  color: var(--muted);
+}
+
+/* The unread counter: an accent pill, at least 20x20. */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: var(--radius-pill);
+  background: var(--unread);
+  color: var(--on-unread);
+  font-family: var(--font-ui);
+  font-weight: 500;
+  font-size: 12px;
+}
+
+/* Presence: 8px, no border, no ring. Offline is the default. */
+.dot {
   display: inline-block;
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--offline);
 }
 
 .dot.online {
@@ -263,700 +791,381 @@ code.fp.small {
 }
 
 .dot.connecting {
-  background: var(--warn);
+  background: var(--busy);
 }
 
-.actions {
+.dot.offline {
+  background: var(--offline);
+}
+
+.dot.idle {
+  background: var(--faint);
+}
+
+/* -----------------------------------------------------------------------------
+   11. Banners and notices
+   A banner is a coloured block with a 2px rail on its left edge, drawn with a
+   box-shadow so it costs no layout. Radius 0 4 4 0 — the rail edge stays square.
+   -------------------------------------------------------------------------- */
+
+.banner,
+.notice {
   display: flex;
-  gap: 6px;
-}
-
-.conv-list {
-  list-style: none;
-  margin: 0;
-  padding: 6px;
-  overflow-y: auto;
-  flex: 1;
-}
-
-.conv-list li {
-  padding: 10px 12px;
-  border-radius: 8px;
-  cursor: pointer;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.conv-list li:hover {
-  background: var(--bg-3);
-}
-
-.conv-list li.selected {
-  background: var(--bg-3);
-  outline: 1px solid var(--border);
-}
-
-.conv-list li.empty {
-  cursor: default;
-  text-align: center;
-  padding: 24px 12px;
-}
-
-.conv-row {
-  display: flex;
-  justify-content: space-between;
   align-items: center;
-  gap: 8px;
-}
-
-.conv-title {
-  font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.conv-preview {
-  font-size: 13px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.conv-time {
-  font-size: 12px;
-  flex-shrink: 0;
-}
-
-.badge {
-  background: var(--accent);
-  color: #fff;
-  border-radius: 999px;
-  font-size: 11px;
-  padding: 1px 7px;
-  flex-shrink: 0;
-}
-
-.chat {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  min-width: 0;
-}
-
-.chat.empty-state {
-  align-items: center;
-  justify-content: center;
-}
-
-.chat-title {
-  display: flex;
-  flex-direction: column;
-  cursor: pointer;
-  min-width: 0;
-  flex: 1;
-}
-
-.chat-title strong {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.chat-header .back {
-  display: none;
-}
-
-.chat-body {
-  display: flex;
-  flex: 1;
-  min-height: 0;
-}
-
-.messages {
-  flex: 1;
-  overflow-y: auto;
-  padding: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.bubble {
-  max-width: min(70%, 640px);
-  background: var(--bg-3);
-  border-radius: 14px;
-  padding: 8px 12px;
-  align-self: flex-start;
-  word-wrap: break-word;
-  white-space: pre-wrap;
-}
-
-.bubble.mine {
-  align-self: flex-end;
-  background: var(--accent-2);
-}
-
-.bubble.pending {
-  opacity: 0.7;
-}
-
-.bubble.failed {
-  opacity: 1;
-  outline: 1px solid var(--danger);
-}
-
-.bubble .author {
-  font-size: 12px;
-  color: var(--accent);
-  margin-bottom: 2px;
-}
-
-.bubble .meta {
-  font-size: 11px;
-  color: rgba(255, 255, 255, 0.6);
-  text-align: right;
-  margin-top: 2px;
-}
-
-.system {
-  align-self: center;
-  font-size: 12px;
-  color: var(--muted);
-  padding: 2px 10px;
-}
-
-.system.error-text {
-  color: var(--warn);
-}
-
-.composer {
-  display: flex;
-  gap: 8px;
-  padding: 12px 14px;
-  border-top: 1px solid var(--border);
-}
-
-.composer-error {
-  padding: 0 14px 10px;
-}
-
-.panel {
-  width: 320px;
-  border-left: 1px solid var(--border);
-  background: var(--bg-2);
-  padding: 14px;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
   gap: 12px;
+  padding: 12px 16px;
+  border-radius: 0 var(--radius) var(--radius) 0;
+  background: var(--bg-4);
+  box-shadow: -2px 0 0 var(--rail-neutral);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 14px;
+  line-height: 1.4;
 }
 
-.panel header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
+/* The compact form used inside the message list and under headers. */
+.banner.small,
+.notice.small {
+  padding: 10px 12px;
+  font-size: 13px;
 }
 
-.panel p {
-  margin: 0;
+/* Alert — connection loss, errors, the password warning. */
+.banner.alert,
+.notice.alert {
+  background: var(--danger-bg);
+  box-shadow: -2px 0 0 var(--danger);
 }
 
-.member {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding-bottom: 10px;
-  border-bottom: 1px solid var(--border);
+/* Neutral — server announcement, bot notice. */
+.banner.neutral,
+.notice.neutral {
+  background: var(--bg-4);
+  box-shadow: -2px 0 0 var(--rail-neutral);
 }
 
-.member-name {
-  font-weight: 600;
+/* Live — someone is in the voice channel. */
+.banner.live,
+.notice.live {
+  background: var(--accent-soft);
+  box-shadow: -2px 0 0 var(--accent);
 }
 
-.modal-backdrop {
+/* Busy — connecting, waiting. */
+.banner.busy,
+.notice.busy {
+  background: var(--bg-4);
+  box-shadow: -2px 0 0 var(--busy);
+}
+
+/* Update — a newer client is served. Sits on the dark chrome. */
+.banner.update,
+.notice.update {
+  background: var(--chrome-2);
+  box-shadow: -2px 0 0 var(--accent);
+  color: var(--on-chrome);
+}
+
+/* The global bars float over the app: alerts on top, updates and the server
+   announcement at the bottom, both centred and at most 480 wide. */
+.banner.floating {
   position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.55);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 16px;
-  z-index: 20;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);   /* centring only — not motion */
+  width: min(480px, calc(100vw - 24px));
+  z-index: 40;
 }
 
-.modal {
-  max-height: 90vh;
-  overflow-y: auto;
+.banner.floating.bottom {
+  top: auto;
+  bottom: 12px;
 }
 
-.section {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+/* The banner's own icon keeps its colour when the text is neutral. */
+.banner .icon,
+.notice .icon {
+  flex: none;
 }
 
-.devices {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
+.banner.alert .icon {
+  color: var(--danger);
 }
 
-.devices li {
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
+.banner.neutral .icon,
+.banner.live .icon,
+.banner.update .icon {
+  color: var(--accent);
 }
+
+.banner .grow,
+.notice .grow {
+  flex: 1;
+  min-width: 0;
+}
+
+/* -----------------------------------------------------------------------------
+   12. Toasts
+   -------------------------------------------------------------------------- */
 
 .toast {
   position: fixed;
   bottom: 20px;
   left: 50%;
-  transform: translateX(-50%);
-  background: var(--bg-3);
-  border: 1px solid var(--border);
-  padding: 8px 14px;
-  border-radius: 8px;
-  z-index: 40;
-}
-
-.banner {
-  position: fixed;
-  top: 0;
-  left: 50%;
-  transform: translateX(-50%);
-  background: var(--warn);
-  color: #000;
-  font-size: 12px;
-  padding: 2px 12px;
-  border-radius: 0 0 8px 8px;
-  z-index: 40;
-}
-
-/* a newer client is served: sits below the connection banner when both show */
-.banner.update {
-  top: auto;
-  bottom: 0;
-  background: var(--accent);
-  color: #fff;
-  border-radius: 8px 8px 0 0;
-  padding: 4px 12px;
-}
-
-.banner.update button.link {
-  color: #fff;
-  margin-left: 8px;
-  text-decoration: underline;
-}
-
-/* calls */
-.call {
-  position: fixed;
-  right: 16px;
-  bottom: 16px;
-  width: 340px;
-  background: var(--bg-2);
-  border: 1px solid var(--accent);
+  transform: translateX(-50%);   /* centring only */
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
   border-radius: var(--radius);
-  padding: 14px;
+  background: var(--bg-2);
+  box-shadow: var(--shadow-pop);
+  color: var(--accent);
+  font-family: var(--font-ui);
+  font-size: 14px;
+  z-index: 45;
+}
+
+/* -----------------------------------------------------------------------------
+   13. Cards, modals, popovers
+   -------------------------------------------------------------------------- */
+
+.card {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  z-index: 30;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  gap: 20px;
+  width: min(420px, 100%);
+  padding: 32px;
+  border-radius: var(--radius);
+  background: var(--bg-2);
+  box-shadow: var(--shadow-card);
 }
 
-.call.call-video {
-  width: min(960px, calc(100vw - 32px));
-}
-
-.call-screen {
-  position: relative;
-}
-
-.call-screen.hidden {
-  display: none;
-}
-
-.call-screen video {
-  display: block;
-  width: 100%;
-  background: #000;
-  border-radius: 8px;
-}
-
-/* remote screen and camera: the screen takes the stage, the camera sits beside it */
-.call-stage {
-  display: grid;
-  gap: 6px;
-}
-
-.call-stage.both {
-  grid-template-columns: 3fr 1fr;
-  align-items: start;
-}
-
-.call-screen video.call-main {
-  max-height: 60vh;
-}
-
-.call-screen video.call-pip {
-  max-height: 30vh;
-}
-
-/* our own camera preview (mirrored). The selectors outrank ".call-screen video"
-   above, which would otherwise stretch the preview over the peer's video. */
-.call-screen video.call-self {
-  position: absolute;
-  right: 8px;
-  bottom: 8px;
-  width: 160px;
-  border: 1px solid var(--border);
-  transform: scaleX(-1);
-}
-
-.call-screen video.call-self.alone {
-  position: static;
-  width: 200px;
-}
-
-.call-screen-tools {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  display: flex;
-  gap: 6px;
-  opacity: 0.75;
-}
-
-.call-screen:hover .call-screen-tools,
-.call-screen:fullscreen .call-screen-tools {
-  opacity: 1;
-}
-
-.call-screen:fullscreen {
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  background: #000;
-}
-
-.call-screen:fullscreen .call-stage {
-  flex: 1;
-  min-height: 0;
-  align-items: center;
-}
-
-.call-screen:fullscreen video.call-main {
-  width: 100%;
-  height: 100%;
-  max-height: 100vh;
-  object-fit: contain;
-  border-radius: 0;
-}
-
-.call-screen:fullscreen video.call-pip {
-  max-height: 40vh;
-  object-fit: contain;
-}
-
-.call-status {
-  font-weight: 600;
-}
-
-/* user directory suggestions in the new-chat dialog */
-.suggestions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-  margin: -6px 0 10px;
-}
-
-.suggestions button {
-  padding: 4px 10px;
-  font-size: 13px;
-  border-radius: 14px;
-}
-
-/* group voice channel */
-.voice-list {
-  list-style: none;
+.card h1,
+.card h2 {
   margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  max-height: 40vh;
-  overflow: auto;
 }
 
-.voice-list li {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.voice-list li::before {
-  content: '';
-  flex: none;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--muted);
-}
-
-.voice-list li.self::before,
-.voice-list li.connected::before {
-  background: var(--ok);
-}
-
-.voice-list li.failed::before {
-  background: var(--danger);
-}
-
-.voice-name {
-  font-weight: 600;
-}
-
-/* screens streamed into the channel */
-.voice-screens {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.voice-tabs {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-}
-
-.voice-tabs button {
-  padding: 4px 10px;
-  font-size: 13px;
-}
-
-.voice-tabs button.active {
-  border-color: var(--accent);
-  background: var(--bg-3);
-}
-
-.voice-tabs .voice-fs {
-  margin-left: auto;
-}
-
-.voice-grid {
-  display: grid;
-  gap: 6px;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-}
-
-.voice-grid.focus {
-  grid-template-columns: 1fr;
-}
-
-.voice-video {
-  position: relative;
-  min-height: 120px;
-  background: #000;
-  border-radius: 8px;
-  overflow: hidden;
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
   display: flex;
   align-items: center;
   justify-content: center;
+  padding: 16px;
+  background: var(--scrim);
+  z-index: 20;
 }
 
-.voice-video video {
-  display: block;
+.modal {
+  width: 420px;
+  max-width: 100%;
+  max-height: 90vh;
+  overflow-y: auto;
+  padding: 24px 32px 32px;
+  box-shadow: var(--shadow-pop);
+}
+
+.modal.wide {
+  width: min(900px, 100%);
+}
+
+/* The modal's title row: heading on the left, a close icon button on the right. */
+.modal-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+/* A popover — the message menu, any small floating list. 200 wide, items 40. */
+.popover {
+  min-width: 200px;
+  padding: 4px 0;
+  border-radius: var(--radius);
+  background: var(--bg-2);
+  box-shadow: var(--shadow-pop);
+  color: var(--text);
+  z-index: 30;
+}
+
+.popover button {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 12px;
   width: 100%;
-  max-height: 50vh;
+  height: 40px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-weight: 400;
+  font-size: 16px;
+  text-align: left;
 }
 
-.voice-grid.focus .voice-video video {
-  max-height: 65vh;
+.popover button:hover:not(:disabled) {
+  background: var(--bg-3);
+  border-color: transparent;
+  color: var(--text);
 }
 
-.voice-label {
-  position: absolute;
-  left: 6px;
-  bottom: 6px;
-  padding: 2px 6px;
-  border-radius: 4px;
-  background: rgba(0, 0, 0, 0.6);
-  font-size: 12px;
+.popover button .icon {
+  color: var(--accent);
 }
 
-.voice-screens:fullscreen {
-  background: #000;
-  padding: 8px;
-  overflow: auto;
+.popover button.danger {
+  color: var(--danger);
 }
 
-.voice-screens:fullscreen .voice-grid {
-  flex: 1;
-  align-content: center;
+.popover button.danger .icon {
+  color: var(--danger);
 }
 
-.voice-screens:fullscreen .voice-video video {
-  max-height: calc(100vh - 64px);
-  object-fit: contain;
+.popover button.danger:hover:not(:disabled) {
+  background: var(--danger-bg);
+  color: var(--danger);
 }
 
-.voice-bar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  border-left-color: var(--accent);
+/* -----------------------------------------------------------------------------
+   14. Tables, tiles, credentials, devices, safety numbers
+   -------------------------------------------------------------------------- */
+
+.table-wrap {
+  overflow-x: auto;
 }
 
-.voice-bar button.link {
-  margin-left: auto;
+.admin-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--font-form);
+  font-size: 14px;
 }
 
-.actions button.active {
-  border-color: var(--accent);
-}
-
-.badge {
-  display: inline-block;
-  min-width: 16px;
-  margin-left: 2px;
-  padding: 0 4px;
-  border-radius: 8px;
-  background: var(--accent);
-  color: #fff;
-  font-size: 11px;
-  line-height: 16px;
-  text-align: center;
-  vertical-align: top;
-}
-
-.call-actions {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-@media (max-width: 720px) {
-  .app {
-    grid-template-columns: 1fr;
-  }
-
-  .app.has-selection .sidebar {
-    display: none;
-  }
-
-  .app:not(.has-selection) .chat {
-    display: none;
-  }
-
-  .chat-header .back {
-    display: inline-block;
-  }
-
-  .panel {
-    position: fixed;
-    inset: 58px 0 0 0;
-    width: auto;
-    z-index: 10;
-  }
-
-  .bubble {
-    max-width: 85%;
-  }
-
-  .call {
-    left: 8px;
-    right: 8px;
-    bottom: 8px;
-    width: auto;
-  }
-}
-
-/* attachments */
-.file {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.thumb {
-  max-width: 320px;
-  max-height: 320px;
-  border-radius: 8px;
-  cursor: zoom-in;
-  display: block;
-}
-
-.file-card {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+.admin-table th {
+  padding: 12px;
+  background: var(--bg-3);
+  color: var(--accent);
+  font-family: var(--font-ui);
+  font-weight: 500;
   font-size: 13px;
-}
-
-.file-name {
-  max-width: 220px;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  text-align: left;
   white-space: nowrap;
 }
 
-.chat.dropzone {
-  outline: 2px dashed var(--accent);
-  outline-offset: -8px;
+.admin-table td {
+  height: 40px;
+  padding: 10px 12px;
+  box-shadow: inset 0 -1px 0 var(--divider);
+  color: var(--text);
+  text-align: left;
+  vertical-align: middle;
 }
 
-.lightbox {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.85);
+.admin-table td.row {
+  display: flex;
+}
+
+/* A statistic tile. */
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 12px;
+}
+
+.stat {
+  padding: 12px;
+  border-radius: var(--radius);
+  background: var(--bg-2);
+  box-shadow: var(--shadow-card);
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.stat-value {
+  font-weight: 500;
+  font-size: 20px;
+  line-height: 1.2;
+  color: var(--text);
+}
+
+/* Freshly issued credentials — shown once, copied out. */
+.creds {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border-radius: var(--radius);
+  background: var(--bg-3);
+  box-shadow: var(--shadow-card);
+}
+
+/* The device list in settings. */
+.devices {
+  display: flex;
+  flex-direction: column;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.devices li {
   display: flex;
   align-items: center;
-  justify-content: center;
-  z-index: 50;
-  cursor: zoom-out;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 0;
+  box-shadow: inset 0 -1px 0 var(--divider);
+  font-size: 14px;
 }
 
-.lightbox img {
-  max-width: 96vw;
-  max-height: 96vh;
-  border-radius: 6px;
+.devices li:last-child {
+  box-shadow: none;
 }
 
-/* notices */
-.notice {
-  background: var(--bg-3);
-  border-left: 3px solid var(--warn);
-  padding: 6px 12px;
+/* The safety number: Roboto 13, +0.04em, grouped in fours. */
+.fp {
+  display: block;
+  font-family: var(--font-form);
   font-size: 13px;
+  letter-spacing: .04em;
+  color: var(--text-2);
+  word-break: break-all;
 }
 
-.announcement {
-  position: fixed;
-  bottom: 0;
-  left: 50%;
-  transform: translateX(-50%);
-  background: var(--bg-3);
-  border: 1px solid var(--border);
-  border-bottom: none;
-  padding: 4px 14px;
-  border-radius: 8px 8px 0 0;
+.fp.small {
   font-size: 12px;
-  z-index: 25;
-  max-width: 90vw;
 }
 
-.tag.bot {
-  color: var(--accent);
-  border-color: var(--accent);
+/* The superseded key when the peer's keys have changed. */
+.fp.old {
+  color: var(--faint);
+  text-decoration: line-through;
+}
+
+/* -----------------------------------------------------------------------------
+   15. Utilities
+   -------------------------------------------------------------------------- */
+
+.muted {
+  color: var(--muted);
+}
+
+.faint {
+  color: var(--faint);
+}
+
+.small {
+  font-size: 12px;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .row.wrap {
@@ -967,165 +1176,1917 @@ code.fp.small {
   justify-content: space-between;
 }
 
-select,
-textarea {
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 8px 10px;
-  font: inherit;
-  color: inherit;
-  width: 100%;
+.row.end {
+  justify-content: flex-end;
 }
 
-select.lang {
-  width: auto;
-  padding: 4px 8px;
+.row.gap-16 {
+  gap: 16px;
 }
 
-.modal.wide {
-  width: min(900px, 100%);
-}
-
-.creds {
-  background: var(--bg);
-  border: 1px solid var(--accent);
-  border-radius: 8px;
-  padding: 10px 12px;
+.section {
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
 
-.stat-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-  gap: 8px;
-}
-
-.stat {
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 8px 10px;
-}
-
-.stat-value {
-  font-weight: 600;
-}
-
-.table-wrap {
-  overflow-x: auto;
-}
-
-.admin-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 13px;
-}
-
-.admin-table th,
-.admin-table td {
-  text-align: left;
-  padding: 6px 8px;
-  border-bottom: 1px solid var(--border);
-  vertical-align: top;
-}
-
-.admin-table td.row {
+.actions {
   display: flex;
-}
-
-.error.small {
-  font-size: 12px;
-}
-
-/* message actions: edit and delete */
-.bubble {
-  position: relative;
-}
-
-.bubble .meta {
-  display: flex;
-  justify-content: flex-end;
   align-items: center;
   gap: 4px;
 }
 
-.bubble .more {
-  background: none;
-  border: none;
-  padding: 0 2px;
-  margin-left: 2px;
-  color: inherit;
+.grow {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Text that must not wrap out of its column. */
+.ellipsis {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A centred single card — the login screen, the loading screen. */
+.center {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+/* The loading / empty pattern: a 24px faint icon over 16px muted text. */
+.placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 20px;
+  text-align: center;
+  font-size: 16px;
+  color: var(--muted);
+}
+
+.placeholder .icon {
+  color: var(--faint);
+}
+
+/* ===== screen layers appended below ===== */
+
+/* =============================================================================
+   SCREEN LAYERS
+   Layout and the per-screen rules built on the component kit above. Every value
+   here is read off the hi-fi artboards (W01, W01b, W02, W05-W10, M01-M06).
+   Nothing below invents a colour: everything goes through a token.
+   ========================================================================== */
+
+/* -----------------------------------------------------------------------------
+   16. Screen-level tokens
+   Three values the artboards use that the kit's palette does not name: the dim
+   glyph of an empty video tile, and the two plates a caption sits on over video.
+   -------------------------------------------------------------------------- */
+
+:root, [data-theme='crimson'] {
+  --stage-glyph: #4A4034;              /* the 48/64px monitor icon on a black stage */
+  --plate: rgba(13, 13, 13, .85);      /* call: caption and full-screen buttons */
+  --plate-2: rgba(13, 13, 13, .9);     /* voice: the name plate on a screen tile */
+}
+
+[data-theme='light'], [data-theme='dark'] {
+  --stage-glyph: #7E8489;
+  --plate: rgba(36, 42, 53, .85);
+  --plate-2: rgba(36, 42, 53, .9);
+}
+
+/* Every artboard draws the neutral, waiting and plain banners on --bg-2
+   (#1F1E1C): the announcement inside the login card (W01), the connection,
+   update and announcement bars (W10) and the bot notice in a chat (M06). The
+   kit's --bg-4 comes from the prose table, not from a board, so the screen
+   layer restores the drawn value. Alert, live and update keep their own fills. */
+.banner,
+.notice,
+.banner.neutral,
+.notice.neutral,
+.banner.busy,
+.notice.busy {
+  background: var(--bg-2);
+}
+
+/* -----------------------------------------------------------------------------
+   17. Shell
+   A 320 sidebar on the dark chrome plus the chat canvas. The overlays (call,
+   voice, toast, global bars) are fixed, so they never become grid items.
+   -------------------------------------------------------------------------- */
+
+.app {
+  height: 100%;
+  display: grid;
+  grid-template-columns: 320px minmax(0, 1fr);
+  overflow: hidden;
+  background: var(--bg);
+}
+
+/* -----------------------------------------------------------------------------
+   18. Sidebar — W02 / W05 / W10 / M02
+   A 64 brand header, a 40 account row, then the conversation list.
+   -------------------------------------------------------------------------- */
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--chrome);
+  color: var(--on-chrome);
+}
+
+.sidebar-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 64px;
+  flex: none;
+  padding: 0 12px 0 20px;
+}
+
+.sidebar-header .icon {
+  color: var(--accent);
+}
+
+/* "Family Messenger" beside the lock. */
+.brand {
+  flex: 1;
+  min-width: 0;
+  font-weight: 500;
+  font-size: 18px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* On the chrome an icon button hovers to chrome-2, not to the canvas bg-3. */
+.sidebar .icon-btn {
+  color: var(--on-chrome);
+}
+
+.sidebar .icon-btn:hover:not(:disabled),
+.sidebar .icon-btn.active {
+  background: var(--chrome-2);
+}
+
+/* The account row: a presence dot and @name, a hairline under it. */
+.me {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  flex: none;
+  padding: 0 20px;
+  box-shadow: inset 0 -1px 0 var(--divider);
+  font-weight: 500;
   font-size: 14px;
-  line-height: 1;
-  opacity: 0;
+  color: var(--on-chrome-muted);
+}
+
+.me strong {
+  font-weight: 500;
+}
+
+.conv-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  list-style: none;
+  margin: 0;
+  padding: 4px 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.conv-list li {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-height: 72px;
+  padding: 12px 20px;
   cursor: pointer;
 }
 
+.conv-list li:hover,
+.conv-list li.selected {
+  background: var(--chrome-3);
+}
+
+/* The two lines of a row: [type icon] title [timer] time / preview + unread. */
+.conv-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.conv-row .icon {
+  color: var(--on-chrome-muted);
+}
+
+.conv-title {
+  flex: 1;
+  min-width: 0;
+  font-weight: 500;
+  font-size: 16px;
+  color: var(--on-chrome);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conv-time {
+  flex: none;
+  font-size: 12px;
+  color: var(--on-chrome-muted);
+  white-space: nowrap;
+}
+
+.conv-preview {
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+  color: var(--on-chrome-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* "Пока нет чатов. Начните новый кнопкой +" — W10. */
+.conv-list li.empty,
+.conv-list .empty-state {
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+  padding: 20px;
+  background: none;
+  cursor: default;
+  text-align: center;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--on-chrome-muted);
+}
+
+.conv-list li.empty:hover,
+.conv-list .empty-state:hover {
+  background: none;
+}
+
+.conv-list .empty-state .icon.inline {
+  margin: 0 2px;
+  color: var(--on-chrome);
+}
+
+/* -----------------------------------------------------------------------------
+   19. Chat — header, voice bar, bot notice, body
+   -------------------------------------------------------------------------- */
+
+.chat {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--bg);
+}
+
+.chat-header {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 64px;
+  flex: none;
+  padding: 0 16px 0 24px;
+  background: var(--bg-2);
+  box-shadow: var(--shadow-card);
+}
+
+.chat-title {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+  cursor: pointer;
+}
+
+.chat-title strong {
+  font-weight: 500;
+  font-size: 20px;
+  line-height: 1.2;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* "Личный чат" / "участников: 5" plus the inline warning tag and timer note. */
+.chat-sub {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.chat-header .icon-btn {
+  color: var(--text-2);
+}
+
+/* The back arrow exists only in the one-column layout. */
+.back {
+  display: none;
+}
+
+/* The voice strip under the header: soft accent with an accent rail. */
+.voice-bar,
+.banner.voice-bar,
+.notice.voice-bar {
+  margin: 16px 24px 0;
+  padding: 10px 16px;
+  background: var(--accent-soft);
+  box-shadow: -2px 0 0 var(--accent);
+  font-size: 14px;
+  color: var(--text);
+}
+
+.voice-bar .icon {
+  color: var(--accent);
+}
+
+/* The names line, with a monitor glyph beside whoever is sharing. */
+.voice-bar > span:first-of-type {
+  flex: 1;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* The bot notice and any other banner the chat puts under its header. */
+.chat > .banner,
+.chat > .notice {
+  margin: 16px 24px 0;
+}
+
+.voice-bar + .banner,
+.voice-bar + .notice {
+  margin-top: 8px;
+}
+
+.chat-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.messages {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 24px;
+  overflow-y: auto;
+}
+
+/* The list hangs from the bottom. margin-top:auto on the first row does that
+   without the clipped-overflow bug justify-content:flex-end has inside a
+   scroll container. */
+.messages > :first-child {
+  margin-top: auto;
+}
+
+/* -----------------------------------------------------------------------------
+   20. Message rows — W02 (canonical), W05, W06
+   -------------------------------------------------------------------------- */
+
+/* A system line: centred, 12px, muted. */
+.system {
+  align-self: center;
+  max-width: 100%;
+  text-align: center;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* An undecryptable message is a compact alert banner on the same centre line. */
+.system.error-text {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-radius: 0 var(--radius) var(--radius) 0;
+  background: var(--danger-bg);
+  box-shadow: -2px 0 0 var(--danger);
+  text-align: left;
+  color: var(--text-2);
+}
+
+.system.error-text .icon {
+  color: var(--danger);
+}
+
+.bubble {
+  position: relative;
+  align-self: flex-start;
+  max-width: min(70%, 640px);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  background: var(--bubble-other);
+  box-shadow: var(--shadow-card);
+}
+
+.bubble.mine {
+  align-self: flex-end;
+  background: var(--bubble-own);
+  box-shadow: none;
+  color: var(--bubble-own-text);
+}
+
+.author {
+  font-weight: 500;
+  font-size: 14px;
+  color: var(--sender);
+}
+
+.body {
+  font-size: 16px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.meta {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.bubble.mine .meta {
+  color: var(--bubble-own-meta);
+}
+
+.edited {
+  color: inherit;
+}
+
+/* The ⋯ trigger: 16px, colour inherited, revealed on hover — and always there
+   under a finger. */
+.bubble .more {
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  gap: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  visibility: hidden;
+}
+
 .bubble:hover .more,
-.bubble .more:focus,
-.bubble.menu-open .more {
-  opacity: 0.85;
+.bubble.menu-open .more,
+.bubble .more:focus-visible {
+  visibility: visible;
+}
+
+.bubble .more:hover:not(:disabled) {
+  border-color: transparent;
+  color: var(--accent);
 }
 
 @media (hover: none) {
   .bubble .more {
-    opacity: 0.6;
+    visibility: visible;
   }
 }
 
-.msg-menu {
-  position: absolute;
-  right: 8px;
-  bottom: 28px;
-  min-width: 140px;
-  background: var(--bg-2);
-  border: 1px solid var(--border);
-  border-radius: 8px;
+/* Being sent, and failed to send. */
+.bubble.pending {
+  opacity: .7;
+}
+
+.bubble.failed {
+  opacity: 1;
+  box-shadow: inset 0 0 0 2px var(--danger);
+}
+
+.bubble.failed .meta {
+  color: var(--danger);
+}
+
+.bubble.failed .meta .link {
+  color: var(--text-2);
+}
+
+/* The message being edited (W06). */
+.bubble.editing {
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+
+/* An image bubble is a 4px frame around the picture. */
+.bubble.media {
   padding: 4px;
+}
+
+.bubble.media .author {
+  padding: 6px 8px 0;
+}
+
+.bubble.media .meta {
+  padding: 0 8px 4px;
+}
+
+.thumb {
+  display: block;
+  width: 280px;
+  max-width: 100%;
+  height: 150px;
+  object-fit: cover;
+  border-radius: var(--radius);
+  cursor: zoom-in;
+}
+
+/* An attachment: a 40x40 tile, the name, the size and the download link. */
+.file {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  z-index: 5;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  gap: 6px;
+}
+
+.file-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.file-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius);
+  background: var(--bg-2);
+  color: var(--accent);
+}
+
+.file-name {
+  font-weight: 500;
+  font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* "1,2 МБ · Скачать" under the name. */
+.file-meta {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.bubble.mine .file-meta {
+  color: var(--bubble-own-meta);
+}
+
+/* The message menu — the popover geometry, anchored to its bubble. */
+.msg-menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  z-index: 30;
+  min-width: 200px;
+  margin-top: 4px;
+  padding: 4px 0;
+  border-radius: var(--radius);
+  background: var(--bg-2);
+  box-shadow: var(--shadow-pop);
+  color: var(--text);
+  display: flex;
+  flex-direction: column;
 }
 
 .bubble:not(.mine) .msg-menu {
   right: auto;
-  left: 8px;
+  left: 0;
 }
 
 .msg-menu button {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 12px;
+  width: 100%;
+  height: 40px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 0;
   background: none;
-  border: none;
+  color: var(--text);
+  font-weight: 400;
+  font-size: 16px;
   text-align: left;
-  padding: 6px 10px;
-  border-radius: 6px;
-  color: inherit;
-  font-size: 13px;
 }
 
-.msg-menu button:hover {
+.msg-menu button .icon {
+  color: var(--accent);
+}
+
+.msg-menu button:hover:not(:disabled) {
+  border-color: transparent;
   background: var(--bg-3);
+  color: var(--text);
 }
 
-.msg-menu button.danger {
+.msg-menu button.danger,
+.msg-menu button.danger .icon {
   color: var(--danger);
 }
 
-.editing-bar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 8px 14px 0;
-  font-size: 13px;
-  color: var(--muted);
-  border-top: 1px solid var(--border);
+.msg-menu button.danger:hover:not(:disabled) {
+  background: var(--danger-bg);
+  color: var(--danger);
 }
 
-.editing-bar + .composer {
-  border-top: none;
+/* -----------------------------------------------------------------------------
+   21. Composer and its states — W02 / W06 / M03
+   -------------------------------------------------------------------------- */
+
+.composer {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 72px;
+  flex: none;
+  padding: 0 24px;
+  background: var(--bg-2);
+  box-shadow: inset 0 1px 0 var(--divider);
+}
+
+.composer .icon-btn {
+  color: var(--text-2);
+}
+
+.composer input:not([type='file']) {
+  flex: 1;
+  min-width: 0;
+}
+
+.composer button[type='submit'] {
+  flex: none;
+}
+
+/* The send button carries both faces: the word on the desktop, the glyph on
+   the phone. */
+.composer .send-icon {
+  display: none;
+}
+
+/* The strip above the composer while a message is being edited. */
+.editing-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  padding: 8px 24px;
+  background: var(--bg-3);
+  font-size: 14px;
+  color: var(--text-2);
+}
+
+.editing-bar .icon {
+  color: var(--accent);
+}
+
+.editing-bar > span:first-of-type {
+  flex: 1;
+  min-width: 0;
+}
+
+/* The error line under the composer. */
+.error.composer-error {
+  flex: none;
+  padding: 8px 24px 12px;
+  background: var(--bg-2);
+}
+
+/* Drag and drop: a dashed accent frame over the message area. */
+.dropzone-hint {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  margin: 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 2px dashed var(--accent);
+  border-radius: var(--radius);
+  background: var(--bg);
+  font-weight: 500;
+  font-size: 16px;
+  color: var(--accent);
+}
+
+.dropzone-hint .icon {
+  color: var(--accent);
+}
+
+/* While a file is over the window the attach button reads as unavailable. */
+.chat.dropzone .composer .icon-btn {
+  opacity: .4;
+}
+
+/* -----------------------------------------------------------------------------
+   22. Lightbox — W06
+   -------------------------------------------------------------------------- */
+
+.lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: var(--scrim-strong);
+  cursor: zoom-out;
+}
+
+.lightbox img {
+  max-width: 90vw;
+  max-height: 85vh;
+  border-radius: var(--radius);
+}
+
+.lightbox .icon-btn {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  color: var(--text);
+}
+
+/* "IMG_2041.jpg · 2,4 МБ · Скачать" */
+.lightbox .caption {
+  position: absolute;
+  left: 16px;
+  bottom: 12px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.lightbox .caption a,
+.lightbox .caption .link {
+  color: var(--text);
+}
+
+/* -----------------------------------------------------------------------------
+   23. Member panel — W05 / M04
+   320 on the right of the chat, a hairline down its left edge.
+   -------------------------------------------------------------------------- */
+
+.panel {
+  width: 320px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+  background: var(--bg-2);
+  box-shadow: -1px 0 0 var(--divider);
+}
+
+.panel-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 64px;
+  flex: none;
+  padding: 0 12px 0 20px;
+  box-shadow: inset 0 -1px 0 var(--divider);
+}
+
+.panel-head h3,
+.panel-head strong {
+  flex: 1;
+  min-width: 0;
+  font-weight: 500;
+  font-size: 20px;
+}
+
+.panel .icon-btn {
+  color: var(--text-2);
+}
+
+/* The title of the sheet on the phone, where the header row is the chat's. */
+.panel-title {
+  display: none;
+}
+
+/* The safety hint under the title. */
+.panel-hint {
+  padding: 12px 20px;
+  box-shadow: inset 0 -1px 0 var(--divider);
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--muted);
+}
+
+.member {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 20px;
+  box-shadow: inset 0 -1px 0 var(--divider);
+}
+
+.member-name {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  font-weight: 500;
+  font-size: 16px;
+}
+
+/* "(вы)" keeps the regular weight. */
+.member-name .muted {
+  font-weight: 400;
+}
+
+/* The owner's "Удалить" sits at the right edge of the name row. */
+.member-name .link {
+  margin-left: auto;
+}
+
+.member label.check {
+  gap: 10px;
+  font-size: 14px;
+  color: var(--text-2);
+}
+
+/* "новые:" in front of a replacement safety number. */
+.fp-label {
+  letter-spacing: 0;
+  color: var(--muted);
+}
+
+/* The retention block, the add and rename forms, the leave button. */
+.panel > .section {
+  gap: 6px;
+  padding: 12px 20px;
+  box-shadow: inset 0 -1px 0 var(--divider);
+}
+
+.panel > .section:last-child {
+  gap: 8px;
+  box-shadow: none;
+}
+
+/* The label with a timer glyph in front of the retention select. */
+.panel > .section > .muted {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-form);
+  font-size: 14px;
+}
+
+.panel .row > input,
+.panel .row > select {
+  flex: 1;
+  min-width: 0;
+}
+
+/* "Выйти из группы" — full width, destructive outline. */
+.panel > .section > button.danger {
+  width: 100%;
+  margin-top: 4px;
+}
+
+/* -----------------------------------------------------------------------------
+   24. Login — W01 / W01b / M01
+   -------------------------------------------------------------------------- */
+
+.login-screen {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+}
+
+.login-screen > .center {
+  flex: 1;
+  height: auto;
+}
+
+.login-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 64px;
+  flex: none;
+  padding: 0 32px;
+  background: var(--chrome-2);
+  color: var(--on-chrome);
+}
+
+.login-bar .icon {
+  color: var(--accent);
+}
+
+.login-bar .brand {
+  flex: 1;
+  font-size: 20px;
+}
+
+/* "v0.2.3" at the right end of the top bar. */
+.version {
+  margin-left: auto;
+  font-size: 14px;
+  color: var(--muted);
+}
+
+/* The card's own head: the product name and slogan, the language select. */
+.brand-block {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.brand-block h1,
+.brand-block h2 {
+  font-weight: 500;
+  font-size: 24px;
+  line-height: 1.2;
+}
+
+.tagline {
+  font-size: 14px;
+  color: var(--muted);
+}
+
+/* -----------------------------------------------------------------------------
+   25. New conversation — W07 / M05
+   Suggestion chips under the active field.
+   -------------------------------------------------------------------------- */
+
+.suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.suggestions button {
+  height: 32px;
+  padding: 0 12px;
+  gap: 6px;
+  font-size: 14px;
+}
+
+.suggestions .muted {
+  font-size: 14px;
+}
+
+/* -----------------------------------------------------------------------------
+   26. Call — W08 / M06
+   A 340 card at the bottom right, 960 once there is video. No shadow: a 2px
+   border (accent while it rings in) over the pop ring.
+   -------------------------------------------------------------------------- */
+
+.call {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 35;
+  width: 340px;
+  max-width: calc(100vw - 48px);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 20px;
+  border: 2px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-2);
+  box-shadow: var(--shadow-pop);
+  color: var(--text);
+}
+
+.call.incoming {
+  border-color: var(--accent);
+}
+
+.call.call-video {
+  width: 960px;
+}
+
+/* The status row: a 44 tile, the headline and the sub-line. */
+.call-status {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-weight: 500;
+  font-size: 18px;
+}
+
+.call-tile {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius);
+  background: var(--bg-3);
+  color: var(--accent);
+}
+
+.call-tile.incoming {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.call-tile.active {
+  background: var(--ok-bg);
+  color: var(--ok);
+}
+
+.call-tile.ended {
+  background: var(--bg-3);
+  color: var(--muted);
+}
+
+.call-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.call-text strong {
+  font-weight: 500;
+  font-size: 18px;
+}
+
+.call-sub {
+  font-weight: 400;
+  font-size: 14px;
+  color: var(--muted);
+}
+
+/* One button fills the row, two share it, four fall into a 2x2 grid. */
+.call-actions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 8px;
+}
+
+.call-actions button {
+  padding: 0 12px;
+}
+
+/* The four in-call controls are the 14px size. */
+.call-actions.live button {
+  font-size: 14px;
+}
+
+/* With video the controls become one wrapping row, the hang-up pushed right
+   by a .grow spacer. */
+.call.call-video .call-actions,
+.call.voice .call-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.call.call-video .call-actions button,
+.call.voice .call-actions button {
+  padding: 0 16px;
+}
+
+/* The video stage. */
+.call-screen {
+  position: relative;
+  height: 486px;
+  display: flex;
+  border-radius: var(--radius);
+  background: var(--chrome);
+  overflow: hidden;
+}
+
+.call-screen.hidden {
+  display: none;
+}
+
+.call-stage {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  gap: 8px;
+  margin: 8px;
+}
+
+/* The remote screen — or the remote camera when it is the only stream. */
+.call-main {
+  flex: 1;
+  min-width: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  border-radius: var(--radius);
+  background: var(--bg-2);
+}
+
+/* A remote camera beside a shared screen: the 200x112 tile on the right. */
+.call-pip {
+  display: none;
+}
+
+.call-stage.both .call-pip {
+  display: block;
+  flex: none;
+  align-self: flex-start;
+  width: 200px;
+  height: 112px;
+  object-fit: cover;
+  border-radius: var(--radius);
+  background: var(--bg-2);
+}
+
+/* The self preview: mirrored, 160x90, a 2px light frame. scaleX(-1) is a
+   static mirror, not motion. */
+.call-self {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  width: 160px;
+  height: 90px;
+  object-fit: cover;
+  border: 2px solid var(--text);
+  border-radius: var(--radius);
+  background: var(--bg-3);
+  transform: scaleX(-1);
+}
+
+/* Before any remote media arrives the self preview is the whole stage. */
+.call-self.alone {
+  position: static;
+  flex: 1;
+  width: auto;
+  height: auto;
+  margin: 8px;
+}
+
+/* The dim glyph of an empty tile, and the caption plate over video. */
+.call-screen .placeholder .icon,
+.voice-video .placeholder .icon {
+  color: var(--stage-glyph);
+}
+
+.call-screen .plate,
+.voice-label {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: var(--radius);
+  background: var(--plate-2);
+  font-size: 12px;
+  color: var(--text);
+}
+
+.call-screen .plate {
+  background: var(--plate);
+}
+
+/* "Во весь экран" over the stage. */
+.call-screen-tools {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: flex;
+  gap: 8px;
+}
+
+.call-screen-tools button {
+  height: 32px;
+  padding: 0 12px;
+  background: var(--plate);
+  font-size: 14px;
+}
+
+/* Full screen: black, the status top left, a floating cluster at the bottom. */
+.call-screen:fullscreen {
+  width: 100%;
+  height: 100%;
+  border-radius: 0;
+  background: var(--chrome);
+}
+
+.call-screen:fullscreen .call-self {
+  bottom: 72px;
+}
+
+.call-screen:fullscreen .call-screen-tools {
+  top: 145px;
+  right: 16px;
+}
+
+/* The status line and the button cluster exist only in full screen. */
+.call-fs-status,
+.call-fs-bar {
+  display: none;
+}
+
+.call-screen:fullscreen .call-fs-status {
+  position: absolute;
+  left: 24px;
+  top: 20px;
+  display: block;
+  font-weight: 500;
+  font-size: 16px;
+  color: var(--text);
+}
+
+.call-screen:fullscreen .call-fs-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 16px;
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+}
+
+/* A 44 square on the plate; the active toggle is an accent fill. */
+.fs-btn {
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  gap: 0;
+  border: 2px solid var(--border);
+  background: var(--plate);
+  color: var(--text);
+}
+
+.fs-btn:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.fs-btn.active {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.fs-btn.active:hover:not(:disabled) {
+  border-color: var(--accent-hover);
+  background: var(--accent-hover);
+  color: var(--on-accent);
+}
+
+/* -----------------------------------------------------------------------------
+   27. Voice channel — W09
+   The same card as a call: 456 on its own, 960 once someone shares a screen.
+   -------------------------------------------------------------------------- */
+
+.call.voice {
+  width: 456px;
+}
+
+.call.voice.call-video {
+  width: 960px;
+}
+
+.voice .call-status .icon {
+  color: var(--accent);
+}
+
+.voice .call-status .grow {
+  font-weight: 500;
+  font-size: 18px;
+}
+
+.voice-screens {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* One tab per person sharing, 14px, an accent rail under the active one. */
+.voice-tabs {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  box-shadow: inset 0 -1px 0 var(--divider);
+}
+
+.voice-tabs button {
+  height: auto;
+  padding: 0 0 8px;
+  gap: 6px;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  color: var(--muted);
+  font-weight: 500;
+  font-size: 14px;
+}
+
+.voice-tabs button:hover:not(:disabled) {
+  border-color: transparent;
+  color: var(--text);
+}
+
+.voice-tabs button.active {
+  color: var(--text);
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+
+/* "Во весь экран" keeps the secondary look at the end of the tab row. */
+.voice-tabs .voice-fs {
+  height: 32px;
+  margin-left: auto;
+  padding: 0 12px;
+  border: 2px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: none;
+  color: var(--text-2);
+}
+
+.voice-tabs .voice-fs:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.voice-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.voice-grid.focus {
+  grid-template-columns: 1fr;
+}
+
+.voice-video {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius);
+  background: var(--chrome);
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.voice-video video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  border-radius: var(--radius);
+}
+
+.voice-video .icon {
+  color: var(--stage-glyph);
+}
+
+/* "ожидание видео…" */
+.voice-waiting {
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.voice-screens:fullscreen {
+  padding: 16px;
+  background: var(--chrome);
+}
+
+.voice-screens:fullscreen .voice-grid {
+  height: calc(100% - 48px);
+}
+
+/* The participant list: two columns in the wide card, one in the narrow one. */
+.voice-list {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px 24px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: 16px;
+}
+
+.call.voice:not(.call-video) .voice-list {
+  grid-template-columns: 1fr;
+  gap: 2px;
+}
+
+.voice-list li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 36px;
+}
+
+.call.voice:not(.call-video) .voice-list li {
+  height: 32px;
+}
+
+.voice-name {
+  font-weight: 500;
+}
+
+.voice-name .muted {
+  font-weight: 400;
+}
+
+.voice-list li .icon {
+  color: var(--muted);
+}
+
+/* "подключено" / "подключение…" / "нет связи, повтор…" */
+.voice-state {
+  margin-left: auto;
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.voice-list li.failed .voice-state {
+  color: var(--danger);
+}
+
+/* The dot follows the row state: self and connected are green, a peer still
+   connecting is faint, a lost peer takes the offline colour. */
+.voice-list li.self .dot,
+.voice-list li.connected .dot {
+  background: var(--ok);
+}
+
+.voice-list li.connecting .dot {
+  background: var(--faint);
+}
+
+.voice-list li.failed .dot {
+  background: var(--offline);
+}
+
+/* -----------------------------------------------------------------------------
+   28. Global bars, toasts, empty states — W10
+   The connection and update bars float over the app, centred, at most 480 wide.
+   -------------------------------------------------------------------------- */
+
+.app > .banner,
+.app > .notice {
+  position: fixed;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);   /* centring only — not motion */
+  width: min(480px, calc(100vw - 24px));
+  z-index: 40;
+}
+
+.app > .banner.update,
+.app > .notice.update {
+  top: auto;
+  bottom: 12px;
+}
+
+/* The server announcement: a neutral banner pinned to the bottom edge. */
+.announcement {
+  position: fixed;
+  left: 50%;
+  bottom: 12px;
+  transform: translateX(-50%);   /* centring only */
+  width: min(480px, calc(100vw - 24px));
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-radius: 0 var(--radius) var(--radius) 0;
+  background: var(--bg-2);
+  box-shadow: -2px 0 0 var(--rail-neutral);
+  font-size: 14px;
+  line-height: 1.4;
+  color: var(--text);
+}
+
+.announcement .icon {
+  color: var(--accent);
+}
+
+/* The chat pane with nothing selected. */
+.chat.empty-state {
+  align-items: center;
+  justify-content: center;
+}
+
+.chat.empty-state .muted {
+  font-size: 16px;
+}
+
+/* -----------------------------------------------------------------------------
+   29. One column — the mobile artboards M01-M06
+   The list and the chat swap places, headers drop to 56 and the composer to 64,
+   the member panel becomes a sheet and the call a bottom strip.
+   -------------------------------------------------------------------------- */
+
+@media (max-width: 720px) {
+  .app {
+    grid-template-columns: 1fr;
+  }
+
+  .app > .chat {
+    display: none;
+  }
+
+  .app.has-selection > .sidebar {
+    display: none;
+  }
+
+  .app.has-selection > .chat {
+    display: flex;
+  }
+
+  /* Touch sizes for every field, not only for a touch-only pointer. */
+  input,
+  select,
+  textarea {
+    height: 48px;
+    font-size: 16px;
+  }
+
+  select.small,
+  input.small,
+  select.lang {
+    height: 40px;
+  }
+
+  /* Sidebar */
+  .sidebar-header {
+    height: 56px;
+    padding: 0 8px 0 20px;
+  }
+
+  .conv-list li {
+    min-height: 76px;
+    padding: 14px 20px;
+  }
+
+  /* Chat */
+  .chat-header {
+    height: 56px;
+    gap: 2px;
+    padding: 0 8px;
+  }
+
+  .chat-title {
+    padding-left: 4px;
+  }
+
+  .chat-title strong {
+    font-size: 18px;
+  }
+
+  .chat-sub {
+    gap: 6px;
+    font-size: 13px;
+  }
+
+  .back {
+    display: inline-flex;
+  }
+
+  .messages {
+    padding: 16px;
+  }
+
+  .bubble {
+    max-width: 85%;
+  }
+
+  .thumb {
+    width: 240px;
+  }
+
+  /* The two strips under the header put their link on a second line. */
+  .voice-bar,
+  .banner.voice-bar,
+  .notice.voice-bar {
+    margin: 12px 16px 0;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 10px 12px;
+  }
+
+  .chat > .banner,
+  .chat > .notice {
+    align-items: flex-start;
+    margin: 8px 16px 0;
+    padding: 10px 12px;
+    font-size: 13px;
+  }
+
+  /* Composer: 64 high, the send button becomes a 44 square. */
+  .composer {
+    height: 64px;
+    gap: 8px;
+    padding: 0 8px 0 4px;
+  }
+
+  .composer button[type='submit'] {
+    width: 44px;
+    padding: 0;
+    gap: 0;
+  }
+
+  .composer .send-icon {
+    display: block;
+  }
+
+  .composer .send-label {
+    display: none;
+  }
+
+  .editing-bar,
+  .error.composer-error {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  /* The member panel covers the chat below its header. */
+  .panel {
+    position: absolute;
+    inset: 0;
+    width: auto;
+    box-shadow: none;
+  }
+
+  .panel-head {
+    display: none;
+  }
+
+  .panel-title {
+    display: block;
+    padding: 16px 20px 8px;
+    font-weight: 500;
+    font-size: 20px;
+  }
+
+  .panel-hint {
+    padding: 0 20px 12px;
+  }
+
+  .member,
+  .panel > .section {
+    padding: 12px 20px;
+    gap: 8px;
+  }
+
+  .member label.check {
+    min-height: 44px;
+  }
+
+  /* Login: the bar shrinks and the card fills the width without its ring. */
+  .login-bar {
+    height: 56px;
+    padding: 0 20px;
+  }
+
+  .login-bar .brand {
+    font-size: 18px;
+  }
+
+  .login-screen > .center {
+    align-items: flex-start;
+    padding: 0;
+  }
+
+  .card.login {
+    width: 100%;
+    padding: 32px 24px;
+    box-shadow: none;
+  }
+
+  /* Modals go full width with larger controls. */
+  .modal-backdrop {
+    padding: 24px;
+  }
+
+  .modal {
+    width: 100%;
+    gap: 18px;
+    padding: 20px 24px 24px;
+  }
+
+  .modal h1,
+  .modal h2 {
+    font-size: 22px;
+  }
+
+  .modal .row.end {
+    gap: 12px;
+  }
+
+  .modal .row.end button {
+    flex: 1;
+    height: 48px;
+  }
+
+  .suggestions button {
+    height: 36px;
+  }
+
+  /* The call becomes a full-width strip with an accent top edge. */
+  .call,
+  .call.call-video,
+  .call.voice,
+  .call.voice.call-video {
+    right: 0;
+    bottom: 0;
+    left: 0;
+    width: auto;
+    max-width: none;
+    gap: 16px;
+    padding: 20px 16px 24px;
+    border: 0;
+    border-top: 2px solid var(--accent);
+    border-radius: 0;
+  }
+
+  .call-tile {
+    width: 48px;
+    height: 48px;
+  }
+
+  .call-text strong {
+    font-size: 20px;
+  }
+
+  .call-actions {
+    display: flex;
+    gap: 12px;
+  }
+
+  .call-actions button {
+    flex: 1;
+    height: 56px;
+    font-size: 18px;
+  }
+
+  .call-actions.live {
+    flex-wrap: wrap;
+  }
+
+  .call-screen {
+    height: 280px;
+  }
+
+  .call-self {
+    width: 120px;
+    height: 68px;
+  }
+
+  .voice-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .voice-list,
+  .call.voice:not(.call-video) .voice-list {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* -----------------------------------------------------------------------------
+   Reconciliation
+   Rules the screens turned out to need once the components were written. Kept
+   together at the end so the origin of each is obvious.
+   -------------------------------------------------------------------------- */
+
+/* A banner whose text wraps (the password warning on the sign-up card) must
+   keep its icon on the first line, not centred against three lines of text. */
+.banner.alert,
+.notice.alert,
+.banner.multiline,
+.notice.multiline {
+  align-items: flex-start;
+}
+
+.banner.alert .icon,
+.notice.alert .icon,
+.banner.multiline .icon,
+.notice.multiline .icon {
+  margin-top: 1px;
+}
+
+/* The empty conversation list follows the loading/empty pattern: a faint glyph
+   over the sentence, not a 4px-tight row. */
+.conv-list li.empty,
+.conv-list .empty-state {
+  flex-direction: column;
+  gap: 12px;
+}
+
+.conv-list li.empty > .icon,
+.conv-list .empty-state > .icon {
+  color: var(--faint);
+}
+
+/* The language picker draws the globe inside the field's border. The native
+   select keeps the type-ahead and the option list; the shell carries the frame. */
+.lang-select {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  padding: 0 8px;
+  border: 2px solid var(--border);
+  border-radius: var(--radius);
+  transition: border-color 0.12s ease;
+}
+
+.lang-select:focus-within {
+  border-color: var(--border-focus);
+}
+
+.lang-select .icon {
+  color: var(--accent);
+}
+
+.lang-select select.lang {
+  height: auto;
+  padding: 0 20px 0 0;
+  border: 0;
+  background-position: right 2px center;
+}
+
+/* "Accept new keys" hugs its label instead of spanning the panel column. */
+.member > button.soft {
+  align-self: flex-start;
+}
+
+/* The error line may end up last in the panel; the group actions keep their
+   own spacing regardless. */
+.panel > .section.group {
+  gap: 8px;
+}
+
+/* A member-style row inside a modal has the modal's padding already. */
+.modal .member {
+  padding-inline: 0;
+}
+
+/* The confirmation dialog: a small card with the question and two buttons. */
+.modal.confirm {
+  width: min(420px, 100%);
+  padding: 24px;
+  gap: 20px;
+}
+
+.modal.confirm h2,
+.modal.confirm h3 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 500;
+  line-height: 1.3;
+}
+
+.modal.confirm .row.end button {
+  height: 48px;
+}
+
+/* The bottom bars never overlap: the announcement rises above an update bar. */
+.app:has(> .banner.update) .announcement {
+  bottom: 60px;
 }

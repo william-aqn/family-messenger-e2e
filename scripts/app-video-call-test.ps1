@@ -24,16 +24,18 @@ $package = 'dev.familymessenger.family_messenger_e2e'
 New-Item -ItemType Directory -Force $work | Out-Null
 
 function Find-Flutter {
-  $f = Get-Command flutter -CommandType Application -ErrorAction SilentlyContinue
-  if ($f) { return $f.Source }
+  # The Flutter SDK ships both `flutter.bat` and the POSIX `flutter`, so with
+  # its bin on PATH Get-Command returns two entries; take the first.
+  $f = @(Get-Command flutter -CommandType Application -ErrorAction SilentlyContinue)
+  if ($f.Count) { return $f[0].Source }
   foreach ($c in @("$env:FLUTTER_ROOT\bin\flutter.bat", 'C:\tools\flutter\bin\flutter.bat', 'C:\flutter\bin\flutter.bat')) {
     if ($c -and (Test-Path $c)) { return $c }
   }
   throw 'flutter not found: put it on PATH or set FLUTTER_ROOT'
 }
 function Find-Adb {
-  $a = Get-Command adb -CommandType Application -ErrorAction SilentlyContinue
-  if ($a) { return $a.Source }
+  $a = @(Get-Command adb -CommandType Application -ErrorAction SilentlyContinue)
+  if ($a.Count) { return $a[0].Source }
   foreach ($root in @($env:ANDROID_HOME, $env:ANDROID_SDK_ROOT, 'C:\tools\android-sdk', "$env:LOCALAPPDATA\Android\Sdk")) {
     if ($root -and (Test-Path "$root\platform-tools\adb.exe")) { return "$root\platform-tools\adb.exe" }
   }

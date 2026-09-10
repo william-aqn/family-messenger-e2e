@@ -206,12 +206,13 @@ test('messages: edit and delete your own, the administrator deletes anyone’s',
   await expect(bobPage.getByPlaceholder('Write a message…')).toHaveValue('');
   await expect(bobPage.getByPlaceholder('Write a message…')).toBeVisible();
 
-  // Deleting removes the message on both sides.
-  alicePage.once('dialog', (d) => void d.accept());
+  // Deleting removes the message on both sides. The menu item opens the app's
+  // own confirmation dialog, which replaced the browser's confirm().
   const edited = alicePage.locator('.bubble.mine', { hasText: 'fixed message' });
   await edited.hover();
   await edited.getByTitle('Message actions').click();
   await alicePage.getByRole('button', { name: 'Delete' }).click();
+  await alicePage.locator('.modal').getByRole('button', { name: 'Delete' }).click();
   await expect(alicePage.locator('.bubble', { hasText: 'fixed message' })).toHaveCount(0);
   await expect(bobPage.locator('.bubble', { hasText: 'fixed message' })).toHaveCount(0, { timeout: 10_000 });
 
@@ -222,11 +223,11 @@ test('messages: edit and delete your own, the administrator deletes anyone’s',
   await send(bobPage, 'rude remark');
   const remark = adminPage.locator('.bubble:not(.mine)', { hasText: 'rude remark' });
   await expect(remark).toBeVisible();
-  adminPage.once('dialog', (d) => void d.accept());
   await remark.hover();
   await remark.getByTitle('Message actions').click();
   await expect(adminPage.getByRole('button', { name: 'Edit' })).toHaveCount(0);
   await adminPage.getByRole('button', { name: 'Delete' }).click();
+  await adminPage.locator('.modal').getByRole('button', { name: 'Delete' }).click();
   await expect(adminPage.locator('.bubble', { hasText: 'rude remark' })).toHaveCount(0);
   await expect(bobPage.locator('.bubble', { hasText: 'rude remark' })).toHaveCount(0, { timeout: 10_000 });
 });

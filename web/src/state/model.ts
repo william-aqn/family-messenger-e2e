@@ -77,12 +77,17 @@ export function otherMember(c: Conversation, me: string): string | undefined {
   return c.serverMembers.find((id) => id !== me) ?? c.roster?.find((id) => id !== me);
 }
 
+/**
+ * The plain title of a conversation. A bot is not marked here: the redesign
+ * draws a `bot` icon beside the title instead of prefixing the name, so the
+ * string stays usable in a toast, a document title or a test.
+ */
 export function conversationTitle(c: Conversation, me: string): string {
   if (c.kind === 'direct') {
     const other = otherMember(c, me);
     const contact = other ? contacts.value.get(other) : undefined;
     if (!contact) return t('direct_chat');
-    return contact.isBot ? `🤖 ${contact.displayName || contact.username}` : contact.username;
+    return contact.isBot ? contact.displayName || contact.username : contact.username;
   }
   return c.name || t('group');
 }

@@ -7,6 +7,7 @@ import { serverSettings, serverVersion, session, showToast } from '../state/mode
 import { authBusy, changePassword, keys, logout, MIN_PASSWORD_LENGTH } from '../state/session';
 import { AdminPanel } from './AdminPanel';
 import { BotsDialog } from './BotsDialog';
+import { Icon } from './Icons';
 
 export function Settings({ onClose }: { onClose: () => void }) {
   const me = session.value!;
@@ -55,13 +56,18 @@ export function Settings({ onClose }: { onClose: () => void }) {
   return (
     <div class="modal-backdrop" onClick={onClose}>
       <div class="card modal" onClick={(e) => e.stopPropagation()}>
-        <h2>@{me.username}</h2>
+        <div class="modal-head">
+          <h2>@{me.username}</h2>
+          <button type="button" class="icon-btn" title={t('close')} onClick={onClose}>
+            <Icon name="x" size={20} />
+          </button>
+        </div>
         <div class="section">
           <div class="muted small">{t('your_safety_number')}</div>
           <code class="fp">{fingerprint(k.signPub, k.encPub)}</code>
         </div>
-        <div class="section">
-          <div class="muted small">{t('language')}</div>
+        <label>
+          {t('language')}
           <select value={lang.value} onChange={(e) => setLang((e.target as HTMLSelectElement).value)}>
             {Object.entries(languages).map(([code, l]) => (
               <option key={code} value={code}>
@@ -69,7 +75,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
               </option>
             ))}
           </select>
-        </div>
+        </label>
         <div class="section">
           <div class="muted small">{t('devices')}</div>
           <ul class="devices">
@@ -81,7 +87,8 @@ export function Settings({ onClose }: { onClose: () => void }) {
                 </span>
                 {!d.current && (
                   <button
-                    class="link"
+                    type="button"
+                    class="link danger"
                     onClick={() =>
                       http
                         .deleteDevice(d.id)
@@ -99,64 +106,92 @@ export function Settings({ onClose }: { onClose: () => void }) {
         <div class="section">
           <div class="muted small">{t('notifications')}</div>
           {notifications === 'granted' ? (
-            <span class="tag ok">{t('enabled')}</span>
+            <span class="tags">
+              <span class="tag ok">{t('enabled')}</span>
+            </span>
           ) : (
-            <button onClick={() => Notification.requestPermission().then(setNotifications)} disabled={notifications === 'denied'}>
+            <button type="button" onClick={() => Notification.requestPermission().then(setNotifications)} disabled={notifications === 'denied'}>
               {notifications === 'denied' ? t('notifications_blocked') : t('enable_notifications')}
             </button>
           )}
         </div>
-        <div class="section row wrap">
-          {(serverSettings.value?.allow_bots ?? true) && <button onClick={() => setSub('bots')}>🤖 {t('my_bots')}</button>}
-          {me.isAdmin && <button onClick={() => setSub('admin')}>🛠 {t('admin_panel')}</button>}
+        <div class="row wrap">
+          {(serverSettings.value?.allow_bots ?? true) && (
+            <button type="button" onClick={() => setSub('bots')}>
+              <Icon name="bot" size={20} />
+              {t('my_bots')}
+            </button>
+          )}
+          {me.isAdmin && (
+            <button type="button" onClick={() => setSub('admin')}>
+              <Icon name="settings" size={20} />
+              {t('admin_panel')}
+            </button>
+          )}
         </div>
         <form class="section" onSubmit={submitPassword}>
           <div class="muted small">{t('change_password')}</div>
-          <input
-            type="password"
-            placeholder={t('current_password')}
-            aria-label={t('current_password')}
-            value={current}
-            onInput={(e) => setCurrent((e.target as HTMLInputElement).value)}
-            autocomplete="current-password"
-          />
-          <input
-            type="password"
-            placeholder={t('new_password')}
-            aria-label={t('new_password')}
-            value={next}
-            onInput={(e) => setNext((e.target as HTMLInputElement).value)}
-            autocomplete="new-password"
-            minLength={MIN_PASSWORD_LENGTH}
-          />
-          <input
-            type="password"
-            placeholder={t('repeat_password')}
-            aria-label={t('repeat_password')}
-            value={repeat}
-            onInput={(e) => setRepeat((e.target as HTMLInputElement).value)}
-            autocomplete="new-password"
-          />
+          <label>
+            <span>{t('current_password')}</span>
+            <input
+              type="password"
+              aria-label={t('current_password')}
+              value={current}
+              onInput={(e) => setCurrent((e.target as HTMLInputElement).value)}
+              autocomplete="current-password"
+            />
+          </label>
+          <label>
+            <span>{t('new_password')}</span>
+            <input
+              type="password"
+              aria-label={t('new_password')}
+              value={next}
+              onInput={(e) => setNext((e.target as HTMLInputElement).value)}
+              autocomplete="new-password"
+              minLength={MIN_PASSWORD_LENGTH}
+            />
+          </label>
+          <label>
+            <span>{t('repeat_password')}</span>
+            <input
+              type="password"
+              aria-label={t('repeat_password')}
+              value={repeat}
+              onInput={(e) => setRepeat((e.target as HTMLInputElement).value)}
+              autocomplete="new-password"
+            />
+          </label>
           <label class="check">
             <input type="checkbox" checked={signOutOthers} onChange={(e) => setSignOutOthers((e.target as HTMLInputElement).checked)} />
             {t('sign_out_other_devices')}
           </label>
           <p class="hint">{t('password_warning')}</p>
-          <button type="submit" disabled={!current || !next || !repeat || !!authBusy.value}>
-            {authBusy.value ?? t('change_password')}
+          <button type="submit" class={authBusy.value ? 'primary busy' : 'primary'} disabled={!current || !next || !repeat || !!authBusy.value}>
+            {authBusy.value ? (
+              <>
+                <span class="spinner" />
+                {authBusy.value}
+              </>
+            ) : (
+              t('change_password')
+            )}
           </button>
         </form>
-        {error && <div class="error">{error}</div>}
+        {error && (
+          <div class="error">
+            <Icon name="alert" size={16} />
+            {error}
+          </div>
+        )}
         <div class="row between">
           <span class="muted small">
             {t('server')} {serverVersion.value}
           </span>
-          <div class="row">
-            <button class="danger" onClick={() => void logout()}>
-              {t('sign_out')}
-            </button>
-            <button onClick={onClose}>{t('close')}</button>
-          </div>
+          <button type="button" class="danger" onClick={() => void logout()}>
+            <Icon name="log-out" size={20} />
+            {t('sign_out')}
+          </button>
         </div>
       </div>
     </div>

@@ -8,8 +8,17 @@ import { conversationTitle, hasBot, messages, pending, selectedConversation, sel
 import { effectiveRetention, ensureMessagesLoaded } from '../state/sync';
 import { joinVoice, leaveVoice, participantsOf, voice } from '../state/voice';
 import type { StoredMessage } from '../store/db';
+import { Icon } from './Icons';
 import { MemberPanel } from './MemberPanel';
 import { VoiceBar } from './VoiceOverlay';
+
+/** What the lightbox shows: the decrypted object URL plus the payload behind it. */
+type LightboxItem = { url: string; file: FilePayload };
+
+/** An image with a thumbnail becomes a media bubble; anything else is a file card. */
+function isMedia(p: Payload): boolean {
+  return p.t === 'file' && p.mime.startsWith('image/') && !!p.thumb;
+}
 
 function describeEvent(p: Payload, sender: string, me: string): string | null {
   const who = usernameOf(sender, me);
@@ -29,7 +38,7 @@ function describeEvent(p: Payload, sender: string, me: string): string | null {
   }
 }
 
-function FileBubble({ p, onOpen }: { p: FilePayload; onOpen: (url: string) => void }) {
+function Attachment({ p, onOpen }: { p: FilePayload; onOpen: (item: LightboxItem) => void }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const isImage = p.mime.startsWith('image/');
@@ -44,40 +53,70 @@ function FileBubble({ p, onOpen }: { p: FilePayload; onOpen: (url: string) => vo
       setBusy(false);
     }
   };
+  const open = () => act(async () => onOpen({ url: await fileUrl(p), file: p }));
+  // A thumbnail fills the bubble on its own — the bubble carries the .media padding.
+  if (isImage && p.thumb) {
+    return (
+      <>
+        <img class="thumb" src={`data:image/jpeg;base64,${p.thumb}`} alt={p.name} onClick={open} />
+        {error && (
+          <div class="error small">
+            <Icon name="alert" size={16} />
+            {error}
+          </div>
+        )}
+      </>
+    );
+  }
   return (
     <div class="file">
-      {isImage && p.thumb && (
-        <img
-          class="thumb"
-          src={`data:image/jpeg;base64,${p.thumb}`}
-          alt={p.name}
-          width={p.width && p.height ? Math.min(320, p.width) : undefined}
-          onClick={() => act(async () => onOpen(await fileUrl(p)))}
-        />
-      )}
       <div class="file-card">
-        <span class="file-icon">{isImage ? '🖼' : '📎'}</span>
+        <span class="file-icon">
+          <Icon name={isImage ? 'image' : 'file'} size={20} />
+        </span>
         <span class="file-name" title={p.name}>
           {p.name}
         </span>
-        <span class="muted small">{formatSize(p.size)}</span>
-        {isImage && !p.thumb && (
-          <button class="link" disabled={busy} onClick={() => act(async () => onOpen(await fileUrl(p)))}>
-            {t('open')}
+        <span class="file-meta">
+          <span>{formatSize(p.size)} ·</span>
+          {isImage && (
+            <button type="button" class="link" disabled={busy} onClick={open}>
+              {t('open')}
+            </button>
+          )}
+          <button type="button" class="link" disabled={busy} onClick={() => act(() => downloadFile(p))}>
+            {busy ? '…' : t('download')}
           </button>
-        )}
-        <button class="link" disabled={busy} onClick={() => act(() => downloadFile(p))}>
-          {busy ? '…' : t('download')}
-        </button>
+        </span>
       </div>
-      {error && <div class="error small">{error}</div>}
+      {error && (
+        <div class="error small">
+          <Icon name="alert" size={16} />
+          {error}
+        </div>
+      )}
     </div>
   );
 }
 
-function Bubble({ m, me, isAdmin, onOpen, onEdit }: { m: StoredMessage; me: string; isAdmin: boolean; onOpen: (url: string) => void; onEdit: (m: StoredMessage) => void }) {
+function Bubble({
+  m,
+  me,
+  isAdmin,
+  isEditing,
+  onOpen,
+  onEdit,
+}: {
+  m: StoredMessage;
+  me: string;
+  isAdmin: boolean;
+  isEditing: boolean;
+  onOpen: (item: LightboxItem) => void;
+  onEdit: (m: StoredMessage) => void;
+}) {
   const mine = m.sender === me;
   const [menu, setMenu] = useState(false);
+  const [confirming, setConfirming] = useState(false);
   useEffect(() => {
     if (!menu) return;
     const close = () => setMenu(false);
@@ -87,7 +126,8 @@ function Bubble({ m, me, isAdmin, onOpen, onEdit }: { m: StoredMessage; me: stri
   if (m.error || !m.payload) {
     return (
       <div class="system error-text" title={m.error}>
-        ⚠ {t('undecryptable', { user: usernameOf(m.sender, me), reason: m.error ?? t('unknown_payload') })}
+        <Icon name="alert" size={16} />
+        {t('undecryptable', { user: usernameOf(m.sender, me), reason: m.error ?? t('unknown_payload') })}
       </div>
     );
   }
@@ -99,16 +139,16 @@ function Bubble({ m, me, isAdmin, onOpen, onEdit }: { m: StoredMessage; me: stri
   const canEdit = mine && m.payload.t === 'text';
   const canDelete = mine || isAdmin;
   const remove = async () => {
-    if (!confirm(t('confirm_delete_message'))) return;
     try {
       await deleteMessage(m.convId, m);
     } catch (e) {
       showToast(describeError(e));
     }
   };
+  const classes = ['bubble', mine && 'mine', isMedia(m.payload) && 'media', isEditing && 'editing', menu && 'menu-open'].filter(Boolean).join(' ');
   return (
     <div
-      class={`bubble ${mine ? 'mine' : ''} ${menu ? 'menu-open' : ''}`}
+      class={classes}
       onContextMenu={(e) => {
         if (!canDelete) return;
         e.preventDefault();
@@ -116,7 +156,7 @@ function Bubble({ m, me, isAdmin, onOpen, onEdit }: { m: StoredMessage; me: stri
       }}
     >
       {!mine && <div class="author">{usernameOf(m.sender, me)}</div>}
-      {m.payload.t === 'text' ? <div class="body">{m.payload.body}</div> : <FileBubble p={m.payload} onOpen={onOpen} />}
+      {m.payload.t === 'text' ? <div class="body">{m.payload.body}</div> : <Attachment p={m.payload} onOpen={onOpen} />}
       <div class="meta">
         {m.edited && <span class="edited">{t('edited')} ·</span>}
         <span>{new Date(m.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
@@ -130,7 +170,7 @@ function Bubble({ m, me, isAdmin, onOpen, onEdit }: { m: StoredMessage; me: stri
               setMenu((v) => !v);
             }}
           >
-            ⋯
+            <Icon name="more" size={16} />
           </button>
         )}
       </div>
@@ -144,7 +184,8 @@ function Bubble({ m, me, isAdmin, onOpen, onEdit }: { m: StoredMessage; me: stri
                 onEdit(m);
               }}
             >
-              ✎ {t('edit')}
+              <Icon name="pencil" size={16} />
+              {t('edit')}
             </button>
           )}
           <button
@@ -152,11 +193,36 @@ function Bubble({ m, me, isAdmin, onOpen, onEdit }: { m: StoredMessage; me: stri
             class="danger"
             onClick={() => {
               setMenu(false);
-              void remove();
+              setConfirming(true);
             }}
           >
-            🗑 {t('delete')}
+            <Icon name="trash" size={16} />
+            {t('delete')}
           </button>
+        </div>
+      )}
+      {confirming && (
+        <div class="modal-backdrop" onClick={() => setConfirming(false)}>
+          <div class="card modal confirm" onClick={(e) => e.stopPropagation()}>
+            <div class="modal-head">
+              <h2>{t('confirm_delete_message')}</h2>
+            </div>
+            <div class="row end">
+              <button type="button" onClick={() => setConfirming(false)}>
+                {t('cancel')}
+              </button>
+              <button
+                type="button"
+                class="danger fill"
+                onClick={() => {
+                  setConfirming(false);
+                  void remove();
+                }}
+              >
+                {t('delete')}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
@@ -171,7 +237,7 @@ export function ChatView() {
   const [editing, setEditing] = useState<StoredMessage | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
-  const [lightbox, setLightbox] = useState<string | null>(null);
+  const [lightbox, setLightbox] = useState<LightboxItem | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -196,7 +262,10 @@ export function ChatView() {
   if (!conv) {
     return (
       <main class="chat empty-state">
-        <div class="muted">{t('select_conversation')}</div>
+        <div class="placeholder">
+          <Icon name="message" size={24} />
+          {t('select_conversation')}
+        </div>
       </main>
     );
   }
@@ -281,6 +350,8 @@ export function ChatView() {
 
   const unverified = unverifiedMembers(conv);
   const retention = effectiveRetention(conv);
+  const inVoice = voice.value?.convId === conv.id;
+  const voiceCount = participantsOf(conv.id).length;
   return (
     <main
       class={`chat ${dragging ? 'dropzone' : ''}`}
@@ -296,57 +367,83 @@ export function ChatView() {
       }}
     >
       <header class="chat-header">
-        <button class="back" onClick={() => (selectedId.value = null)} title={t('back')}>
-          ←
+        <button type="button" class="icon-btn touch back" onClick={() => (selectedId.value = null)} title={t('back')}>
+          <Icon name="arrow-left" size={20} />
         </button>
         <div class="chat-title" onClick={() => setShowMembers((v) => !v)}>
           <strong>{conversationTitle(conv, me.accountId)}</strong>
-          <span class="muted small">
-            {conv.kind === 'group' ? t('members_count', { n: conv.serverMembers.length }) : t('direct_chat')}
-            {unverified.length > 0 && ` · ⚠ ${t('unverified_members')}`}
-            {retention > 0 && ` · ⏱ ${t('disappearing_badge', { duration: formatDuration(retention) })}`}
+          <span class="chat-sub">
+            <span>{conv.kind === 'group' ? t('members_count', { n: conv.serverMembers.length }) : t('direct_chat')}</span>
+            {unverified.length > 0 && (
+              <span class="tag warn">
+                <Icon name="alert" size={12} />
+                {t('unverified_members')}
+              </span>
+            )}
+            {retention > 0 && (
+              <span>
+                <Icon name="timer" size={12} class="inline" /> {t('disappearing_badge', { duration: formatDuration(retention) })}
+              </span>
+            )}
           </span>
         </div>
         <div class="actions">
           {conv.kind === 'direct' && !hasBot(conv) && (
             <>
-              <button title={t('voice_call')} onClick={() => void startCall(conv.id)}>
-                📞
+              <button type="button" class="icon-btn" title={t('voice_call')} onClick={() => void startCall(conv.id)}>
+                <Icon name="phone" size={20} />
               </button>
-              <button title={t('video_call')} onClick={() => void startCall(conv.id, true)}>
-                📹
+              <button type="button" class="icon-btn" title={t('video_call')} onClick={() => void startCall(conv.id, true)}>
+                <Icon name="video" size={20} />
               </button>
             </>
           )}
           {conv.kind === 'group' && (
             <button
+              type="button"
               title={t('voice_channel')}
-              class={voice.value?.convId === conv.id ? 'active' : ''}
-              onClick={() => void (voice.value?.convId === conv.id ? leaveVoice() : joinVoice(conv.id))}
+              class={`icon-btn wide ${inVoice ? 'active' : ''}`}
+              onClick={() => void (inVoice ? leaveVoice() : joinVoice(conv.id))}
             >
-              🎙{participantsOf(conv.id).length > 0 && <span class="badge">{participantsOf(conv.id).length}</span>}
+              <Icon name="headphones" size={20} />
+              {voiceCount > 0 && <span class="badge">{voiceCount}</span>}
             </button>
           )}
-          <button title={t('members_security')} onClick={() => setShowMembers((v) => !v)}>
-            ℹ
+          <button type="button" class={`icon-btn ${showMembers ? 'active' : ''}`} title={t('members_security')} onClick={() => setShowMembers((v) => !v)}>
+            <Icon name="info" size={20} />
           </button>
         </div>
       </header>
       {conv.kind === 'group' && <VoiceBar convId={conv.id} />}
-      {hasBot(conv) && <div class="notice small">🤖 {t('bot_notice')}</div>}
+      {hasBot(conv) && (
+        <div class="notice small neutral">
+          <Icon name="bot" size={16} />
+          {t('bot_notice')}
+        </div>
+      )}
       <div class="chat-body">
         <div class="messages" ref={listRef}>
           {list.map((m) => (
-            <Bubble key={m.seq} m={m} me={me.accountId} isAdmin={me.isAdmin} onOpen={setLightbox} onEdit={startEdit} />
+            <Bubble key={m.seq} m={m} me={me.accountId} isAdmin={me.isAdmin} isEditing={editing?.seq === m.seq} onOpen={setLightbox} onEdit={startEdit} />
           ))}
           {mine.map((p) => (
             <div key={p.clientMsgId} class={`bubble mine pending ${p.failed ? 'failed' : ''}`}>
-              <div class="body">{p.payload.t === 'text' ? p.payload.body : p.payload.t === 'file' ? `📎 ${p.payload.name}` : '…'}</div>
+              <div class="body">
+                {p.payload.t === 'text' ? (
+                  p.payload.body
+                ) : p.payload.t === 'file' ? (
+                  <>
+                    <Icon name="paperclip" size={16} class="inline" /> {p.payload.name}
+                  </>
+                ) : (
+                  '…'
+                )}
+              </div>
               <div class="meta">
                 {p.failed ? (
                   <>
                     {t('failed', { reason: p.failed })}{' '}
-                    <button class="link" onClick={() => dismissPending(p.clientMsgId)}>
+                    <button type="button" class="link" onClick={() => dismissPending(p.clientMsgId)}>
                       {t('dismiss')}
                     </button>
                   </>
@@ -360,19 +457,33 @@ export function ChatView() {
           ))}
         </div>
         {showMembers && <MemberPanel conv={conv} onClose={() => setShowMembers(false)} />}
+        {dragging && (
+          <div class="dropzone-hint">
+            <Icon name="upload" size={24} />
+            {t('drop_files_hint')}
+          </div>
+        )}
       </div>
       {editing && (
         <div class="editing-bar">
-          <span>✎ {t('editing_message')}</span>
+          <Icon name="pencil" size={16} />
+          <span>{t('editing_message')}</span>
           <button type="button" class="link" onClick={cancelEdit}>
             {t('cancel')}
           </button>
         </div>
       )}
       <form class="composer" onSubmit={submit}>
-        <input ref={fileInput} type="file" multiple hidden onChange={(e) => void sendFiles((e.target as HTMLInputElement).files).then(() => ((e.target as HTMLInputElement).value = ''))} />
-        <button type="button" title={t('attach_file')} onClick={() => fileInput.current?.click()}>
-          📎
+        <input
+          ref={fileInput}
+          type="file"
+          class="hidden-input"
+          multiple
+          hidden
+          onChange={(e) => void sendFiles((e.target as HTMLInputElement).files).then(() => ((e.target as HTMLInputElement).value = ''))}
+        />
+        <button type="button" class="icon-btn touch" title={t('attach_file')} onClick={() => fileInput.current?.click()}>
+          <Icon name="paperclip" size={20} />
         </button>
         <input
           ref={inputRef}
@@ -384,14 +495,29 @@ export function ChatView() {
           autocomplete="off"
           autofocus
         />
-        <button type="submit" class="primary" disabled={!text.trim()}>
-          {editing ? t('save') : t('send')}
+        <button type="submit" class="primary" title={editing ? t('save') : t('send')} disabled={!text.trim()}>
+          <Icon name="send" size={20} class="send-icon" />
+          <span class="send-label">{editing ? t('save') : t('send')}</span>
         </button>
       </form>
-      {error && <div class="error composer-error">{error}</div>}
+      {error && (
+        <div class="error composer-error">
+          <Icon name="alert" size={16} />
+          {error}
+        </div>
+      )}
       {lightbox && (
         <div class="lightbox" onClick={() => setLightbox(null)}>
-          <img src={lightbox} alt="" />
+          <img src={lightbox.url} alt={lightbox.file.name} />
+          <button type="button" class="icon-btn" title={t('close')} onClick={() => setLightbox(null)}>
+            <Icon name="x" size={20} />
+          </button>
+          <span class="caption" onClick={(e) => e.stopPropagation()}>
+            {lightbox.file.name} · {formatSize(lightbox.file.size)} ·{' '}
+            <button type="button" class="link" onClick={() => void downloadFile(lightbox.file)}>
+              {t('download')}
+            </button>
+          </span>
         </div>
       )}
     </main>

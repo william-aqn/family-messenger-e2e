@@ -8,6 +8,7 @@ import { voice } from '../state/voice';
 import { CallOverlay } from './CallOverlay';
 import { VoiceOverlay } from './VoiceOverlay';
 import { ChatView } from './ChatView';
+import { Icon, IconSprite } from './Icons';
 import { Login } from './Login';
 import { Sidebar } from './Sidebar';
 
@@ -20,26 +21,66 @@ export function App() {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
-  if (booting.value) return <div class="center muted">{t('loading')}</div>;
-  if (!session.value) return <Login />;
-  const announcement = serverSettings.value?.announcement;
-  return (
-    <div class={`app ${selectedId.value ? 'has-selection' : ''}`}>
-      <Sidebar />
-      <ChatView />
-      {call.value && <CallOverlay />}
-      {voice.value && <VoiceOverlay />}
-      {toast.value && <div class="toast">{toast.value}</div>}
-      {wsClient.status.value !== 'online' && <div class="banner">{wsClient.status.value === 'connecting' ? t('connecting') : t('offline')}</div>}
-      {updateAvailable.value && (
-        <div class="banner update">
-          {t('update_available', { version: serverVersion.value })}
-          <button class="link" onClick={() => location.reload()}>
-            {t('reload_page')}
-          </button>
+  // The sprite is mounted in every branch: an <Icon> is a <use> reference and
+  // renders nothing without it, and the loading and login screens use icons too.
+  if (booting.value)
+    return (
+      <>
+        <IconSprite />
+        <div class="center">
+          <div class="placeholder">
+            <Icon name="lock" size={24} />
+            <span class="muted">{t('loading')}</span>
+          </div>
         </div>
-      )}
-      {announcement && <div class="announcement">{announcement}</div>}
-    </div>
+      </>
+    );
+  if (!session.value)
+    return (
+      <>
+        <IconSprite />
+        <Login />
+      </>
+    );
+  const announcement = serverSettings.value?.announcement;
+  const status = wsClient.status.value;
+  return (
+    <>
+      <IconSprite />
+      <div class={`app ${selectedId.value ? 'has-selection' : ''}`}>
+        <Sidebar />
+        <ChatView />
+        {call.value && <CallOverlay />}
+        {voice.value && <VoiceOverlay />}
+        {toast.value && <div class="toast">{toast.value}</div>}
+        {status === 'connecting' && (
+          <div class="banner busy floating">
+            <span class="spinner muted" />
+            {t('connecting')}
+          </div>
+        )}
+        {status !== 'connecting' && status !== 'online' && (
+          <div class="banner alert floating">
+            <Icon name="wifi-off" size={20} />
+            {t('offline')}
+          </div>
+        )}
+        {updateAvailable.value && (
+          <div class="banner update floating bottom">
+            <Icon name="refresh" size={20} />
+            <span class="grow">{t('update_available', { version: serverVersion.value })}</span>
+            <button type="button" class="link strong" onClick={() => location.reload()}>
+              {t('reload_page')}
+            </button>
+          </div>
+        )}
+        {announcement && (
+          <div class="announcement">
+            <Icon name="info" size={20} />
+            <span class="grow">{announcement}</span>
+          </div>
+        )}
+      </div>
+    </>
   );
 }

@@ -5,8 +5,11 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'package:lucide_icons_flutter/lucide_icons.dart';
+
 import 'state/app_state.dart';
 import 'state/updater.dart';
+import 'theme.dart';
 import 'ui/call_screen.dart';
 import 'ui/home_screen.dart';
 import 'ui/login_screen.dart';
@@ -30,6 +33,15 @@ void main() {
     // The Windows runner puts the build number into the window title.
     unawaited(const MethodChannel('family_messenger/window').invokeMethod<void>('setTitle', 'Family Messenger $appVersion').catchError((Object _) {}));
   }
+  // The product theme is dark chrome edge to edge; the status bar draws its
+  // icons light over it.
+  SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
+    statusBarColor: Colors.transparent,
+    statusBarIconBrightness: Brightness.light,
+    statusBarBrightness: Brightness.dark,
+    systemNavigationBarColor: cBg0,
+    systemNavigationBarIconBrightness: Brightness.light,
+  ));
   app.init();
   runApp(const FamilyMessengerApp());
   updater.start();
@@ -43,10 +55,12 @@ class FamilyMessengerApp extends StatelessWidget {
     return MaterialApp(
       title: 'Family Messenger $appVersion',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF4F8CFF), brightness: Brightness.dark),
-        useMaterial3: true,
-      ),
+      // Crimson Lab is the product theme and the only one the UI selects; the
+      // SpecMash variants stay in `fmTheme()` for the guideline. The app is
+      // dark-only, so both slots point at the same theme.
+      theme: fmCrimson(),
+      darkTheme: fmCrimson(),
+      themeMode: ThemeMode.dark,
       builder: (context, child) => ListenableBuilder(
         listenable: app.calls,
         builder: (context, _) => Stack(
@@ -61,10 +75,38 @@ class FamilyMessengerApp extends StatelessWidget {
       home: ListenableBuilder(
         listenable: app,
         builder: (context, _) {
-          if (app.booting) return const Scaffold(body: Center(child: CircularProgressIndicator()));
+          if (app.booting) return const _BootScreen();
           if (!app.signedIn) return const LoginScreen();
           return const HomeScreen();
         },
+      ),
+    );
+  }
+}
+
+/// Shown while the stored session is unlocked: the brand lock over the
+/// conversation canvas, and a sand spinner. No text — the dictionaries have no
+/// key for it, and the screen lives for a fraction of a second.
+class _BootScreen extends StatelessWidget {
+  const _BootScreen();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Scaffold(
+      backgroundColor: cBg1,
+      body: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(LucideIcons.lock, size: 24, color: sand),
+            SizedBox(height: 20),
+            SizedBox(
+              width: 24,
+              height: 24,
+              child: CircularProgressIndicator(strokeWidth: 2, color: sand),
+            ),
+          ],
+        ),
       ),
     );
   }

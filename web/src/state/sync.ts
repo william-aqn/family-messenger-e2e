@@ -320,7 +320,8 @@ function previewOf(p: Payload | null, error?: string): string {
     case 'text':
       return p.body;
     case 'file':
-      return p.mime.startsWith('image/') ? `📷 ${t('preview_photo')}` : `📎 ${t('preview_file', { name: p.name })}`;
+      // No emoji marker: the redesign draws icons, and a preview line is plain text.
+      return p.mime.startsWith('image/') ? t('preview_photo') : t('preview_file', { name: p.name });
     case 'conv.create':
       return p.kind === 'group' ? t('preview_group_created') : t('preview_chat_started');
     case 'member.add':
@@ -330,7 +331,7 @@ function previewOf(p: Payload | null, error?: string): string {
     case 'conv.rename':
       return t('preview_renamed', { name: p.name });
     case 'conv.retention':
-      return p.seconds > 0 ? `⏱ ${formatDuration(p.seconds)}` : '';
+      return p.seconds > 0 ? formatDuration(p.seconds) : '';
     default:
       return '';
   }

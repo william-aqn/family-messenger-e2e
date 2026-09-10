@@ -23,6 +23,8 @@ dependencies:
   path_provider: ^2.1.0
   # Opens the release page when the platform cannot update itself.
   url_launcher: ^6.3.0
+  # Lucide icon set: the redesign uses no emoji, every glyph comes from here.
+  lucide_icons_flutter: ^3.1.19
 
 dev_dependencies:
   flutter_test:
@@ -33,3 +35,17 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+
+  fonts:
+    # Interface typeface of the design system. Book is 400, Medium is 500;
+    # every other weight is synthesised by Flutter from the closest face.
+    - family: FuturaPT
+      fonts:
+        - asset: fonts/FuturaPT-Book.ttf
+          weight: 400
+        - asset: fonts/FuturaPT-Medium.ttf
+          weight: 500
+    # Fallback for glyphs Futura PT does not carry.
+    - family: FuturaFuturisC
+      fonts:
+        - asset: fonts/FuturaFuturisC.ttf

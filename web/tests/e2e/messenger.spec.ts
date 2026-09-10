@@ -94,7 +94,8 @@ test('group voice channel: join, mesh connection, presence and leave', async ({ 
   await expect
     .poll(async () => bobPage.locator('.voice-video video').evaluate((v) => (v as HTMLVideoElement).videoWidth), { timeout: 20_000 })
     .toBeGreaterThan(0);
-  await expect(carolPage.locator('.voice-bar')).toContainText('🖥');
+  // The sharer is marked with a monitor icon (an emoji before the redesign).
+  await expect(carolPage.locator('.voice-bar use[href="#i-monitor"]')).toHaveCount(1);
   await bobPage.locator('.voice-tabs button', { hasText: alice }).click();
   await expect(bobPage.locator('.voice-grid.focus')).toBeVisible();
   await alicePage.locator('.voice').getByRole('button', { name: 'Stop sharing' }).click();
@@ -102,7 +103,7 @@ test('group voice channel: join, mesh connection, presence and leave', async ({ 
 
   // Mute state is shared.
   await bobPage.locator('.voice').getByRole('button', { name: 'Mute' }).click();
-  await expect(alicePage.locator('.voice-list li', { hasText: bob })).toContainText('🔇', { timeout: 10_000 });
+  await expect(alicePage.locator('.voice-list li', { hasText: bob }).locator('use[href="#i-mic-off"]')).toHaveCount(1, { timeout: 10_000 });
 
   // Bob leaves: Alice keeps the channel, everybody's presence updates.
   await bobPage.locator('.voice').getByRole('button', { name: 'Leave channel' }).click();
@@ -157,8 +158,10 @@ test('voice call: screen sharing and a camera switched on mid-call', async ({ br
 test('video call: both cameras, a screen on top of the camera, full screen', async ({ browser }) => {
   const alice = `vcalice${run}`;
   const bob = `vcbob${run}`;
-  const alicePage = await register(browser, alice);
-  const bobPage = await register(browser, bob);
+  // Own client addresses: this is the last test of the run, and by then the
+  // shared 127.0.0.1 has spent the server's registration allowance.
+  const alicePage = await register(browser, alice, '203.0.113.10');
+  const bobPage = await register(browser, bob, '203.0.113.11');
   await openDirect(alicePage, bob);
   await selectConversation(bobPage, alice);
 
