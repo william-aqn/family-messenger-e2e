@@ -58,8 +58,9 @@ answer is remembered in `/opt/family-messenger-e2e/deploy/.env`):
   coturn from the distribution. Nothing is compiled and no Docker is needed,
   so a 1 vCPU / 512 MB box is enough. `RELEASE=v0.2.0` pins a version and
   `MSGR_BINARY_URL` points at any other `server-linux-<arch>` binary.
-- **docker**: installs Docker if needed, pulls the prebuilt image from GHCR
-  (or builds it locally) and runs Caddy, the server and coturn as containers.
+- **docker**: installs Docker if needed, builds the server image from the
+  checkout (no prebuilt image is published; `MSGR_IMAGE=` runs one of your
+  own) and runs Caddy, the server and coturn as containers.
 - **source**: like release, but the server is compiled on the machine from
   the checkout in `/opt/family-messenger-e2e` (Go and Node are downloaded into
   `toolchain/` unless the system already has them; a small VPS gets a
@@ -112,7 +113,7 @@ ports 80, 443 (TCP), 3478 (TCP+UDP) and 49160-49200 (UDP) for calls.
 git clone https://github.com/william-aqn/family-messenger-e2e.git
 cd family-messenger-e2e/deploy
 cp .env.example .env        # set DOMAIN, EXTERNAL_IP, TURN_SECRET
-docker compose up -d
+docker compose up -d --build
 ```
 
 Open `https://<DOMAIN>` and create the first account: **the first account
@@ -129,8 +130,9 @@ docker compose exec server /server admin grant alice
 Caddy obtains TLS certificates automatically; with `DOMAIN=localhost` it uses
 its own local CA for a LAN test. Backups: download one from the admin panel or
 copy the `server_data` volume (one SQLite database, attachments and the server
-secret). The compose file uses the prebuilt image `ghcr.io/william-aqn/family-messenger-e2e`;
-remove `MSGR_IMAGE` from `.env` and run `docker compose up -d --build` to build from source.
+secret). The compose file builds the server image from the checkout; after a
+`git pull`, `docker compose up -d --build` rebuilds it. Set `MSGR_IMAGE` in
+`.env` to run a prebuilt image of your own instead.
 
 ### Server configuration
 
@@ -218,19 +220,20 @@ and register it in `web/src/i18n/index.ts` (mobile strings live in
 
 ### Releases
 
-Nothing runs on push; the three workflows in `.github/workflows/` are started
-by hand from the *Actions* tab:
-
-- **release** asks for a version such as `v0.2.0`, builds the server for
-  linux/amd64, linux/arm64, windows/amd64, darwin/amd64 and darwin/arm64 with
-  the web client embedded, the Windows, Linux and macOS desktop apps, the
-  Android APK and App Bundle and an unsigned iOS app, writes `sha256sums.txt`,
-  creates the tag on the chosen commit and publishes a GitHub Release. That
-  release is what the installer's *release* flavour and the app's updater
-  download, so the version string is what users see as their build number.
-- **publish** builds the server image for an existing release tag and pushes
-  it to GHCR as `<tag>` and `latest` (the Docker flavour).
-- **ci** runs the Go, web and Flutter tests on demand.
+Nothing runs on push. The single workflow `.github/workflows/release.yml` is
+started by hand from the *Actions* tab with a version such as `v0.2.0` and
+two boxes, *pre-release* and *skip tests*. It runs the Go, web unit, browser
+and Flutter tests (the gate; the box skips them for an emergency rebuild) and
+in parallel builds the server for linux/amd64, linux/arm64, windows/amd64,
+darwin/amd64 and darwin/arm64 with the web client embedded, the Windows,
+Linux and macOS desktop apps, the Android APK and App Bundle and an unsigned
+iOS app; then it writes `sha256sums.txt`, creates the tag on the chosen
+commit and publishes a GitHub Release. That release is what the installer's
+*release* flavour and the app's updater download, so the version string is
+what users see as their build number. The Linux jobs run on the repository's
+self-hosted runner (label `self-hosted`), the tests and the other platforms
+on GitHub-hosted machines. No Docker image is published: the Docker flavour
+builds it on the server.
 
 Every build carries its version: `--dart-define=APP_VERSION` for the app,
 `APP_VERSION` at `npm run build` for the web client and the `Version` ldflag
@@ -362,7 +365,7 @@ protocol/         PROTOCOL.md and shared test vectors
 docs/             BOTS.md (Bot API)
 deploy/           docker-compose.yml, Caddyfile, .env.example, install.sh (one-line installer)
 deploy/builder/   Linux builder image (server, web, APK, Linux desktop) and windows/ (Flutter Windows build)
-.github/          manual workflows: ci.yml (tests), publish.yml (server image to GHCR), release.yml (GitHub Release with every binary)
+.github/          release.yml, the only workflow: manual; tests, every binary and the GitHub Release
 ```
 
 ## Roadmap

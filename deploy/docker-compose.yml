@@ -22,7 +22,9 @@ services:
       context: ..
       args:
         VERSION: ${VERSION:-dev}
-    image: ${MSGR_IMAGE:-ghcr.io/william-aqn/family-messenger-e2e:latest}
+    # Built from the checkout (no prebuilt image is published); MSGR_IMAGE
+    # names a prebuilt image of your own instead.
+    image: ${MSGR_IMAGE:-family-messenger-e2e:latest}
     restart: unless-stopped
     environment:
       MSGR_ADDR: ":8080"

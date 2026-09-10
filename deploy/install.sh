@@ -8,7 +8,8 @@
 #            binary with the web client inside, Caddy as a static binary and
 #            coturn from the distribution, all as systemd services. Nothing is
 #            compiled, so a 1 vCPU / 512 MB box is enough
-#   docker   server, Caddy and coturn in containers; Docker is installed if missing
+#   docker   server, Caddy and coturn in containers; Docker is installed if
+#            missing and the server image is built from the checkout
 #   source   like release, but the server is compiled here from the checkout
 #            (Go and Node are downloaded into INSTALL_DIR/toolchain when the
 #            system has none; needs about 2 GB of memory for the build)
@@ -21,7 +22,8 @@
 #
 # Optional variables: INSTALL_MODE (release|docker|source), RELEASE (a tag such
 # as v0.2.0 instead of the newest release), DOMAIN, EXTERNAL_IP, TURN_SECRET,
-# MSGR_REGISTRATION (open|invite|closed), MSGR_IMAGE (docker only),
+# MSGR_REGISTRATION (open|invite|closed), MSGR_IMAGE (docker only: run this
+# prebuilt image instead of building one),
 # MSGR_BINARY_URL (release only: download this binary instead), INSTALL_DIR
 # (default /opt/family-messenger-e2e), BRANCH (default main), REPO_URL,
 # GITHUB_REPO (owner/name for releases). Running `sh deploy/install.sh` inside
@@ -34,7 +36,6 @@ BRANCH="${BRANCH:-main}"
 RELEASE="${RELEASE:-}"
 INSTALL_DIR_GIVEN="${INSTALL_DIR:-}"
 INSTALL_DIR="${INSTALL_DIR:-/opt/family-messenger-e2e}"
-DEFAULT_IMAGE="ghcr.io/william-aqn/family-messenger-e2e:latest"
 SERVICE_USER="family-messenger"
 DATA_DIR="/var/lib/family-messenger"
 
@@ -150,20 +151,20 @@ if [ ! -f .env ]; then
   EXTERNAL_IP="${EXTERNAL_IP:-$(ask 'Public IP of this machine (used for calls)' "${detected_ip:-127.0.0.1}")}"
   TURN_SECRET="${TURN_SECRET:-$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')}"
   MSGR_REGISTRATION="${MSGR_REGISTRATION:-invite}"
-  MSGR_IMAGE="${MSGR_IMAGE:-$DEFAULT_IMAGE}"
   cat >.env <<EOF
 INSTALL_MODE=$INSTALL_MODE
 DOMAIN=$DOMAIN
 EXTERNAL_IP=$EXTERNAL_IP
 TURN_SECRET=$TURN_SECRET
 MSGR_REGISTRATION=$MSGR_REGISTRATION
-MSGR_IMAGE=$MSGR_IMAGE
 EOF
+  [ -z "${MSGR_IMAGE:-}" ] || printf 'MSGR_IMAGE=%s\n' "$MSGR_IMAGE" >>.env
   chmod 600 .env
   say "Wrote $INSTALL_DIR/deploy/.env"
   FIRST_INSTALL=1
 else
   sed -i 's/^INSTALL_MODE=native$/INSTALL_MODE=source/' .env # the old name of the source flavour
+  sed -i '/^MSGR_IMAGE=ghcr.io\/william-aqn\/family-messenger-e2e:latest$/d' .env # never published; the image is built locally
   if ! grep -q '^INSTALL_MODE=' .env; then
     printf 'INSTALL_MODE=%s\n' "$INSTALL_MODE" >>.env
   elif [ "$(sed -n 's/^INSTALL_MODE=//p' .env)" != "$INSTALL_MODE" ]; then
@@ -196,12 +197,16 @@ install_docker() {
   docker compose version >/dev/null 2>&1 || die "the docker compose plugin is missing (install docker-compose-plugin)"
   if command -v systemctl >/dev/null 2>&1; then systemctl enable --now docker >/dev/null 2>&1 || true; fi
 
-  say "Starting (pulls the prebuilt image, builds locally if it is unavailable)"
-  if docker compose pull -q server 2>/dev/null; then
+  if [ -n "${MSGR_IMAGE:-}" ]; then
+    say "Starting with the image $MSGR_IMAGE"
+    docker compose pull -q server || die "could not pull $MSGR_IMAGE"
     docker compose up -d --remove-orphans
   else
-    say "Prebuilt image not available, building locally (this takes a few minutes)"
-    docker compose up -d --build --remove-orphans
+    # No prebuilt image is published: the image is built from the checkout
+    # and carries its version like every other build.
+    version="$(git -C "$INSTALL_DIR" describe --tags --always 2>/dev/null || echo dev)"
+    say "Building the image from the checkout ($version; a few minutes) and starting"
+    VERSION="$version" docker compose up -d --build --remove-orphans
   fi
 
   say "Waiting for the server"
