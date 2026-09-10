@@ -12,7 +12,11 @@ import 'ui/home_screen.dart';
 import 'ui/login_screen.dart';
 
 /// Replaced by integration tests with an instance that does not persist.
-AppState app = AppState();
+/// `FAMILY_MESSENGER_EPHEMERAL=1` in the environment does the same for a
+/// normal launch: the app starts signed out and saves nothing, so a test
+/// account can be driven through the real UI without touching the session
+/// stored on the machine.
+AppState app = AppState(persist: kIsWeb || Platform.environment['FAMILY_MESSENGER_EPHEMERAL'] != '1');
 
 /// Build identification, passed by the build scripts as `--dart-define=APP_VERSION=` plus `git describe`.
 const String appVersion = String.fromEnvironment('APP_VERSION', defaultValue: 'dev');
@@ -48,7 +52,9 @@ class FamilyMessengerApp extends StatelessWidget {
         builder: (context, _) => Stack(
           children: [
             ?child,
-            if (app.calls.call != null) const CallScreen(),
+            // The call screen sits above the Navigator, so it brings its own
+            // Overlay: tooltips (and anything else that floats) need one.
+            if (app.calls.call != null) Overlay(initialEntries: [OverlayEntry(builder: (_) => const CallScreen())]),
           ],
         ),
       ),

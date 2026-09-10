@@ -121,6 +121,11 @@ class CallController extends ChangeNotifier {
   /// Why the camera could not be opened the last time (shown by the call screen).
   String? cameraError;
 
+  /// The clean-up of the previous call. The next call waits for it: tearing
+  /// capturers and a peer connection down while new ones come up crashed
+  /// the Windows build now and then.
+  Future<void>? _teardown;
+
   int get debugRemoteStreams => _remoteStreams.length;
   String? _pendingOfferSdp;
   final List<Map<String, dynamic>> _queuedIce = [];
@@ -290,6 +295,7 @@ class CallController extends ChangeNotifier {
     call = CallInfo(id: id, convId: convId, peer: peer, incoming: false, status: CallStatus.ringingOut);
     notifyListeners();
     try {
+      await _teardown;
       final pc = await _createPeer(convId, id);
       if (video) await _enableCamera(notify: false);
       await _ensureVideoSlots(pc);
@@ -417,6 +423,7 @@ class CallController extends ChangeNotifier {
     current.status = CallStatus.connecting;
     notifyListeners();
     try {
+      await _teardown;
       final pc = await _createPeer(current.convId, current.id);
       await pc.setRemoteDescription(RTCSessionDescription(sdp, 'offer'));
       // A video call is answered with the camera on (audio only if it fails).
@@ -606,19 +613,24 @@ class CallController extends ChangeNotifier {
     _screenSlot = null;
     final pc = _pc;
     _pc = null;
-    unawaited(() async {
-      await _disposeStream(local);
-      await _disposeStream(camera);
-      await _disposeStream(screen);
-      await slot?.dispose();
-      await disableScreenCaptureService();
-      await pc?.close();
+    _teardown = () async {
       if (_renderersReady) {
         remoteCamera.srcObject = null;
         remoteScreen.srcObject = null;
         localCamera.srcObject = null;
       }
-    }());
+      await _disposeStream(local);
+      await _disposeStream(camera);
+      await _disposeStream(screen);
+      await slot?.dispose();
+      await disableScreenCaptureService();
+      try {
+        await pc?.close();
+        await pc?.dispose();
+      } catch (e) {
+        debugPrint('peer connection teardown failed: $e');
+      }
+    }();
     final current = call;
     if (current != null && current.status != CallStatus.ended) {
       current.status = CallStatus.ended;

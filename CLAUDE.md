@@ -22,6 +22,19 @@ actual APK, at the UI level, before it is reported as done:
    second device. Check both sides.
 4. Read `adb logcat` for `flutter`, `FlutterWebRTCPlugin` and crashes
    (`DEBUG`, `System.err`).
+5. The Windows build gets the same treatment, preferably without touching
+   the desktop's mouse and keyboard (the machine's owner works on it):
+   `scripts\app-video-call-test.ps1` runs the whole scenario (video call,
+   screen share, a second call, an incoming call answered with the button)
+   through the integration test against a browser peer, and
+   `scripts\win-drive.ps1 -Action peek -File x.png` grabs the app window in
+   a loop meanwhile without stealing focus (`PrintWindow`, works when other
+   windows cover it). Look at those screenshots. For a hand-driven session
+   launch the release exe with `FAMILY_MESSENGER_EPHEMERAL=1` (starts signed
+   out and saves nothing, so the stored session stays untouched) and use
+   `win-drive.ps1` `click`/`type`/`key`/`shot`, which refuse to act when the
+   app window is not in the foreground. OBS's virtual camera
+   (`obs64.exe --startvirtualcam`) stands in for a webcam.
 
 State-level checks are not enough: the integration test in
 `app/integration_test` reported "VIDEO OK" while the call screen stayed frozen

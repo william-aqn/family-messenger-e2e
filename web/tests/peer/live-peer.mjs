@@ -8,7 +8,8 @@
 // Environment: BASE_URL (server), PEER_USER / PEER_PASSWORD (an existing
 // account), PEER_WITH (the other side's username), SHOT_DIR (screenshots,
 // default .), PW_CHANNEL (msedge by default), HOLD_SECONDS (how long to stay
-// in the call before hanging up, default 60).
+// in the call before hanging up, default 60), PEER_MODE=call to place the
+// video call from the browser instead of answering one.
 import path from 'node:path';
 import { chromium } from '@playwright/test';
 
@@ -49,13 +50,21 @@ try {
     await page.getByRole('button', { name: 'Create' }).click();
   }
   await page.getByPlaceholder('Write a message…').waitFor();
-  log(`chat with ${other} open, waiting for a call`);
 
-  await page.locator('.call-status', { hasText: /calling|video call/i }).waitFor({ timeout: 10 * 60_000 });
-  log('incoming call:', (await page.locator('.call-status').textContent())?.trim());
-  await page.getByRole('button', { name: 'Answer' }).click();
-  await page.locator('.call-status', { hasText: 'In call with' }).waitFor({ timeout: 60_000 });
-  log('answered');
+  if (process.env.PEER_MODE === 'call') {
+    // The browser calls; the other side has up to two minutes to answer.
+    log(`chat with ${other} open, starting a video call`);
+    await page.getByTitle('Video call').click();
+    await page.locator('.call-status', { hasText: 'In call with' }).waitFor({ timeout: 120_000 });
+    log('the other side answered');
+  } else {
+    log(`chat with ${other} open, waiting for a call`);
+    await page.locator('.call-status', { hasText: /calling|video call/i }).waitFor({ timeout: 10 * 60_000 });
+    log('incoming call:', (await page.locator('.call-status').textContent())?.trim());
+    await page.getByRole('button', { name: 'Answer' }).click();
+    await page.locator('.call-status', { hasText: 'In call with' }).waitFor({ timeout: 60_000 });
+    log('answered');
+  }
 
   const started = Date.now();
   let shot = 0;

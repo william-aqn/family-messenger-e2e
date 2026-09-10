@@ -78,7 +78,8 @@ class _CallScreenState extends State<CallScreen> {
       case CallStatus.ended:
         status = '${t('call_ended')}${c.endReason != null && c.endReason != 'ended' ? ' (${c.endReason})' : ''}';
     }
-    final remoteMedia = calls.renderersReady && (c.remoteVideo || c.remoteSharing);
+    // Remote video is only there once the call is up; while it rings, the offer merely announces it.
+    final remoteMedia = calls.renderersReady && (c.remoteVideo || c.remoteSharing) && (c.status == CallStatus.active || c.status == CallStatus.connecting);
     final stage = _Stage(calls: calls, call: c);
     if (_fullscreen && remoteMedia) {
       // Only the remote video, edge to edge, with a way back.
