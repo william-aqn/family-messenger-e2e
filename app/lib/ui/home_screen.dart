@@ -247,7 +247,7 @@ Future<void> _checkUpdates(BuildContext context) async {
   final latest = updater.latest;
   final String text;
   if (updater.error != null) {
-    text = t('update_failed', {'error': updater.error});
+    text = t('update_check_failed', {'error': updater.error});
   } else if (latest == null) {
     text = t('update_no_release');
   } else if (updater.available != null) {

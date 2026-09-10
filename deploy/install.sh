@@ -143,6 +143,7 @@ cd "$INSTALL_DIR/deploy"
 
 # ---------------------------------------------------------------- settings
 
+FIRST_INSTALL=""
 if [ ! -f .env ]; then
   detected_ip="$(curl -fsS -4 --max-time 5 https://api.ipify.org 2>/dev/null || hostname -I 2>/dev/null | awk '{print $1}')"
   DOMAIN="${DOMAIN:-$(ask 'Domain name (DNS must point to this machine; "localhost" for a LAN test)' "${detected_ip:-localhost}")}"
@@ -160,6 +161,7 @@ MSGR_IMAGE=$MSGR_IMAGE
 EOF
   chmod 600 .env
   say "Wrote $INSTALL_DIR/deploy/.env"
+  FIRST_INSTALL=1
 else
   sed -i 's/^INSTALL_MODE=native$/INSTALL_MODE=source/' .env # the old name of the source flavour
   if ! grep -q '^INSTALL_MODE=' .env; then
@@ -211,7 +213,8 @@ install_docker() {
   done
 
   invite=""
-  if [ "$MSGR_REGISTRATION" = "invite" ]; then
+  # An invite code is created on the first install only; updates would otherwise leave unused codes behind.
+  if [ "$MSGR_REGISTRATION" = "invite" ] && [ -n "$FIRST_INSTALL" ]; then
     invite="$(docker compose exec -T server /server invite -n 1 2>/dev/null | tail -n 1 || true)"
   fi
   write_wrapper docker
@@ -599,7 +602,8 @@ install_systemd() {
   start_native_services
 
   invite=""
-  if [ "$MSGR_REGISTRATION" = "invite" ]; then
+  # An invite code is created on the first install only; updates would otherwise leave unused codes behind.
+  if [ "$MSGR_REGISTRATION" = "invite" ] && [ -n "$FIRST_INSTALL" ]; then
     invite="$(family-messenger invite -n 1 2>/dev/null | tail -n 1 || true)"
   fi
   installed="$("$BIN_DIR/server" version 2>/dev/null || echo unknown)"

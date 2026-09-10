@@ -37,7 +37,7 @@ export const serverVersion = signal<string>('');
 export const APP_VERSION = __APP_VERSION__;
 
 /** A newer client is being served: the page should be reloaded. Development builds never nag. */
-export const updateAvailable = computed(() => APP_VERSION !== 'dev' && serverVersion.value !== '' && serverVersion.value !== APP_VERSION);
+export const updateAvailable = computed(() => APP_VERSION !== 'dev' && serverVersion.value !== '' && serverVersion.value !== 'dev' && serverVersion.value !== APP_VERSION);
 
 export function setConversation(c: Conversation): void {
   const m = new Map(conversations.value);
