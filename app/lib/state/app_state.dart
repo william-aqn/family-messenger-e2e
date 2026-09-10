@@ -5,6 +5,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart' show AppLifecycleState, WidgetsBinding, WidgetsBindingObserver;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import '../api/client.dart';
@@ -85,10 +86,18 @@ class Message {
   String get type => (payload?['t'] as String?) ?? '';
 }
 
-class AppState extends ChangeNotifier {
+class AppState extends ChangeNotifier with WidgetsBindingObserver {
   AppState({this.persist = true}) {
     calls = CallController(this);
     voice = VoiceController(this);
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Back in the foreground: a socket that died meanwhile would still look
+    // open, so check it before the user sends anything or makes a call.
+    if (state == AppLifecycleState.resumed) _ws?.poke();
   }
 
   /// Keep the session in secure storage (off in integration tests, which
@@ -310,6 +319,7 @@ class AppState extends ChangeNotifier {
     final ws = WsClient(baseUrl: serverUrl, token: session!.token);
     _ws = ws;
     _statusSub = ws.statusChanges.listen((s) {
+      debugPrint('ws: $s');
       wsStatus = s;
       notifyListeners();
     });
@@ -502,6 +512,7 @@ class AppState extends ChangeNotifier {
       error = e.toString();
     }
     if (!stored) {
+      if (error != null) debugPrint('signal from ${view.senderAccount} dropped: $error');
       final type = payload?['t'] as String?;
       if (type != null && type.startsWith('call.')) calls.handleSignal(view.senderAccount, view.senderDevice, view.convId, payload!);
       if (type != null && type.startsWith('voice.')) voice.handleSignal(view.senderAccount, view.senderDevice, view.convId, payload!);

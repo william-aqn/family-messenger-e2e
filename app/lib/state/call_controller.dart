@@ -106,6 +106,9 @@ class CallController extends ChangeNotifier {
   final Map<int, MediaStream> _remoteStreams = {};
   int _videoTracksSeen = 0;
 
+  /// Why the camera could not be opened the last time (shown by the call screen).
+  String? cameraError;
+
   int get debugRemoteStreams => _remoteStreams.length;
   String? _pendingOfferSdp;
   final List<Map<String, dynamic>> _queuedIce = [];
@@ -352,7 +355,7 @@ class CallController extends ChangeNotifier {
           current.remoteVideo = payload['video'] == true;
           notifyListeners();
           _queuedIce.addAll(_candidatesOf(payload));
-          _pc!.setRemoteDescription(RTCSessionDescription(payload['sdp'] as String?, 'answer')).then((_) => _flushIce()).catchError((_) => _end('connection failed'));
+          _pc!.setRemoteDescription(RTCSessionDescription(payload['sdp'] as String?, 'answer')).then((_) => _flushIce()).catchError((Object e) => _end('connection failed: $e'));
         } else {
           _addCandidates(_candidatesOf(payload)); // a repeat: only its candidates matter
         }
@@ -477,6 +480,7 @@ class CallController extends ChangeNotifier {
         return false;
       }
       _camera = stream;
+      cameraError = null;
       final track = stream.getVideoTracks().firstOrNull;
       if (track != null && _cameraTx != null) await _cameraTx!.sender.replaceTrack(track);
       if (_renderersReady) localCamera.srcObject = stream;
@@ -485,6 +489,7 @@ class CallController extends ChangeNotifier {
       if (notify) await _signal(current.convId, {'t': 'call.video', 'call': current.id, 'on': true});
       return true;
     } catch (e) {
+      cameraError = e.toString();
       debugPrint('camera failed: $e');
       return false;
     }
@@ -567,6 +572,7 @@ class CallController extends ChangeNotifier {
   }
 
   void _end(String reason) {
+    debugPrint('call ended: $reason');
     _ringTimer?.cancel();
     _retryTimer?.cancel();
     _retryTimer = null;

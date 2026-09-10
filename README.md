@@ -280,6 +280,12 @@ database yet).
   starts a video call and checks that frames flow both ways. Add
   `-Camera screen` to use the built-in test mode instead of a real or virtual
   camera. The test never touches the device's stored session.
+- **The same call on Android**: with an Android SDK and a running emulator
+  (or a phone over USB), `scripts\app-video-call-test.ps1 -Device emulator-5554`
+  runs the rig against the device: the app reaches the local server through
+  `adb reverse`, the debug build is installed and granted the camera and
+  microphone up front, and the emulator's emulated camera stands in for a
+  real one (start it with `emulator -avd <name> -camera-front emulated`).
 
 ### Builder container
 

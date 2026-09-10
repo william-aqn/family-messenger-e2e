@@ -1,15 +1,18 @@
-# Runs a real video call between the Flutter Windows app and a browser peer
-# on a throwaway local server:
+# Runs a real video call between the Flutter app and a browser peer on a
+# throwaway local server:
 #   1. starts the Go server (open registration, temporary data dir),
 #   2. starts the browser peer (Playwright, fake camera) in the background,
-#   3. runs app/integration_test/video_call_test.dart on Windows.
+#   3. runs app/integration_test/video_call_test.dart on the chosen device.
 #
-#   powershell -ExecutionPolicy Bypass -File scripts\app-video-call-test.ps1              # real camera (a webcam or OBS Virtual Camera)
-#   powershell -ExecutionPolicy Bypass -File scripts\app-video-call-test.ps1 -Camera screen   # built-in test mode: the screen as the camera
+#   powershell -ExecutionPolicy Bypass -File scripts\app-video-call-test.ps1                    # Windows app, real camera (a webcam or OBS Virtual Camera)
+#   powershell -ExecutionPolicy Bypass -File scripts\app-video-call-test.ps1 -Camera screen     # Windows app, built-in test mode: the screen as the camera
+#   powershell -ExecutionPolicy Bypass -File scripts\app-video-call-test.ps1 -Device emulator-5554   # Android emulator (its virtual-scene camera) or a USB phone
 param(
   [ValidateSet('device', 'screen')][string]$Camera = 'device',
   [int]$Port = 18082,
-  [string]$Channel = 'msedge'
+  [string]$Channel = 'msedge',
+  # A Flutter device id from `flutter devices`: windows, or an Android emulator / phone.
+  [string]$Device = 'windows'
 )
 $ErrorActionPreference = 'Stop'
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
@@ -17,6 +20,7 @@ $run = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds().ToString('x')
 $user = "appalice$run"
 $peer = "appbob$run"
 $work = Join-Path $env:TEMP "fm-apptest-$run"
+$package = 'dev.familymessenger.family_messenger_e2e'
 New-Item -ItemType Directory -Force $work | Out-Null
 
 function Find-Flutter {
@@ -27,7 +31,16 @@ function Find-Flutter {
   }
   throw 'flutter not found: put it on PATH or set FLUTTER_ROOT'
 }
+function Find-Adb {
+  $a = Get-Command adb -CommandType Application -ErrorAction SilentlyContinue
+  if ($a) { return $a.Source }
+  foreach ($root in @($env:ANDROID_HOME, $env:ANDROID_SDK_ROOT, 'C:\tools\android-sdk', "$env:LOCALAPPDATA\Android\Sdk")) {
+    if ($root -and (Test-Path "$root\platform-tools\adb.exe")) { return "$root\platform-tools\adb.exe" }
+  }
+  throw 'adb not found: put it on PATH or set ANDROID_HOME'
+}
 $flutter = Find-Flutter
+$android = $Device -ne 'windows'
 
 if (-not (Test-Path (Join-Path $repo 'web\dist\index.html'))) {
   Push-Location (Join-Path $repo 'web')
@@ -56,12 +69,28 @@ $env:PW_CHANNEL = $Channel
 $peerProc = Start-Process -FilePath 'cmd.exe' -ArgumentList '/c', 'npx playwright test --config playwright.peer.config.ts' -WorkingDirectory (Join-Path $repo 'web') -PassThru -NoNewWindow -RedirectStandardOutput (Join-Path $work 'peer.log') -RedirectStandardError (Join-Path $work 'peer.err')
 $null = $peerProc.Handle
 
-Write-Host "==> app integration test (camera: $Camera)"
-$defines = @("--dart-define=TEST_SERVER=http://127.0.0.1:$Port", "--dart-define=TEST_USER=$user", "--dart-define=TEST_PEER=$peer")
-if ($Camera -eq 'screen') { $defines += '--dart-define=FAKE_CAMERA=screen' }
 Push-Location (Join-Path $repo 'app')
 try {
-  & $flutter test integration_test/video_call_test.dart -d windows @defines
+  if ($android) {
+    $adb = Find-Adb
+    # The device reaches the host's 127.0.0.1:$Port through adb, so the server keeps listening on localhost.
+    & $adb -s $Device reverse "tcp:$Port" "tcp:$Port"
+    if ($LASTEXITCODE -ne 0) { throw "adb reverse failed for $Device" }
+    # Runtime permission dialogs would pop up in the middle of the test: install the debug app
+    # once and grant them up front (the test's own reinstall keeps the grants).
+    Write-Host "==> installing the debug app on $Device and granting camera and microphone"
+    & $flutter build apk --debug
+    if ($LASTEXITCODE -ne 0) { throw 'debug apk build failed' }
+    & $adb -s $Device install -r -t build\app\outputs\flutter-apk\app-debug.apk
+    if ($LASTEXITCODE -ne 0) { throw 'adb install failed' }
+    foreach ($p in 'android.permission.CAMERA', 'android.permission.RECORD_AUDIO') {
+      & $adb -s $Device shell pm grant $package $p
+    }
+  }
+  Write-Host "==> app integration test on $Device (camera: $Camera)"
+  $defines = @("--dart-define=TEST_SERVER=http://127.0.0.1:$Port", "--dart-define=TEST_USER=$user", "--dart-define=TEST_PEER=$peer")
+  if ($Camera -eq 'screen') { $defines += '--dart-define=FAKE_CAMERA=screen' }
+  & $flutter test integration_test/video_call_test.dart -d $Device @defines
   $appExit = $LASTEXITCODE
 } finally {
   Pop-Location

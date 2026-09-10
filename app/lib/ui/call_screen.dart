@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io' show Platform;
 
 import 'package:flutter/material.dart';
@@ -17,9 +18,29 @@ class CallScreen extends StatefulWidget {
 class _CallScreenState extends State<CallScreen> {
   bool _fullscreen = false;
 
-  Future<void> _toggleCamera(BuildContext context) async {
+  /// A problem to show inside the overlay (a snack bar would hide behind it).
+  String? _notice;
+  Timer? _noticeTimer;
+
+  @override
+  void dispose() {
+    _noticeTimer?.cancel();
+    super.dispose();
+  }
+
+  void _showNotice(String text) {
+    _noticeTimer?.cancel();
+    setState(() => _notice = text);
+    _noticeTimer = Timer(const Duration(seconds: 8), () {
+      if (mounted) setState(() => _notice = null);
+    });
+  }
+
+  Future<void> _toggleCamera() async {
     final err = await app.calls.toggleCamera();
-    if (err != null && context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(t(err))));
+    if (err == null || !mounted) return;
+    final detail = app.calls.cameraError;
+    _showNotice(detail == null ? t(err) : '${t(err)}: $detail');
   }
 
   @override
@@ -73,6 +94,11 @@ class _CallScreenState extends State<CallScreen> {
         child: Column(
           children: [
             Padding(padding: const EdgeInsets.all(16), child: Text(status, style: const TextStyle(color: Colors.white, fontSize: 18))),
+            if (_notice != null)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Text(_notice!, textAlign: TextAlign.center, style: const TextStyle(color: Colors.orangeAccent, fontSize: 13)),
+              ),
             Expanded(
               child: remoteMedia || c.video
                   ? Stack(
@@ -109,7 +135,7 @@ class _CallScreenState extends State<CallScreen> {
                     OutlinedButton.icon(
                       icon: Icon(c.video ? Icons.videocam_off : Icons.videocam),
                       label: Text(c.video ? t('camera_off') : t('camera_on')),
-                      onPressed: () => _toggleCamera(context),
+                      onPressed: _toggleCamera,
                     ),
                     if (c.video && (Platform.isAndroid || Platform.isIOS))
                       OutlinedButton.icon(icon: const Icon(Icons.cameraswitch), label: Text(t('switch_camera')), onPressed: calls.switchCamera),
