@@ -608,8 +608,9 @@ code.fp.small {
   max-height: 30vh;
 }
 
-/* our own camera preview (mirrored) */
-.call-self {
+/* our own camera preview (mirrored). The selectors outrank ".call-screen video"
+   above, which would otherwise stretch the preview over the peer's video. */
+.call-screen video.call-self {
   position: absolute;
   right: 8px;
   bottom: 8px;
@@ -618,7 +619,7 @@ code.fp.small {
   transform: scaleX(-1);
 }
 
-.call-self.alone {
+.call-screen video.call-self.alone {
   position: static;
   width: 200px;
 }

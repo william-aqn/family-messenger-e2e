@@ -45,6 +45,12 @@ class _CallScreenState extends State<CallScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // The app inserts this screen as a const widget, so it has to follow the
+    // call state itself; otherwise "Calling…" stays on screen for the whole call.
+    return ListenableBuilder(listenable: app.calls, builder: (context, _) => _overlay(context));
+  }
+
+  Widget _overlay(BuildContext context) {
     final calls = app.calls;
     final c = calls.call;
     if (c == null) return const SizedBox.shrink();

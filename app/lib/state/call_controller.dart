@@ -243,21 +243,17 @@ class CallController extends ChangeNotifier {
     _bindRemoteVideo();
   }
 
-  /// Files a remote video track under its slot: the position of its
-  /// transceiver among the video transceivers (camera first, screen second),
-  /// or the order of arrival when the transceiver cannot be matched.
+  /// Files a remote video track under its slot. Both sides negotiate the
+  /// slots in a fixed order (camera first, screen second) and tracks arrive
+  /// in that order, so the order of arrival is the slot.
+  ///
+  /// This must not ask the peer connection for its transceivers: on Android
+  /// every getTransceivers() disposes the Java wrappers handed out before,
+  /// including the ones the signaling thread is still iterating while it
+  /// applies the remote description, and the process aborts with
+  /// "MediaStreamTrack has been disposed".
   Future<void> _storeRemoteVideo(RTCPeerConnection pc, RTCTrackEvent event) async {
-    var slot = -1;
-    try {
-      final videos = <RTCRtpTransceiver>[];
-      for (final tx in await pc.getTransceivers()) {
-        if (tx.receiver.track?.kind == 'video') videos.add(tx);
-      }
-      slot = videos.indexWhere((tx) => tx.receiver.track?.id == event.track.id);
-      if (slot < 0 && event.transceiver != null) slot = videos.indexWhere((tx) => tx.mid == event.transceiver!.mid);
-    } catch (_) {}
-    if (slot < 0) slot = _videoTracksSeen;
-    _videoTracksSeen++;
+    final slot = _videoTracksSeen++;
     final stream = await remoteStreamFor(event, 'call-slot-$slot');
     if (_pc != pc || stream == null) return;
     _remoteStreams[slot] = stream;

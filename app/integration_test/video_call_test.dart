@@ -65,6 +65,12 @@ void main() {
     try {
       await waitFor(tester, () => calls.call?.status == CallStatus.active, 'the peer to answer', timeout: const Duration(seconds: 180));
       expect(calls.call!.video, isTrue, reason: 'our camera must be on in a video call');
+      // The screen must follow the state: a call overlay that stayed on
+      // "Calling…" for the whole call once passed the state checks above.
+      await tester.pump();
+      expect(find.textContaining(t('in_call')), findsOneWidget, reason: 'the call screen must show the active call');
+      expect(find.text(t('camera_off')), findsOneWidget, reason: 'the camera button must reflect the camera being on');
+      expect(find.textContaining(t('calling')), findsNothing, reason: 'the ringing status must be gone');
       await waitFor(tester, () => calls.localCamera.videoWidth > 0, 'frames from our camera');
       await waitFor(tester, () => (calls.call?.remoteVideo ?? false) && calls.remoteCamera.videoWidth > 0, 'frames from the peer camera');
     } catch (e) {
