@@ -18,11 +18,13 @@ Future<void> waitUntil(bool Function() condition, String what, {Duration timeout
 void main() {
   late HttpServer server;
   var answerPings = true;
+  var refuseToken = false;
   var connections = 0;
   var pings = 0;
 
   setUp(() async {
     answerPings = true;
+    refuseToken = false;
     connections = 0;
     pings = 0;
     server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
@@ -33,7 +35,11 @@ void main() {
         final j = jsonDecode(data as String) as Map<String, dynamic>;
         switch (j['t']) {
           case 'auth':
-            ws.add(jsonEncode({'t': 'hello', 'd': {'version': 'test'}}));
+            if (refuseToken) {
+              ws.close(1008, 'invalid token'); // what the real server does for a revoked device
+            } else {
+              ws.add(jsonEncode({'t': 'hello', 'd': {'version': 'test'}}));
+            }
           case 'ping':
             pings++;
             if (answerPings) ws.add(jsonEncode({'t': 'pong', 'd': {}}));
@@ -52,6 +58,20 @@ void main() {
         pokeDeadline: const Duration(milliseconds: 150),
         checkEvery: const Duration(milliseconds: 50),
       );
+
+  test('a token the server refuses (close 1008) is reported as revoked', () async {
+    refuseToken = true;
+    final client = newClient();
+    final revoked = <String>[];
+    client.frames.listen((f) {
+      if (f.type == 'revoked') revoked.add('${f.data}');
+    });
+    client.connect();
+    await waitUntil(() => revoked.isNotEmpty, 'the revoked frame');
+    expect(revoked.first, 'invalid token');
+    expect(client.status, WsStatus.offline);
+    client.close();
+  });
 
   test('a quiet socket is pinged and stays connected while pongs come back', () async {
     final client = newClient();

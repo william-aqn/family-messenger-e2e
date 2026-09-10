@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../i18n/strings.dart';
 import '../main.dart';
+import '../state/app_state.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -26,7 +27,7 @@ class _LoginScreenState extends State<LoginScreen> {
     });
     try {
       if (registerMode) {
-        if (password.text.length < 12) throw StateError('Password must be at least 12 characters');
+        if (password.text.length < AppState.minPasswordLength) throw StateError(t('password_too_short', {'n': AppState.minPasswordLength}));
         await app.register(server.text, username.text, password.text, invite.text);
       } else {
         await app.login(server.text, username.text, password.text);

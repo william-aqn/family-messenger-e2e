@@ -79,7 +79,9 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /api/v1/auth/params", lim(s.authParams))
 	mux.Handle("POST /api/v1/auth/login", lim(s.login))
 	mux.Handle("POST /api/v1/auth/logout", authed(s.logout))
-	mux.Handle("POST /api/v1/auth/password", human(s.changePassword))
+	// Rate limited like login: a stolen device token must not allow guessing the
+	// current password at full speed.
+	mux.Handle("POST /api/v1/auth/password", s.limiter.Middleware(human(s.changePassword)))
 	mux.Handle("GET /api/v1/me", authed(s.me))
 	mux.Handle("GET /api/v1/devices", authed(s.listDevices))
 	mux.Handle("DELETE /api/v1/devices/{id}", authed(s.deleteDevice))

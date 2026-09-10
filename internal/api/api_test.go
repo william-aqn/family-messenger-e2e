@@ -660,3 +660,115 @@ func TestRegistrationModes(t *testing.T) {
 		t.Fatalf("closed registration status %d", status)
 	}
 }
+
+// changePassword does what a client does: proves the current password with
+// its auth key and sends the material derived from the new one. Returns the
+// status and the number of other devices the server signed out.
+func changePassword(t *testing.T, c *client, current, next string, signOutOthers bool) (int, int) {
+	t.Helper()
+	var params struct {
+		Salt []byte `json:"salt"`
+	}
+	c.must("GET", "/api/v1/auth/params?username="+c.username, nil, &params, http.StatusOK)
+	curKey, _ := e2e.DeriveKeys(current, params.Salt, fastKDF)
+	salt := make([]byte, e2e.SaltSize)
+	if _, err := rand.Read(salt); err != nil {
+		t.Fatal(err)
+	}
+	newKey, newEnc := e2e.DeriveKeys(next, salt, fastKDF)
+	bundle, err := e2e.NewKeyBundle(newEnc, c.keys)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var res struct {
+		SignedOut int `json:"signed_out_devices"`
+	}
+	status := c.do("POST", "/api/v1/auth/password", map[string]any{
+		"auth_key": curKey[:], "new_salt": salt, "new_auth_key": newKey[:], "new_key_bundle": bundle, "sign_out_others": signOutOthers,
+	}, &res)
+	return status, res.SignedOut
+}
+
+// expectClosed waits for the server to close the socket.
+func (w *wsClient) expectClosed() {
+	w.t.Helper()
+	deadline := time.After(5 * time.Second)
+	for {
+		select {
+		case _, ok := <-w.frames:
+			if !ok {
+				return
+			}
+		case <-deadline:
+			w.t.Fatal("the socket of a signed-out device stayed open")
+		}
+	}
+}
+
+func TestPasswordChange(t *testing.T) {
+	ts, _ := newTestServer(t, "open")
+	alice := register(t, ts.URL, "alice", "alice-password-123")
+	phone, status := login(t, ts.URL, "alice", "alice-password-123")
+	if status != http.StatusOK {
+		t.Fatalf("second device login status %d", status)
+	}
+	phoneWS := phone.connectWS()
+
+	// A wrong current password changes nothing.
+	if status, _ := changePassword(t, alice, "not-the-password", "alice-password-456", true); status != http.StatusUnauthorized {
+		t.Fatalf("wrong current password status %d", status)
+	}
+	if status := alice.do("POST", "/api/v1/auth/password", map[string]any{"auth_key": []byte{1, 2, 3}}, nil); status != http.StatusBadRequest {
+		t.Fatalf("malformed request status %d", status)
+	}
+	if _, status := login(t, ts.URL, "alice", "alice-password-123"); status != http.StatusOK {
+		t.Fatalf("old password must still work after a failed change, status %d", status)
+	}
+	phone.must("GET", "/api/v1/me", nil, nil, http.StatusOK)
+
+	// Changing the password without signing the others out keeps them signed in.
+	status, signedOut := changePassword(t, alice, "alice-password-123", "alice-password-456", false)
+	if status != http.StatusOK || signedOut != 0 {
+		t.Fatalf("change without sign-out: status %d, signed out %d", status, signedOut)
+	}
+	phone.must("GET", "/api/v1/me", nil, nil, http.StatusOK)
+	if _, status := login(t, ts.URL, "alice", "alice-password-123"); status != http.StatusUnauthorized {
+		t.Fatalf("old password status %d", status)
+	}
+	laptop, status := login(t, ts.URL, "alice", "alice-password-456")
+	if status != http.StatusOK {
+		t.Fatalf("new password status %d", status)
+	}
+	if laptop.keys.EncPriv != alice.keys.EncPriv || laptop.keys.SignSeed != alice.keys.SignSeed {
+		t.Fatal("the re-encrypted key bundle lost the account keys")
+	}
+
+	// The leaked-password case: change it and revoke every other session.
+	status, signedOut = changePassword(t, alice, "alice-password-456", "alice-password-789", true)
+	if status != http.StatusOK || signedOut != 3 {
+		t.Fatalf("change with sign-out: status %d, signed out %d (want 3)", status, signedOut)
+	}
+	alice.must("GET", "/api/v1/me", nil, nil, http.StatusOK)
+	for _, other := range []*client{phone, laptop} {
+		if status := other.do("GET", "/api/v1/me", nil, nil); status != http.StatusUnauthorized {
+			t.Fatalf("a signed-out device still has access: status %d", status)
+		}
+	}
+	phoneWS.expectClosed()
+	var devices struct {
+		Devices []struct {
+			ID      string `json:"id"`
+			Current bool   `json:"current"`
+		} `json:"devices"`
+	}
+	alice.must("GET", "/api/v1/devices", nil, &devices, http.StatusOK)
+	if len(devices.Devices) != 1 || !devices.Devices[0].Current {
+		t.Fatalf("devices after sign-out: %+v", devices.Devices)
+	}
+	if _, status := login(t, ts.URL, "alice", "alice-password-456"); status != http.StatusUnauthorized {
+		t.Fatalf("previous password status %d", status)
+	}
+	if _, status := login(t, ts.URL, "alice", "alice-password-789"); status != http.StatusOK {
+		t.Fatalf("current password status %d", status)
+	}
+}

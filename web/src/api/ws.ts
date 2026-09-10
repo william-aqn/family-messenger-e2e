@@ -123,12 +123,23 @@ export class WsClient {
         }
       }
     };
-    socket.onclose = () => {
+    socket.onclose = (ev) => {
       if (this.socket !== socket) return; // already replaced by reopen() or closed
       this.socket = null;
       this.stopKeepalive();
       this.status.value = 'offline';
       if (this.stopped) return;
+      // 1008 (policy violation) is how the server refuses a token: the device
+      // was signed out elsewhere. Let the session layer check and sign out.
+      if (ev.code === 1008) {
+        for (const h of this.handlers.get('revoked') ?? []) {
+          try {
+            h(ev.reason);
+          } catch (e) {
+            console.error('ws handler failed', 'revoked', e);
+          }
+        }
+      }
       const delay = Math.min(30000, 1000 * 2 ** this.attempt) * (0.7 + Math.random() * 0.6);
       this.attempt = Math.min(this.attempt + 1, 6);
       this.timer = setTimeout(() => this.open(), delay);

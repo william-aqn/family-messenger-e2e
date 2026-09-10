@@ -2,6 +2,7 @@
 import { signal } from '@preact/signals';
 import { ApiError, http, setToken } from '../api/http';
 import type { ApiSession } from '../api/types';
+import { wsClient } from '../api/ws';
 import { type AccountKeys, deriveKeys, generateKeys, keysFromSecrets, newKeyBundle, openKeyBundle, SALT_SIZE } from '../crypto/account';
 import { b64decode, b64encode, randomBytes } from '../crypto/bytes';
 import { t } from '../i18n';
@@ -137,7 +138,12 @@ export async function logout(): Promise<void> {
   await clearAll();
 }
 
-export async function changePassword(current: string, next: string): Promise<void> {
+/**
+ * Changes the password (PROTOCOL.md §3.2): proves the current one with its
+ * auth key, re-encrypts the key bundle with the new one and, when asked,
+ * signs every other device out. Returns how many devices were signed out.
+ */
+export async function changePassword(current: string, next: string, signOutOthers = true): Promise<number> {
   const problem = validatePassword(next);
   if (problem) throw new Error(problem);
   const s = session.value;
@@ -149,13 +155,21 @@ export async function changePassword(current: string, next: string): Promise<voi
     const cur = await deriveKeys(current, b64decode(params.salt), params.kdf);
     const salt = randomBytes(SALT_SIZE);
     const fresh = await deriveKeys(next, salt);
-    await http.changePassword({
+    authBusy.value = t('changing_password');
+    const res = await http.changePassword({
       auth_key: b64encode(cur.authKey),
       new_salt: b64encode(salt),
       new_auth_key: b64encode(fresh.authKey),
       new_key_bundle: b64encode(newKeyBundle(fresh.encKey, k)),
+      sign_out_others: signOutOthers,
     });
+    return res?.signed_out_devices ?? 0;
   } finally {
     authBusy.value = null;
   }
 }
+
+// A device whose session was revoked (a password change elsewhere, "sign out"
+// from another device, an administrator) has its socket closed with 1008 and
+// must not sit in "reconnecting" forever: /me answers 401 and signs it out.
+wsClient.on('revoked', () => void refreshMe());

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../api/models.dart';
@@ -173,6 +175,9 @@ class HomeScreen extends StatelessWidget {
     final k = app.keys!;
     final fp = await fingerprint(k.signPub, k.encPub);
     if (!context.mounted) return;
+    // The sheet's own context dies with the sheet: anything opened after
+    // closing it (the update dialog, the password dialog) needs the screen's.
+    final screen = context;
     await showModalBottomSheet<void>(
       context: context,
       builder: (context) => Padding(
@@ -206,11 +211,20 @@ class HomeScreen extends StatelessWidget {
             Text('${app.serverUrl} · ${app.session!.username}', style: Theme.of(context).textTheme.bodySmall),
             const SizedBox(height: 12),
             OutlinedButton.icon(
+              icon: const Icon(Icons.password),
+              label: Text(t('change_password')),
+              onPressed: () {
+                Navigator.pop(context);
+                _changePassword(screen);
+              },
+            ),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
               icon: const Icon(Icons.system_update),
               label: Text(t('check_updates')),
               onPressed: () {
                 Navigator.pop(context);
-                _checkUpdates(context);
+                _checkUpdates(screen);
               },
             ),
             const SizedBox(height: 8),
@@ -240,58 +254,172 @@ Future<void> _installUpdate(BuildContext context) async {
   if (err != null) messenger.showSnackBar(SnackBar(content: Text(t('update_failed', {'error': err}))));
 }
 
-/// Manual check from the settings sheet: shows the result in a dialog.
+/// Manual check from the settings sheet. The dialog opens at once and follows
+/// the updater: a progress bar while GitHub is asked, then the verdict. (It
+/// used to wait for the check and then open on the context of the settings
+/// sheet, which was closed by then, so nothing ever appeared.)
 Future<void> _checkUpdates(BuildContext context) async {
-  await updater.check(manual: true);
-  if (!context.mounted) return;
-  final latest = updater.latest;
-  final String text;
-  if (updater.error != null) {
-    text = t('update_check_failed', {'error': updater.error});
-  } else if (latest == null) {
-    text = t('update_no_release');
-  } else if (updater.available != null) {
-    text = t('update_available', {'version': latest.tag});
-  } else if (!updater.isReleaseBuild) {
-    text = '${t('update_dev_build')}\n${t('update_latest', {'version': latest.tag})}';
-  } else {
-    text = t('update_none');
-  }
+  unawaited(updater.check(manual: true));
   await showDialog<void>(
     context: context,
-    builder: (context) => AlertDialog(
-      title: Text(t('check_updates')),
-      content: ListenableBuilder(
-        listenable: updater,
-        builder: (context, _) => Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(t('update_installed', {'version': appVersion})),
-            const SizedBox(height: 8),
-            Text(text),
-            if (updater.installing) ...[
-              const SizedBox(height: 12),
-              Text(t('update_downloading')),
+    builder: (context) => ListenableBuilder(
+      listenable: updater,
+      builder: (context, _) {
+        final latest = updater.latest;
+        final String text;
+        if (updater.checking) {
+          text = t('update_checking');
+        } else if (updater.error != null) {
+          text = t('update_check_failed', {'error': updater.error});
+        } else if (latest == null) {
+          text = t('update_no_release');
+        } else if (updater.available != null) {
+          text = t('update_available', {'version': latest.tag});
+        } else if (!updater.isReleaseBuild) {
+          text = '${t('update_dev_build')}\n${t('update_latest', {'version': latest.tag})}';
+        } else {
+          text = t('update_none');
+        }
+        return AlertDialog(
+          title: Text(t('check_updates')),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(t('update_installed', {'version': appVersion})),
               const SizedBox(height: 8),
-              LinearProgressIndicator(value: updater.progress),
+              Text(text),
+              if (updater.checking) ...[const SizedBox(height: 12), const LinearProgressIndicator()],
+              if (updater.installing) ...[
+                const SizedBox(height: 12),
+                Text(t('update_downloading')),
+                const SizedBox(height: 8),
+                LinearProgressIndicator(value: updater.progress),
+              ],
             ],
+          ),
+          actions: [
+            if (latest != null && !updater.checking)
+              TextButton(
+                onPressed: () => updater.openReleasePage(),
+                child: Text(t('update_open_page')),
+              ),
+            if (updater.available != null && !updater.checking && Updater.canSelfInstall && latest?.assetUrl != null)
+              FilledButton(
+                onPressed: updater.installing ? null : () => _installUpdate(context),
+                child: Text(t('update_install')),
+              ),
+            TextButton(onPressed: () => Navigator.pop(context), child: Text(t('cancel'))),
           ],
-        ),
-      ),
-      actions: [
-        if (latest != null)
-          TextButton(
-            onPressed: () => updater.openReleasePage(),
-            child: Text(t('update_open_page')),
+        );
+      },
+    ),
+  );
+}
+
+/// Change-password dialog from the settings sheet (PROTOCOL.md §3.2). The
+/// new password is typed twice because it cannot be reset, and other devices
+/// are signed out by default: that is the remedy for a leaked password.
+Future<void> _changePassword(BuildContext context) async {
+  final current = TextEditingController();
+  final next = TextEditingController();
+  final repeat = TextEditingController();
+  var signOutOthers = true;
+  var busy = false;
+  // Problems with a field are shown under that field, anything else above
+  // the fields: with the keyboard up only the top of the dialog is visible.
+  String? currentError;
+  String? nextError;
+  String? repeatError;
+  String? error;
+  final messenger = ScaffoldMessenger.of(context);
+  await showDialog<void>(
+    context: context,
+    barrierDismissible: false,
+    builder: (context) => StatefulBuilder(
+      builder: (context, setState) {
+        Future<void> submit() async {
+          setState(() {
+            currentError = null; // an empty or wrong one is the server's verdict
+            nextError = next.text.length < AppState.minPasswordLength ? t('password_too_short', {'n': AppState.minPasswordLength}) : null;
+            repeatError = next.text != repeat.text ? t('passwords_differ') : null;
+            error = null;
+          });
+          if (currentError != null || nextError != null || repeatError != null) return;
+          setState(() => busy = true);
+          try {
+            final n = await app.changePassword(current.text, next.text, signOutOthers: signOutOthers);
+            if (context.mounted) Navigator.pop(context);
+            messenger.showSnackBar(SnackBar(
+              content: Text(n > 0 ? t('password_changed_signed_out', {'n': n}) : t('password_changed')),
+              duration: const Duration(seconds: 6), // worth reading: how many devices were signed out
+            ));
+          } catch (e) {
+            if (!context.mounted) return;
+            setState(() {
+              busy = false;
+              if (e is ApiException && e.code == 'invalid_credentials') {
+                currentError = t('wrong_current_password');
+              } else {
+                error = e is StateError ? e.message : e.toString();
+              }
+            });
+          }
+        }
+
+        return AlertDialog(
+          title: Text(t('change_password')),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                if (error != null) Padding(padding: const EdgeInsets.only(bottom: 8), child: Text(error!, style: TextStyle(color: Theme.of(context).colorScheme.error))),
+                TextField(
+                  controller: current,
+                  decoration: InputDecoration(labelText: t('current_password'), errorText: currentError),
+                  obscureText: true,
+                  autofocus: true,
+                  enabled: !busy,
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: next,
+                  decoration: InputDecoration(labelText: t('new_password'), helperText: t('password_min', {'n': AppState.minPasswordLength}), errorText: nextError),
+                  obscureText: true,
+                  enabled: !busy,
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: repeat,
+                  decoration: InputDecoration(labelText: t('repeat_password'), errorText: repeatError),
+                  obscureText: true,
+                  enabled: !busy,
+                  onSubmitted: (_) => busy ? null : submit(),
+                ),
+                CheckboxListTile(
+                  value: signOutOthers,
+                  onChanged: busy ? null : (v) => setState(() => signOutOthers = v ?? true),
+                  title: Text(t('sign_out_other_devices')),
+                  contentPadding: EdgeInsets.zero,
+                  controlAffinity: ListTileControlAffinity.leading,
+                ),
+                Text(t('password_warning'), style: TextStyle(color: Theme.of(context).colorScheme.tertiary, fontSize: 12)),
+                if (busy) ...[
+                  const SizedBox(height: 12),
+                  ListenableBuilder(listenable: app, builder: (context, _) => Text(app.busyText ?? '…')),
+                  const SizedBox(height: 8),
+                  const LinearProgressIndicator(),
+                ],
+              ],
+            ),
           ),
-        if (updater.available != null && Updater.canSelfInstall && latest?.assetUrl != null)
-          FilledButton(
-            onPressed: updater.installing ? null : () => _installUpdate(context),
-            child: Text(t('update_install')),
-          ),
-        TextButton(onPressed: () => Navigator.pop(context), child: Text(t('cancel'))),
-      ],
+          actions: [
+            TextButton(onPressed: busy ? null : () => Navigator.pop(context), child: Text(t('cancel'))),
+            FilledButton(onPressed: busy ? null : submit, child: Text(t('change_password'))),
+          ],
+        );
+      },
     ),
   );
 }

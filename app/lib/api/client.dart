@@ -77,6 +77,13 @@ class ApiClient {
 
   Future<void> logout() => _json('POST', '/auth/logout');
 
+  /// Changes the password (PROTOCOL.md §3.2); returns how many other devices
+  /// the server signed out.
+  Future<int> changePassword(Map<String, dynamic> body) async {
+    final res = await _json('POST', '/auth/password', body: body);
+    return ((res as Map<String, dynamic>?)?['signed_out_devices'] as num?)?.toInt() ?? 0;
+  }
+
   Future<Map<String, dynamic>> me() async => (await _json('GET', '/me')) as Map<String, dynamic>;
 
   Future<UserView> user(String username) async => UserView.fromJson((await _json('GET', '/users/${Uri.encodeComponent(username)}')) as Map<String, dynamic>);

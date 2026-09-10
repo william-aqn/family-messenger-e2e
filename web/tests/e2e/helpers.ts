@@ -4,8 +4,18 @@ import { expect, type Browser, type Page } from '@playwright/test';
 export const run = Date.now().toString(36);
 export const password = (name: string) => `${name}-password-${run}`;
 
-export async function register(browser: Browser, name: string): Promise<Page> {
-  const ctx = await browser.newContext({ permissions: ['microphone'], locale: 'en-US' });
+/**
+ * A fresh browser context. The server limits registration and login attempts
+ * per client address (20, then 10 a minute), and every context of a test run
+ * shares 127.0.0.1; a test that signs in a lot passes a fake address, which
+ * the server reads from X-Forwarded-For as it does behind its reverse proxy.
+ */
+export async function newContext(browser: Browser, ip?: string) {
+  return browser.newContext({ permissions: ['microphone'], locale: 'en-US', extraHTTPHeaders: ip ? { 'X-Forwarded-For': ip } : undefined });
+}
+
+export async function register(browser: Browser, name: string, ip?: string): Promise<Page> {
+  const ctx = await newContext(browser, ip);
   const page = await ctx.newPage();
   await page.goto('/');
   await page.getByRole('button', { name: 'Create account' }).first().click();
@@ -17,8 +27,8 @@ export async function register(browser: Browser, name: string): Promise<Page> {
 }
 
 /** Signs an existing account in from a fresh browser context. */
-export async function login(browser: Browser, name: string): Promise<Page> {
-  const ctx = await browser.newContext({ permissions: ['microphone'], locale: 'en-US' });
+export async function login(browser: Browser, name: string, ip?: string): Promise<Page> {
+  const ctx = await newContext(browser, ip);
   const page = await ctx.newPage();
   await page.goto('/');
   await page.getByLabel('Username').fill(name);

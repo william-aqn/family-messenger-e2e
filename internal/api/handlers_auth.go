@@ -206,11 +206,16 @@ func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// passwordRequest changes the password (PROTOCOL.md §3.2): the client proves
+// the current password with its auth key and sends the material derived from
+// the new one. With sign_out_others every other device session is revoked,
+// which is the point of changing a leaked password.
 type passwordRequest struct {
-	AuthKey      []byte `json:"auth_key"`
-	NewSalt      []byte `json:"new_salt"`
-	NewAuthKey   []byte `json:"new_auth_key"`
-	NewKeyBundle []byte `json:"new_key_bundle"`
+	AuthKey       []byte `json:"auth_key"`
+	NewSalt       []byte `json:"new_salt"`
+	NewAuthKey    []byte `json:"new_auth_key"`
+	NewKeyBundle  []byte `json:"new_key_bundle"`
+	SignOutOthers bool   `json:"sign_out_others"`
 }
 
 func (s *Server) changePassword(w http.ResponseWriter, r *http.Request) {
@@ -230,6 +235,7 @@ func (s *Server) changePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if subtle.ConstantTimeCompare(authHash(req.AuthKey), acct.AuthHash) != 1 {
+		s.log.Warn("password change with a wrong current password", "account", p.AccountID, "device", p.DeviceID, "ip", auth.ClientIP(r))
 		writeError(w, s.log, &apiError{http.StatusUnauthorized, "invalid_credentials", "current password is wrong"})
 		return
 	}
@@ -237,7 +243,21 @@ func (s *Server) changePassword(w http.ResponseWriter, r *http.Request) {
 		writeError(w, s.log, err)
 		return
 	}
-	w.WriteHeader(http.StatusNoContent)
+	signedOut := 0
+	if req.SignOutOthers {
+		ids, err := s.store.DeleteOtherDevices(r.Context(), p.AccountID, p.DeviceID)
+		if err != nil {
+			// The password is already changed; report the part that failed.
+			writeError(w, s.log, err)
+			return
+		}
+		for _, id := range ids {
+			s.hub.CloseDevice(id)
+		}
+		signedOut = len(ids)
+	}
+	s.log.Info("password changed", "account", p.AccountID, "device", p.DeviceID, "other_devices_signed_out", signedOut)
+	writeJSON(w, http.StatusOK, map[string]any{"signed_out_devices": signedOut})
 }
 
 type deviceView struct {

@@ -4,7 +4,7 @@ import type { DeviceView } from '../api/types';
 import { fingerprint } from '../crypto/fingerprint';
 import { describeError, lang, languages, setLang, t } from '../i18n';
 import { serverSettings, serverVersion, session, showToast } from '../state/model';
-import { authBusy, changePassword, keys, logout } from '../state/session';
+import { authBusy, changePassword, keys, logout, MIN_PASSWORD_LENGTH } from '../state/session';
 import { AdminPanel } from './AdminPanel';
 import { BotsDialog } from './BotsDialog';
 
@@ -14,6 +14,11 @@ export function Settings({ onClose }: { onClose: () => void }) {
   const [devices, setDevices] = useState<DeviceView[]>([]);
   const [current, setCurrent] = useState('');
   const [next, setNext] = useState('');
+  const [repeat, setRepeat] = useState('');
+  // The password cannot be reset, so a typo in the new one would lock the
+  // account: it has to be typed twice. Other devices are signed out by
+  // default, which is the point of changing a leaked password.
+  const [signOutOthers, setSignOutOthers] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [sub, setSub] = useState<'bots' | 'admin' | null>(null);
   const [notifications, setNotifications] = useState(typeof Notification !== 'undefined' ? Notification.permission : 'denied');
@@ -28,11 +33,17 @@ export function Settings({ onClose }: { onClose: () => void }) {
   const submitPassword = async (e: Event) => {
     e.preventDefault();
     setError(null);
+    if (next !== repeat) {
+      setError(t('passwords_differ'));
+      return;
+    }
     try {
-      await changePassword(current, next);
+      const signedOut = await changePassword(current, next, signOutOthers);
       setCurrent('');
       setNext('');
-      showToast(t('password_changed'));
+      setRepeat('');
+      showToast(signedOut > 0 ? t('password_changed_signed_out', { n: signedOut }) : t('password_changed'));
+      void loadDevices();
     } catch (err) {
       setError(describeError(err));
     }
@@ -101,9 +112,37 @@ export function Settings({ onClose }: { onClose: () => void }) {
         </div>
         <form class="section" onSubmit={submitPassword}>
           <div class="muted small">{t('change_password')}</div>
-          <input type="password" placeholder={t('current_password')} value={current} onInput={(e) => setCurrent((e.target as HTMLInputElement).value)} autocomplete="current-password" />
-          <input type="password" placeholder={t('new_password')} value={next} onInput={(e) => setNext((e.target as HTMLInputElement).value)} autocomplete="new-password" />
-          <button type="submit" disabled={!current || !next || !!authBusy.value}>
+          <input
+            type="password"
+            placeholder={t('current_password')}
+            aria-label={t('current_password')}
+            value={current}
+            onInput={(e) => setCurrent((e.target as HTMLInputElement).value)}
+            autocomplete="current-password"
+          />
+          <input
+            type="password"
+            placeholder={t('new_password')}
+            aria-label={t('new_password')}
+            value={next}
+            onInput={(e) => setNext((e.target as HTMLInputElement).value)}
+            autocomplete="new-password"
+            minLength={MIN_PASSWORD_LENGTH}
+          />
+          <input
+            type="password"
+            placeholder={t('repeat_password')}
+            aria-label={t('repeat_password')}
+            value={repeat}
+            onInput={(e) => setRepeat((e.target as HTMLInputElement).value)}
+            autocomplete="new-password"
+          />
+          <label class="check">
+            <input type="checkbox" checked={signOutOthers} onChange={(e) => setSignOutOthers((e.target as HTMLInputElement).checked)} />
+            {t('sign_out_other_devices')}
+          </label>
+          <p class="hint">{t('password_warning')}</p>
+          <button type="submit" disabled={!current || !next || !repeat || !!authBusy.value}>
             {authBusy.value ?? t('change_password')}
           </button>
         </form>

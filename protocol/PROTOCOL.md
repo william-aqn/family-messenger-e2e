@@ -68,8 +68,12 @@ bundle = nonce || XChaCha20-Poly1305(key=encKey, nonce, aad="msgr-keybundle-v1",
 `bundle` is exactly 104 bytes and is stored by the server next to the public
 keys. On login the client downloads it, decrypts it with `encKey`, derives the
 public keys from the secrets and **must** check that they equal the public keys
-returned by the server. A password change re-encrypts the bundle with the new
-`encKey` and replaces `salt`, `auth_hash` and `bundle` atomically.
+returned by the server. A password change (`POST /auth/password`) proves the
+current password with its `authKey`, re-encrypts the bundle with the new
+`encKey` and replaces `salt`, `auth_hash` and `bundle` atomically; with
+`sign_out_others` the server also revokes every other device session, so that
+whoever signed in with a leaked password is out. The account keys themselves
+stay the same: a device that already extracted them keeps reading (§10).
 
 ### 3.3 Fingerprint (safety number)
 
@@ -275,6 +279,10 @@ explicitly accepts the new keys.
 ## 8. Transport summary
 
 - HTTPS JSON API under `/api/v1`, bearer device token.
+  `POST /auth/password` `{auth_key, new_salt, new_auth_key, new_key_bundle,
+  sign_out_others}` changes the password (§3.2) and answers
+  `{signed_out_devices}`; a revoked device gets its socket closed with code
+  1008 and `401` on every request, and signs itself out.
   `DELETE /conversations/{id}/messages/{seq}` and `DELETE /blobs/{id}` remove
   a message and an attachment for everyone (§6.3).
 - WebSocket `/api/v1/ws` with JSON frames `{"t": type, "d": data}`:

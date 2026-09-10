@@ -90,3 +90,23 @@ func (s *Store) TouchDevice(ctx context.Context, deviceID string, ts int64) erro
 	_, err := s.db.ExecContext(ctx, `UPDATE devices SET last_seen = ? WHERE id = ?`, ts, deviceID)
 	return err
 }
+
+// DeleteOtherDevices signs every device of an account out except keep and
+// returns the ids of the removed devices (a password change with
+// "sign out other devices").
+func (s *Store) DeleteOtherDevices(ctx context.Context, accountID, keep string) ([]string, error) {
+	devs, err := s.DevicesByAccount(ctx, accountID)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM devices WHERE account_id = ? AND id <> ?`, accountID, keep); err != nil {
+		return nil, err
+	}
+	ids := make([]string, 0, len(devs))
+	for _, d := range devs {
+		if d.ID != keep {
+			ids = append(ids, d.ID)
+		}
+	}
+	return ids, nil
+}

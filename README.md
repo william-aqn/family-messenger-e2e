@@ -11,7 +11,9 @@ building from source stay as options).
 - **Voice calls with screen sharing** over WebRTC (DTLS-SRTP), signaling inside
   the encrypted channel, NAT traversal through the bundled coturn.
 - **Multi-device**: sign in on a phone and a PC with the same account; new
-  devices read the full history after login.
+  devices read the full history after login. The password can be changed from
+  any client, signing every other device out at the same time (the remedy
+  for a leaked password).
 - **Disappearing messages** per conversation (1 hour to 30 days) plus an
   optional server-wide retention limit.
 - **Edit and delete** your own messages on every device (edits are signed and

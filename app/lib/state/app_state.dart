@@ -307,6 +307,39 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     } catch (_) {}
   }
 
+  /// Shortest password accepted at registration and at a password change.
+  static const int minPasswordLength = 12;
+
+  /// Changes the password (PROTOCOL.md §3.2): proves the current one with its
+  /// auth key, re-encrypts the key bundle with the new one and, when asked,
+  /// signs every other device out. Returns how many devices were signed out.
+  Future<int> changePassword(String current, String next, {bool signOutOthers = true}) async {
+    final client = api;
+    final k = keys;
+    final sess = session;
+    if (client == null || k == null || sess == null) throw StateError('not signed in');
+    if (next.length < minPasswordLength) throw StateError(t('password_too_short', {'n': minPasswordLength}));
+    _busy(t('deriving_key'));
+    try {
+      final params = await client.authParams(sess.username);
+      final kdf = KdfParams.fromJson(params['kdf'] as Map<String, dynamic>);
+      final cur = await deriveKeys(current, b64decode(params['salt'] as String), kdf);
+      final salt = randomBytes(saltSize);
+      final fresh = await deriveKeys(next, salt);
+      final bundle = await newKeyBundle(fresh.encKey, k);
+      _busy(t('changing_password'));
+      return await client.changePassword({
+        'auth_key': b64encode(cur.authKey),
+        'new_salt': b64encode(salt),
+        'new_auth_key': b64encode(fresh.authKey),
+        'new_key_bundle': b64encode(bundle),
+        'sign_out_others': signOutOthers,
+      });
+    } finally {
+      _busy(null);
+    }
+  }
+
   void _busy(String? text) {
     busyText = text;
     notifyListeners();
@@ -347,6 +380,9 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
         unawaited(handleIncoming(MessageView.fromJson(f.data as Map<String, dynamic>), stored: false));
       case 'event':
         unawaited(_onEvent(f.data as Map<String, dynamic>));
+      case 'revoked':
+        // The server refused the token: /me answers 401 and refreshMe signs out.
+        unawaited(refreshMe());
     }
   }
 

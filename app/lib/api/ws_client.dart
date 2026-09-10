@@ -172,6 +172,11 @@ class WsClient {
     _keepalive?.cancel();
     _setStatus(WsStatus.offline);
     if (_stopped) return;
+    // 1008 (policy violation) is how the server refuses a token: the device was
+    // signed out elsewhere (a password change, "sign out" from another device,
+    // an administrator). The app checks with /me and signs itself out instead
+    // of reconnecting forever.
+    if (channel.closeCode == 1008) _frames.add(Frame('revoked', channel.closeReason));
     final delay = min(30000, 1000 * (1 << _attempt)) * (0.7 + Random().nextDouble() * 0.6);
     _attempt = min(_attempt + 1, 6);
     _timer = Timer(Duration(milliseconds: delay.toInt()), _open);
