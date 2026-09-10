@@ -1,14 +1,25 @@
 import type { ComponentChildren } from 'preact';
 import { useEffect, useState } from 'preact/hooks';
+import QRCode from 'qrcode';
 import { http } from '../api/http';
 import type { AdminSettings, AdminStats, AdminUser, InviteView } from '../api/types';
 import { describeError, t } from '../i18n';
 import { formatSize } from '../state/attachments';
+import { inviteLink } from '../state/invite';
 import { session, showToast } from '../state/model';
 import { refreshMe } from '../state/session';
 import { Icon } from './Icons';
 
 type Tab = 'overview' | 'users' | 'invites' | 'settings';
+
+/**
+ * The invitation QR is dark ink on a sand plate — inverted against the rest of
+ * the app on purpose, because a camera cannot read light modules on a dark
+ * ground. The plate paints the same sand, so the code's quiet zone blends into
+ * it seamlessly.
+ */
+const QR_DARK = '#151515';
+const QR_LIGHT = '#E4C49F';
 
 function when(ts: number): string {
   return ts ? new Date(ts * 1000).toLocaleString() : '—';
@@ -255,6 +266,11 @@ function Invites() {
   const [hours, setHours] = useState(0);
   const [codes, setCodes] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
+  // A view preference of this screen, not a server setting: whether an
+  // invitation may be shown as a QR code, and which code is on the plate.
+  const [showQr, setShowQr] = useState(true);
+  const [picked, setPicked] = useState<string | null>(null);
+  const [qr, setQr] = useState<{ svg: string; px: number } | null>(null);
   const load = () =>
     http
       .adminInvites()
@@ -264,6 +280,7 @@ function Invites() {
   const create = (e: Event) => {
     e.preventDefault();
     setError(null);
+    setPicked(null);
     http
       .adminCreateInvites({ count, note, expires_hours: hours })
       .then((r) => {
@@ -272,6 +289,57 @@ function Invites() {
       })
       .catch((err) => setError(describeError(err)));
   };
+  const copy = (text: string) =>
+    navigator.clipboard
+      .writeText(text)
+      .then(() => showToast(t('copied')))
+      .catch(() => {});
+
+  const link = picked ? inviteLink(picked) : '';
+  const plate = showQr && picked !== null;
+  // The QR is drawn by the library, never by hand: the payload is a whole link
+  // with a 16-character code, so the symbol is 33x33, not the 21x21 the board
+  // sketches. The board's module is 6px, and the number of modules is only
+  // known once the code exists — the generator's viewBox carries it, so the
+  // plate is sized for the code that was actually produced.
+  useEffect(() => {
+    if (!plate) {
+      setQr(null);
+      return;
+    }
+    let alive = true;
+    QRCode.toString(link, { type: 'svg', margin: 1, color: { dark: QR_DARK, light: QR_LIGHT } })
+      .then((svg) => {
+        if (!alive) return;
+        const box = /viewBox="0 0 (\d+)/.exec(svg);
+        setQr({ svg, px: box ? Number(box[1]) * 6 : 180 });
+      })
+      .catch((e) => {
+        if (!alive) return;
+        setQr(null);
+        setError(describeError(e));
+      });
+    return () => {
+      alive = false;
+    };
+  }, [plate, link]);
+  const downloadPng = () => {
+    if (!picked) return;
+    // A real PNG from the generator, not a renamed SVG: 8px modules and the
+    // standard 4-module quiet zone, which the file needs on its own — there is
+    // no sand plate around it once it has left the panel.
+    QRCode.toDataURL(link, { margin: 4, scale: 8, color: { dark: QR_DARK, light: QR_LIGHT } })
+      .then((url) => {
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${picked}.png`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+      })
+      .catch((e) => setError(describeError(e)));
+  };
+  const expires = picked ? invites.find((i) => i.code === picked)?.expires_at : undefined;
   return (
     <>
       <form class="form-grid invite" onSubmit={create}>
@@ -291,29 +359,63 @@ function Invites() {
           {t('create_invites')}
         </button>
       </form>
-      {codes.length > 0 && (
-        <div class="creds">
-          <span class="block-title">{t('new_codes')}</span>
-          <div class="code-chips">
-            {codes.map((c) => (
-              <span class="code-chip" key={c}>
-                <code>{c}</code>
-                <button
-                  type="button"
-                  class="icon-btn"
-                  title={t('copy')}
-                  onClick={() =>
-                    navigator.clipboard
-                      .writeText(c)
-                      .then(() => showToast(t('copied')))
-                      .catch(() => {})
-                  }
-                >
-                  <Icon name="copy" size={16} />
-                </button>
-              </span>
-            ))}
+      <label class="check large">
+        <input
+          type="checkbox"
+          checked={showQr}
+          onChange={(e) => {
+            const on = (e.target as HTMLInputElement).checked;
+            setShowQr(on);
+            if (!on) setPicked(null);
+          }}
+        />
+        {t('show_qr_for_invites')}
+      </label>
+      {(codes.length > 0 || plate) && (
+        <div class={`creds ${plate ? 'with-qr' : ''}`}>
+          <div class="grow section">
+            {codes.length > 0 && (
+              <>
+                <span class="block-title">{t('new_codes')}</span>
+                <div class="code-chips">
+                  {codes.map((c) => (
+                    <span class={`code-chip ${c === picked ? 'active' : ''}`} key={c}>
+                      <code>{c}</code>
+                      {showQr && (
+                        <button type="button" class="icon-btn" title={t('show_qr_for_invites')} onClick={() => setPicked(c)}>
+                          <Icon name="qr" size={16} />
+                        </button>
+                      )}
+                      <button type="button" class="icon-btn" title={t('copy')} onClick={() => void copy(c)}>
+                        <Icon name="copy" size={16} />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              </>
+            )}
+            <p class="note">{t('invite_share_hint')}</p>
           </div>
+          {plate && (
+            <div class="invite-qr">
+              {qr && (
+                // The markup comes from the QR generator, not from the server:
+                // it is a <path> per module, with nothing to interpolate.
+                <div class="qr-plate" style={`--qr-size:${qr.px}px`} role="img" aria-label={`${t('invite_code')}: ${picked}`} dangerouslySetInnerHTML={{ __html: qr.svg }} />
+              )}
+              <code>{picked}</code>
+              <span class="qr-link">{link}</span>
+              {expires ? <span class="note">{t('invite_expires_at', { date: when(expires) })}</span> : null}
+              <button type="button" class="small" onClick={() => void copy(link)}>
+                <Icon name="copy" size={16} />
+                {t('copy_link')}
+              </button>
+              <button type="button" class="small" onClick={downloadPng}>
+                <Icon name="download" size={16} />
+                {t('download_png')}
+              </button>
+            </div>
+          )}
         </div>
       )}
       <div class="table-wrap">
@@ -338,18 +440,27 @@ function Invites() {
                 <td class="muted">{i.expires_at ? when(i.expires_at) : t('never')}</td>
                 <td>
                   {!i.used_by && (
-                    <button
-                      type="button"
-                      class="link danger"
-                      onClick={() =>
-                        http
-                          .adminDeleteInvite(i.code)
-                          .then(load)
-                          .catch((e) => setError(describeError(e)))
-                      }
-                    >
-                      {t('delete')}
-                    </button>
+                    <div class="link-row">
+                      {showQr && (
+                        <button type="button" class={`link qr-toggle ${i.code === picked ? 'active' : ''}`} title={t('show_qr_for_invites')} onClick={() => setPicked(i.code)}>
+                          <Icon name="qr" size={16} />
+                          QR
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        class="link danger"
+                        onClick={() => {
+                          if (i.code === picked) setPicked(null);
+                          http
+                            .adminDeleteInvite(i.code)
+                            .then(load)
+                            .catch((e) => setError(describeError(e)));
+                        }}
+                      >
+                        {t('delete')}
+                      </button>
+                    </div>
                   )}
                 </td>
               </tr>

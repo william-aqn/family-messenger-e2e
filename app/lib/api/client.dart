@@ -155,4 +155,26 @@ class ApiClient {
   }
 
   Future<void> deleteDevice(String id) => _json('DELETE', '/devices/$id');
+
+  // ───── administrator ─────────────────────────────────────────────────────
+
+  /// Every invite code with its note, expiry and use, newest last. Rows carry
+  /// `code`, `note`, `created_at`, and `used_by` / `used_at` / `expires_at`
+  /// only when they are set (see internal/api/handlers_admin.go). 403 for an
+  /// account that is not an administrator.
+  Future<List<Map<String, dynamic>>> adminInvites() async {
+    final j = (await _json('GET', '/admin/invites')) as Map<String, dynamic>;
+    return ((j['invites'] as List<dynamic>?) ?? const <dynamic>[]).cast<Map<String, dynamic>>();
+  }
+
+  /// Creates [count] invite codes and returns them. [expiresHours] 0 makes
+  /// them last until they are used.
+  Future<List<String>> adminCreateInvites({int count = 1, String note = '', int expiresHours = 0}) async {
+    final j = (await _json('POST', '/admin/invites', body: <String, dynamic>{
+      'count': count,
+      'note': note,
+      'expires_hours': expiresHours,
+    })) as Map<String, dynamic>;
+    return ((j['codes'] as List<dynamic>?) ?? const <dynamic>[]).cast<String>();
+  }
 }

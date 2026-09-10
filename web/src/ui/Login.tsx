@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'preact/hooks';
+import { useEffect, useRef, useState } from 'preact/hooks';
 import { http } from '../api/http';
 import type { ServerInfo } from '../api/types';
 import { describeError, lang, languages, setLang, t } from '../i18n';
+import { parseInviteLink } from '../state/invite';
 import { APP_VERSION } from '../state/model';
 import { authBusy, login, MIN_PASSWORD_LENGTH, register } from '../state/session';
 import { Icon } from './Icons';
@@ -11,14 +12,33 @@ export function Login() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [invite, setInvite] = useState('');
+  const [fromLink, setFromLink] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<ServerInfo | null>(null);
+  const usernameRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     http
       .info()
       .then(setInfo)
       .catch(() => {});
+  }, []);
+
+  // An invitation QR points a phone camera at `<server>/#/join?code=<code>`.
+  // Landing here means the code is already known: open "Create account" with the
+  // field filled in and let the visitor start typing their name straight away.
+  useEffect(() => {
+    const parsed = parseInviteLink(location.href);
+    if (!parsed) return;
+    setMode('register');
+    setInvite(parsed.code);
+    setFromLink(true);
+    usernameRef.current?.focus();
+    // Drop the join route, so a reload or a copied address is an ordinary visit.
+    const url = new URL(location.href);
+    url.hash = '';
+    url.searchParams.delete('code');
+    history.replaceState(null, '', `${url.pathname}${url.search}`);
   }, []);
 
   const submit = async (e: Event) => {
@@ -74,9 +94,16 @@ export function Login() {
               {t('tab_create_account')}
             </button>
           </div>
+          {isRegister && fromLink && (
+            <div class="banner ok">
+              <Icon name="check" size={20} />
+              <span class="grow">{t('invite_scanned')}</span>
+            </div>
+          )}
           <label>
             <span>{t('username')}</span>
             <input
+              ref={usernameRef}
               value={username}
               onInput={(e) => setUsername((e.target as HTMLInputElement).value)}
               autocomplete="username"
@@ -111,8 +138,18 @@ export function Login() {
             <label>
               <span>
                 {t('invite_code')} <span class="muted">{t('invite_hint')}</span>
+                {fromLink && <span class="tag bot">{t('from_qr')}</span>}
               </span>
-              <input value={invite} onInput={(e) => setInvite((e.target as HTMLInputElement).value)} autocomplete="off" required={registration === 'invite'} />
+              <input
+                value={invite}
+                onInput={(e) => {
+                  setInvite((e.target as HTMLInputElement).value);
+                  setFromLink(false);
+                }}
+                autocomplete="off"
+                required={registration === 'invite'}
+                placeholder="k3n8xq2p7v4m9wsc"
+              />
             </label>
           )}
           {isRegister && (

@@ -25,6 +25,12 @@ dependencies:
   url_launcher: ^6.3.0
   # Lucide icon set: the redesign uses no emoji, every glyph comes from here.
   lucide_icons_flutter: ^3.1.19
+  # QR invitations: draw our own code, read someone else's, pass the link on.
+  qr_flutter: ^4.1.0
+  mobile_scanner: ^7.4.1
+  # share_plus 13 wants win32 ^6, which file_picker 10 (attachments) forbids;
+  # 12.0.2 has the same SharePlus.instance.share(ShareParams(...)) API.
+  share_plus: ^12.0.2
 
 dev_dependencies:
   flutter_test:

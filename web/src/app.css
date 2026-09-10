@@ -3632,3 +3632,209 @@ textarea.tall {
   flex-shrink: 0;
   min-width: max-content;
 }
+
+/* =============================================================================
+   SCREEN LAYERS — QR INVITATIONS (W15)
+   The designer's third pass: an invitation is now also a QR code. Only the web
+   admin panel is styled here — the create form grows a checkbox, every fresh
+   code carries a `qr` glyph beside its `copy` one, the picked code is drawn
+   large on a sand plate with its link and a "Скачать PNG" button, and the
+   invites table gains a "QR" action.
+
+   Read off web-w15. Nothing above this heading was edited: every rule below
+   either adds a class or overrides an earlier one on purpose, with the reason
+   written down.
+
+   The code inside the QR is the invitation link, `https://<server>/#/join?code=
+   <code>`; the server's codes are 16 lowercase alphanumerics, so the plate has
+   to survive a payload of ~55 characters — roughly a 33x33 symbol. The plate
+   therefore sizes the drawing itself instead of assuming the boards' 21x21.
+   ========================================================================== */
+
+/* -----------------------------------------------------------------------------
+   37. The QR plate and the block it lives in
+   -------------------------------------------------------------------------- */
+
+/* "Новые коды" becomes a two-column block once a code is picked: the list of
+   chips on the left, the plate on the right. Without a pick it is the plain
+   column .creds already is, so the row lives on a modifier. */
+.creds.with-qr {
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 20px;
+}
+
+/* The left column — title, chips, note. The kit's .grow only claims the free
+   width; the board also stacks it at gap 10. */
+.creds.with-qr > .grow {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* The sentence under the chips is never wider than the chips themselves. */
+.creds.with-qr .note {
+  max-width: 420px;
+  line-height: 1.5;
+}
+
+/* The right column: the plate, the code, the link, "Скачать PNG". */
+.invite-qr {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  max-width: 240px;
+}
+
+/* The buttons in that column keep their own size — the column is centred, so
+   nothing may stretch to the plate's width. */
+.invite-qr button {
+  flex: none;
+}
+
+/* The code repeated under the plate stays on one line: it is short (16 chars)
+   and is meant to be read out loud, so the .creds ellipsis must not reach it. */
+.invite-qr code {
+  letter-spacing: .04em;
+  text-align: center;
+}
+
+/* The plate itself. Sand fill, padding 12, radius 4 — the inversion is
+   deliberate: a camera cannot read light modules on a dark ground, so the QR is
+   always dark ink on light, whatever the surface around it. line-height 0 kills
+   the baseline gap an inline <svg> would otherwise leave under the modules. */
+.qr-plate {
+  flex: none;
+  padding: 12px;
+  border-radius: var(--radius);
+  background: var(--accent);
+  line-height: 0;
+}
+
+/* Whatever the generator emits — <svg>, <canvas> or a data-URI <img> — is a
+   block of --qr-size (180 by default; the component may set the property to
+   draw it larger). It never overflows its column. */
+.qr-plate > svg,
+.qr-plate > canvas,
+.qr-plate > img {
+  display: block;
+  width: var(--qr-size, 180px);
+  max-width: 100%;
+  height: auto;
+}
+
+/* Square modules at any scale: no antialiased edges to confuse a scanner. */
+.qr-plate > svg {
+  shape-rendering: crispEdges;
+}
+
+.qr-plate > canvas,
+.qr-plate > img {
+  image-rendering: pixelated;
+}
+
+/* The plate stays sand in the guideline themes too. Their --accent is the
+   SpecMash orange, and #151515 modules on orange fall below the contrast a
+   phone camera needs — this is the one literal colour in the screen layers,
+   and it is a functional value, not a decorative one. */
+[data-theme='light'] .qr-plate,
+[data-theme='dark'] .qr-plate {
+  background: #E4C49F;
+}
+
+/* The invitation link under the plate: Roboto 13 accent, centred, broken across
+   lines rather than pushed out of the column — the URL carries a host and a
+   16-character code and will not fit on one. The second selector outranks
+   `.creds code`, which ellipsises the one-line secrets of W12. */
+.qr-link,
+.creds .qr-link {
+  max-width: 100%;
+  font-family: var(--font-form);
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--accent);
+  text-align: center;
+  letter-spacing: 0;
+  white-space: normal;
+  overflow: visible;
+  overflow-wrap: anywhere;
+}
+
+/* -----------------------------------------------------------------------------
+   38. The code chips and the table action that open a plate
+   -------------------------------------------------------------------------- */
+
+/* A chip now carries two glyphs, `qr` then `copy`. The board tightens the row
+   to gap 8 so the pair does not widen the chip; a chip with a single button
+   keeps the 10 it was drawn with. */
+.code-chip:has(.icon-btn + .icon-btn) {
+  gap: 8px;
+}
+
+/* With two of them the glyphs become a choice, so they are muted until they are
+   pointed at or until their chip is the one on show. (The kit drew the lone
+   copy glyph in accent, which is still right for a chip that has only it.) */
+.code-chip:has(.icon-btn + .icon-btn) .icon-btn {
+  color: var(--muted);
+}
+
+.code-chip .icon-btn:hover:not(:disabled) {
+  background: transparent;
+  color: var(--accent);
+}
+
+/* The chip whose QR is on the plate: a 2px accent ring inside the chip, its
+   glyphs lit. `.active` is the kit's word for "the thing this opens is open". */
+.code-chip.active {
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+
+.code-chip.active .icon-btn,
+.code-chip.active:has(.icon-btn + .icon-btn) .icon-btn {
+  color: var(--accent);
+}
+
+/* "QR" in the actions column of the invites table (and anywhere else a text
+   action needs the glyph in front of it): the kit's link button or a plain <a>,
+   tightened to the board's gap 6. */
+.qr-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* The row whose code is currently on the plate. */
+.qr-toggle.active {
+  color: var(--accent);
+}
+
+/* -----------------------------------------------------------------------------
+   39. The checkbox between the create form and the new codes
+   "Показывать QR-код для каждого приглашения" is the kit's `label.check large`.
+   The one thing the board adds is that the row hugs its own text: stretched
+   across an 836px modal, the label would toggle the box from anywhere on that
+   line, hundreds of pixels away from it.
+   -------------------------------------------------------------------------- */
+
+.modal label.check {
+  align-self: flex-start;
+}
+
+/* -----------------------------------------------------------------------------
+   40. The QR block on a narrow screen
+   Below 720 the wide modal is already full width; the two columns become one
+   and the plate centres itself.
+   -------------------------------------------------------------------------- */
+
+@media (max-width: 720px) {
+  .creds.with-qr {
+    flex-direction: column;
+  }
+
+  .invite-qr {
+    align-self: center;
+    max-width: 100%;
+  }
+}

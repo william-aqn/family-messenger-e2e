@@ -6,11 +6,15 @@
 // selected by id instead of pushed as a route. Below that width the list
 // pushes a route exactly as it always did.
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:qr_flutter/qr_flutter.dart';
+import 'package:share_plus/share_plus.dart';
 
+import '../api/invite_link.dart';
 import '../api/models.dart';
 import '../api/ws_client.dart';
 import '../crypto/fingerprint.dart';
@@ -587,6 +591,17 @@ class _HomeScreenState extends State<HomeScreen> {
                     mainAxisSize: MainAxisSize.min,
                     spacing: 12,
                     children: <Widget>[
+                      // A19, administrators only: the invitation to show a
+                      // relative who is standing next to you.
+                      if (app.session?.isAdmin ?? false)
+                        OutlinedButton(
+                          style: _secondaryButton(scheme),
+                          onPressed: () {
+                            Navigator.pop(context);
+                            _showInvite(screen);
+                          },
+                          child: _iconLabel(LucideIcons.qrCode, t('invite_share_title')),
+                        ),
                       OutlinedButton(
                         style: _secondaryButton(scheme),
                         onPressed: () {
@@ -1358,6 +1373,236 @@ Future<void> _changePassword(BuildContext context) async {
       },
     ),
   );
+}
+
+/// A19: the administrator's own invitation, opened from the settings sheet.
+Future<void> _showInvite(BuildContext context) async {
+  // The sheet keeps the confirmation of the copy on the screen's messenger,
+  // the way the settings sheet does, so it survives the sheet's own element.
+  final ScaffoldMessengerState messenger = ScaffoldMessenger.of(context);
+  await showModalBottomSheet<void>(
+    context: context,
+    // As tall as the QR needs; the default 9/16 would cut the buttons off.
+    isScrollControlled: true,
+    shape: RoundedRectangleBorder(
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(fmRadius)),
+      side: BorderSide(color: FmColors.of(context).ringStrong),
+    ),
+    builder: (BuildContext context) => _InviteSheet(messenger: messenger),
+  );
+}
+
+/// The sheet of A19: the invitation link as a QR code on a sand plate, with
+/// the code, its expiry and the two actions under it.
+///
+/// The invitation itself comes from the admin API: an unused code is reused,
+/// and only when there is none does the sheet create a single new one, so
+/// opening it twice does not fill the invite list.
+class _InviteSheet extends StatefulWidget {
+  const _InviteSheet({required this.messenger});
+
+  final ScaffoldMessengerState messenger;
+
+  @override
+  State<_InviteSheet> createState() => _InviteSheetState();
+}
+
+class _InviteSheetState extends State<_InviteSheet> {
+  String? _code;
+
+  /// Unix seconds; 0 when the invitation lasts until it is used.
+  int _expiresAt = 0;
+  String? _error;
+  bool _busy = true;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_load());
+  }
+
+  Future<void> _load() async {
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      final List<Map<String, dynamic>> invites = await app.api!.adminInvites();
+      final int now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+      Map<String, dynamic>? pick;
+      for (final Map<String, dynamic> i in invites) {
+        final bool used = ((i['used_by'] as String?) ?? '').isNotEmpty || _int(i['used_at']) > 0;
+        final int expires = _int(i['expires_at']);
+        if (used || (expires > 0 && expires <= now)) continue;
+        if (pick == null || _outlives(i, pick)) pick = i;
+      }
+      String code;
+      int expires;
+      if (pick != null) {
+        code = pick['code'] as String;
+        expires = _int(pick['expires_at']);
+      } else {
+        // No expiry: an invitation shown from a phone is used on the spot or
+        // sent on, and a dead code is worse than an old one.
+        final List<String> codes = await app.api!.adminCreateInvites();
+        if (codes.isEmpty) throw StateError('the server created no invite code');
+        code = codes.first;
+        expires = 0;
+      }
+      if (!mounted) return;
+      setState(() {
+        _code = code;
+        _expiresAt = expires;
+        _busy = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = e.toString();
+        _busy = false;
+      });
+    }
+  }
+
+  /// True when [a] stays valid longer than [b]: one that never runs out beats
+  /// one that does, then the later expiry, then the newer code.
+  static bool _outlives(Map<String, dynamic> a, Map<String, dynamic> b) {
+    final int ea = _int(a['expires_at']);
+    final int eb = _int(b['expires_at']);
+    if (ea == 0 || eb == 0) return ea == 0 && eb != 0;
+    if (ea != eb) return ea > eb;
+    return _int(a['created_at']) > _int(b['created_at']);
+  }
+
+  static int _int(Object? v) => (v as num?)?.toInt() ?? 0;
+
+  Future<void> _copy(String link) async {
+    await Clipboard.setData(ClipboardData(text: link));
+    widget.messenger
+      ..clearSnackBars()
+      ..showSnackBar(SnackBar(content: Text(t('copied'))));
+  }
+
+  Future<void> _share(String link) async {
+    // The share sheet of iPadOS is a popover and anchors on the widget that
+    // opened it; every other platform ignores the rectangle.
+    final RenderBox? box = context.findRenderObject() as RenderBox?;
+    try {
+      await SharePlus.instance.share(ShareParams(
+        text: link,
+        subject: t('invite_share_title'),
+        sharePositionOrigin: box == null ? null : box.localToGlobal(Offset.zero) & box.size,
+      ));
+    } catch (e) {
+      if (mounted) setState(() => _error = e.toString());
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final ColorScheme scheme = theme.colorScheme;
+    final String? code = _code;
+    // The plate is 16 inside the sheet's 24: 252 is 28 modules at the 9px the
+    // design draws, and a longer server address only shrinks them.
+    final double qr = math.min(252.0, math.max(120.0, MediaQuery.sizeOf(context).width - 80));
+    return SafeArea(
+      top: false,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(24, 0, 24, 28),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          spacing: 16,
+          children: <Widget>[
+            const _SheetHandle(),
+            Text(t('invite_share_title'), style: theme.textTheme.headlineSmall?.copyWith(fontSize: 22)),
+            Text(t('invite_share_hint'), style: theme.textTheme.bodyMedium?.copyWith(height: 1.5)),
+            if (_error != null) _alertBanner(theme, _error!),
+            if (_busy)
+              SizedBox(
+                height: qr + 32,
+                child: const Center(child: SizedBox(width: 32, height: 32, child: CircularProgressIndicator(strokeWidth: 2))),
+              ),
+            if (code != null) ..._invitation(theme, scheme, code, qr),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// The plate, the code, its expiry and the two 48-high actions.
+  List<Widget> _invitation(ThemeData theme, ColorScheme scheme, String code, double qr) {
+    final String link = inviteLink(code, app.serverUrl);
+    return <Widget>[
+      Center(
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(color: sand, borderRadius: BorderRadius.circular(fmRadius)),
+          // Dark modules on the sand plate, whatever the theme: a camera
+          // cannot read a light-on-dark code, so these two are functional
+          // colours rather than decoration.
+          child: QrImageView(
+            data: link,
+            size: qr,
+            padding: EdgeInsets.zero,
+            backgroundColor: sand,
+            eyeStyle: const QrEyeStyle(eyeShape: QrEyeShape.square, color: cBg1),
+            dataModuleStyle: const QrDataModuleStyle(dataModuleShape: QrDataModuleShape.square, color: cBg1),
+            errorStateBuilder: (BuildContext context, Object? error) => SizedBox(
+              width: qr,
+              height: qr,
+              child: const Center(child: Icon(LucideIcons.alertTriangle, size: 24, color: cBg1)),
+            ),
+          ),
+        ),
+      ),
+      // The code itself: Roboto 16 with the design's +.04em, in the accent.
+      Text(
+        code,
+        textAlign: TextAlign.center,
+        style: theme.textTheme.bodySmall?.copyWith(fontSize: 16, letterSpacing: 16 * .04, color: scheme.primary),
+      ),
+      // The board draws a validity line under the code; a code that never
+      // expires says so rather than leaving the gap empty.
+      Text(
+        _expiresAt > 0 ? t('invite_expires_at', <String, Object?>{'date': _inviteDate(_expiresAt)}) : t('invite_no_expiry'),
+        textAlign: TextAlign.center,
+        style: theme.textTheme.bodySmall?.copyWith(fontSize: 13, letterSpacing: 0, color: scheme.onSurfaceVariant),
+      ),
+      Row(
+        spacing: 12,
+        children: <Widget>[
+          Expanded(
+            child: OutlinedButton(
+              // Tighter than the sheet's other buttons: two of them share the
+              // row, and "Копировать ссылку" does not fit the usual padding.
+              style: _secondaryButton(scheme).copyWith(padding: WidgetStateProperty.all(const EdgeInsets.symmetric(horizontal: 8))),
+              onPressed: () => _copy(link),
+              child: _iconLabel(LucideIcons.copy, t('copy_link')),
+            ),
+          ),
+          Expanded(
+            child: FilledButton(
+              style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 8)),
+              onPressed: () => _share(link),
+              child: Text(t('share'), maxLines: 1, overflow: TextOverflow.ellipsis),
+            ),
+          ),
+        ],
+      ),
+    ];
+  }
+}
+
+/// "12 Sep, 14:20" for the expiry line of A19, in the abbreviated months the
+/// conversation list already dates its rows with.
+String _inviteDate(int seconds) {
+  final DateTime d = DateTime.fromMillisecondsSinceEpoch(seconds * 1000);
+  final String time = '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
+  final List<String> months = t('months_short').split(',');
+  if (months.length < 12) return '${d.day}.${d.month.toString().padLeft(2, '0')}, $time';
+  return '${d.day} ${months[d.month - 1]}, $time';
 }
 
 extension ConversationX on Conversation {
