@@ -2,8 +2,9 @@
 // time (no ringing). Audio flows in a full mesh of 1:1 WebRTC connections, so
 // it stays end-to-end encrypted like calls and the server never touches media;
 // signaling travels inside ephemeral envelopes of the group (PROTOCOL.md §6).
-// Every pair also negotiates a video track, so any participant can stream
-// their screen to everybody else and viewers pick one stream or watch them all.
+// Every pair negotiates two video slots — camera and screen — in the order
+// 1:1 calls use, so a participant can show their face, their screen, or both,
+// and every track becomes its own tile.
 import { effect, signal } from '@preact/signals';
 import type { Payload } from '../api/types';
 import { newUuid } from '../crypto/ids';
@@ -21,6 +22,8 @@ export interface VoiceParticipant {
   muted: boolean;
   /** Streaming their screen (from the join/here/share signals). */
   sharing: boolean;
+  /** Camera on (from the join/here/camera signals). */
+  camera: boolean;
   /** Last join or heartbeat, ms since epoch. */
   seen: number;
 }
@@ -30,6 +33,8 @@ export interface VoiceState {
   session: string;
   muted: boolean;
   sharing: boolean;
+  /** Our camera is on. */
+  camera: boolean;
   joinedAt: number;
   /** Connection state per remote session. */
   peers: Record<string, PeerState>;
@@ -40,10 +45,14 @@ export const voice = signal<VoiceState | null>(null);
 /** Who is in which group's channel, by conversation id (learned from voice.* signals). */
 export const voiceRooms = signal<Map<string, VoiceParticipant[]>>(new Map());
 /**
- * Remote video streams by session. Every connected peer has one (the track is
+ * Remote screen streams by session. Every connected peer has one (the slot is
  * negotiated up front); it carries frames only while that peer is sharing.
  */
 export const voiceStreams = signal<Map<string, MediaStream>>(new Map());
+/** Remote camera streams by session, the other half of the pair's two slots. */
+export const voiceCameras = signal<Map<string, MediaStream>>(new Map());
+/** Our own camera, shown in our tile. */
+export const voiceSelfCamera = signal<MediaStream | null>(null);
 
 const HEARTBEAT_MS = 20_000;
 const EXPIRE_MS = 65_000;
@@ -52,7 +61,8 @@ const ICE_REFRESH_MS = 20 * 60_000;
 interface Peer {
   pc: RTCPeerConnection;
   audio: HTMLAudioElement;
-  videoSender: RTCRtpSender | null;
+  cameraSender: RTCRtpSender | null;
+  screenSender: RTCRtpSender | null;
   queued: RTCIceCandidateInit[];
   outgoing: RTCIceCandidateInit[];
   flush: ReturnType<typeof setTimeout> | null;
@@ -61,6 +71,9 @@ interface Peer {
 const peers = new Map<string, Peer>();
 let localStream: MediaStream | null = null;
 let screenTrack: MediaStreamTrack | null = null;
+let cameraStream: MediaStream | null = null;
+/** Announced for the screen slot so a receiver gets it apart from the camera. */
+let screenSlot: MediaStream | null = null;
 let heartbeat: ReturnType<typeof setInterval> | null = null;
 let pruneTimer: ReturnType<typeof setInterval> | null = null;
 let cachedIce: RTCIceServer[] = [];
@@ -92,7 +105,7 @@ function updateSelf(): void {
   const v = voice.value;
   const me = session.value;
   if (!v || !me) return;
-  setParticipant(v.convId, { session: v.session, account: me.accountId, device: me.deviceId, muted: v.muted, sharing: v.sharing, seen: Date.now() });
+  setParticipant(v.convId, { session: v.session, account: me.accountId, device: me.deviceId, muted: v.muted, sharing: v.sharing, camera: v.camera, seen: Date.now() });
 }
 
 function setPeerState(sessionId: string, state: PeerState | null): void {
@@ -111,6 +124,13 @@ function publishStream(sessionId: string, stream: MediaStream | null): void {
   voiceStreams.value = next;
 }
 
+function publishCamera(sessionId: string, stream: MediaStream | null): void {
+  const next = new Map(voiceCameras.value);
+  if (stream) next.set(sessionId, stream);
+  else next.delete(sessionId);
+  voiceCameras.value = next;
+}
+
 async function signalTo(convId: string, payload: Payload): Promise<void> {
   try {
     await sendPayload(convId, payload, FLAG_EPHEMERAL);
@@ -127,7 +147,7 @@ async function refreshIce(): Promise<void> {
 
 function presence(): Payload {
   const v = voice.value!;
-  return { t: 'voice.here', session: v.session, muted: v.muted, sharing: v.sharing };
+  return { t: 'voice.here', session: v.session, muted: v.muted, sharing: v.sharing, camera: v.camera };
 }
 
 export async function joinVoice(convId: string): Promise<void> {
@@ -150,9 +170,10 @@ export async function joinVoice(convId: string): Promise<void> {
   await refreshIce();
   localStream = mic;
   const id = newUuid();
-  voice.value = { convId, session: id, muted: false, sharing: false, joinedAt: Date.now(), peers: {} };
+  screenSlot = new MediaStream();
+  voice.value = { convId, session: id, muted: false, sharing: false, camera: false, joinedAt: Date.now(), peers: {} };
   updateSelf();
-  await signalTo(convId, { t: 'voice.join', session: id, muted: false, sharing: false });
+  await signalTo(convId, { t: 'voice.join', session: id, muted: false, sharing: false, camera: false });
   for (const p of participantsOf(convId)) maybeConnect(p);
   heartbeat = setInterval(() => {
     const v = voice.value;
@@ -174,8 +195,11 @@ export async function leaveVoice(): Promise<void> {
     screenTrack.stop();
     screenTrack = null;
   }
+  stopCameraTracks();
+  screenSlot = null;
   for (const id of [...peers.keys()]) closePeer(id);
   voiceStreams.value = new Map();
+  voiceCameras.value = new Map();
   localStream?.getTracks().forEach((track) => track.stop());
   localStream = null;
   removeParticipant(v.convId, v.session);
@@ -209,7 +233,7 @@ export async function startVoiceShare(): Promise<void> {
       return;
     }
     screenTrack = track;
-    for (const p of peers.values()) if (p.videoSender) void p.videoSender.replaceTrack(track).catch(() => {});
+    for (const p of peers.values()) if (p.screenSender) void p.screenSender.replaceTrack(track).catch(() => {});
     track.onended = () => void stopVoiceShare();
     voice.value = { ...voice.value, sharing: true };
     updateSelf();
@@ -226,11 +250,58 @@ export async function stopVoiceShare(): Promise<void> {
     screenTrack.stop();
     screenTrack = null;
   }
-  for (const p of peers.values()) if (p.videoSender) void p.videoSender.replaceTrack(null).catch(() => {});
+  for (const p of peers.values()) if (p.screenSender) void p.screenSender.replaceTrack(null).catch(() => {});
   if (!v) return;
   voice.value = { ...v, sharing: false };
   updateSelf();
   if (wasSharing) void signalTo(v.convId, { t: 'voice.share', session: v.session, on: false });
+}
+
+/** Stops our camera tracks and forgets the stream, without signalling. */
+function stopCameraTracks(): void {
+  cameraStream?.getTracks().forEach((track) => track.stop());
+  cameraStream = null;
+  voiceSelfCamera.value = null;
+}
+
+/** Shows this camera to every participant (the other half of the pair's slots). */
+export async function startVoiceCamera(): Promise<void> {
+  const v = voice.value;
+  if (!v || v.camera) return;
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 640 }, height: { ideal: 360 } }, audio: false });
+    const track = stream.getVideoTracks()[0];
+    if (!track || !voice.value) {
+      stream.getTracks().forEach((x) => x.stop());
+      return;
+    }
+    cameraStream = stream;
+    voiceSelfCamera.value = stream;
+    for (const p of peers.values()) if (p.cameraSender) void p.cameraSender.replaceTrack(track).catch(() => {});
+    track.onended = () => void stopVoiceCamera();
+    voice.value = { ...voice.value, camera: true };
+    updateSelf();
+    void signalTo(v.convId, { t: 'voice.camera', session: v.session, on: true });
+  } catch {
+    showToast(t('camera_failed'));
+  }
+}
+
+export async function stopVoiceCamera(): Promise<void> {
+  const v = voice.value;
+  const wasOn = cameraStream !== null || !!v?.camera;
+  stopCameraTracks();
+  for (const p of peers.values()) if (p.cameraSender) void p.cameraSender.replaceTrack(null).catch(() => {});
+  if (!v) return;
+  voice.value = { ...v, camera: false };
+  updateSelf();
+  if (wasOn) void signalTo(v.convId, { t: 'voice.camera', session: v.session, on: false });
+}
+
+export function toggleVoiceCamera(): void {
+  const v = voice.value;
+  if (!v) return;
+  void (v.camera ? stopVoiceCamera() : startVoiceCamera());
 }
 
 function closePeer(sessionId: string): void {
@@ -243,6 +314,7 @@ function closePeer(sessionId: string): void {
   p.audio.pause();
   p.audio.srcObject = null;
   publishStream(sessionId, null);
+  publishCamera(sessionId, null);
   setPeerState(sessionId, null);
 }
 
@@ -251,7 +323,7 @@ function createPeer(convId: string, remote: string): Peer {
   const pc = new RTCPeerConnection({ iceServers: cachedIce });
   const audio = new Audio();
   audio.autoplay = true;
-  const peer: Peer = { pc, audio, videoSender: null, queued: [], outgoing: [], flush: null };
+  const peer: Peer = { pc, audio, cameraSender: null, screenSender: null, queued: [], outgoing: [], flush: null };
   peers.set(remote, peer);
   setPeerState(remote, 'connecting');
   if (localStream) for (const track of localStream.getAudioTracks()) pc.addTrack(track, localStream);
@@ -259,9 +331,13 @@ function createPeer(convId: string, remote: string): Peer {
     if (ev.track.kind === 'audio') {
       audio.srcObject = ev.streams[0] ?? new MediaStream([ev.track]);
       void audio.play().catch(() => {});
-    } else {
-      publishStream(remote, new MediaStream([ev.track]));
+      return;
     }
+    // The two video slots are told apart by their order, as in a 1:1 call.
+    const videos = pc.getTransceivers().filter((tr) => tr.receiver.track.kind === 'video');
+    const stream = new MediaStream([ev.track]);
+    if (videos.indexOf(ev.transceiver) === 1) publishStream(remote, stream);
+    else publishCamera(remote, stream);
   };
   pc.onicecandidate = (ev) => {
     if (!ev.candidate) return;
@@ -295,19 +371,30 @@ function createPeer(convId: string, remote: string): Peer {
   return peer;
 }
 
-/** The pair's video transceiver: negotiated once, fed with the screen track while sharing. */
+/**
+ * The pair's two video slots, negotiated once in a fixed order — camera first,
+ * screen second — and fed with whichever track is on. Each slot announces its
+ * own stream, so the m-line carries an msid and a native receiver (the Flutter
+ * app) gets the track inside a stream it can tell from the other.
+ */
 function ensureVideo(peer: Peer): void {
-  let tx = peer.pc.getTransceivers().find((tr) => tr.receiver.track.kind === 'video');
-  // With the mic stream announced as the track's stream the m-line carries an
-  // msid, so native receivers (the Flutter app) get the track inside a stream;
-  // a transceiver created from a remote offer needs it set explicitly.
-  if (!tx) tx = peer.pc.addTransceiver('video', { direction: 'sendrecv', streams: localStream ? [localStream] : [] });
-  else {
-    if (tx.direction !== 'sendrecv') tx.direction = 'sendrecv';
-    if (localStream && typeof tx.sender.setStreams === 'function') tx.sender.setStreams(localStream);
+  const slots = [localStream ? [localStream] : [], screenSlot ? [screenSlot] : []];
+  let videos = peer.pc.getTransceivers().filter((tr) => tr.receiver.track.kind === 'video');
+  while (videos.length < 2) {
+    peer.pc.addTransceiver('video', { direction: 'sendrecv', streams: slots[videos.length] });
+    videos = peer.pc.getTransceivers().filter((tr) => tr.receiver.track.kind === 'video');
   }
-  peer.videoSender = tx.sender;
-  if (screenTrack && tx.sender.track !== screenTrack) void tx.sender.replaceTrack(screenTrack).catch(() => {});
+  for (let i = 0; i < 2; i++) {
+    const tx = videos[i];
+    if (tx.direction !== 'sendrecv') tx.direction = 'sendrecv';
+    const stream = slots[i][0];
+    if (stream && typeof tx.sender.setStreams === 'function') tx.sender.setStreams(stream);
+  }
+  peer.cameraSender = videos[0].sender;
+  peer.screenSender = videos[1].sender;
+  const cam = cameraStream?.getVideoTracks()[0];
+  if (cam && peer.cameraSender.track !== cam) void peer.cameraSender.replaceTrack(cam).catch(() => {});
+  if (screenTrack && peer.screenSender.track !== screenTrack) void peer.screenSender.replaceTrack(screenTrack).catch(() => {});
 }
 
 function maybeConnect(p: VoiceParticipant): void {
@@ -391,6 +478,7 @@ export function handleVoiceSignal(sender: string, senderDevice: string, convId: 
         device: senderDevice,
         muted: payload.muted,
         sharing: payload.sharing === true,
+        camera: payload.camera === true,
         seen: Date.now(),
       };
       setParticipant(convId, participant);
@@ -407,6 +495,11 @@ export function handleVoiceSignal(sender: string, senderDevice: string, convId: 
     case 'voice.share': {
       const existing = participantsOf(convId).find((p) => p.session === payload.session);
       if (existing) setParticipant(convId, { ...existing, sharing: payload.on, seen: Date.now() });
+      break;
+    }
+    case 'voice.camera': {
+      const existing = participantsOf(convId).find((p) => p.session === payload.session);
+      if (existing) setParticipant(convId, { ...existing, camera: payload.on, seen: Date.now() });
       break;
     }
     case 'voice.leave':

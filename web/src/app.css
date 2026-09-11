@@ -2623,12 +2623,27 @@ input[type='file'].hidden-input {
 
 .voice-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(3, 1fr);
   gap: 8px;
 }
 
+/* Speaker mode: the pinned tile takes the stage, the rest file down the side
+   in a 220px strip. */
 .voice-grid.focus {
-  grid-template-columns: 1fr;
+  grid-template-columns: 1fr 220px;
+  grid-auto-rows: min-content;
+}
+
+.voice-grid.focus > .voice-video {
+  grid-column: 2;
+}
+
+.voice-grid.focus > .voice-video.pinned {
+  grid-column: 1;
+  grid-row: 1 / -1;
+  align-self: stretch;
+  aspect-ratio: auto;
+  min-height: 220px;
 }
 
 .voice-video {
@@ -2652,6 +2667,77 @@ input[type='file'].hidden-input {
 
 .voice-video .icon {
   color: var(--stage-glyph);
+}
+
+/* A participant with no camera is still a tile: the initial on the darker
+   ground, so the grid says who is in the channel, not only who is streaming. */
+.voice-video.idle.camera {
+  background: var(--bg-3);
+}
+
+.voice-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: var(--chrome);
+  font-weight: 500;
+  font-size: 22px;
+  color: var(--accent);
+}
+
+.voice-video.self {
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+
+.voice-video.self video {
+  transform: scaleX(-1);   /* a mirror, like every other self-view */
+}
+
+.voice-video.pinned {
+  box-shadow: inset 0 0 0 2px var(--accent-2);
+}
+
+/* Pinning a tile: on the tile, out of the way until the pointer is there. */
+.voice-pin {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  height: 24px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: var(--radius);
+  background: var(--plate-2);
+  color: var(--text);
+  opacity: 0;
+}
+
+.voice-video:hover .voice-pin,
+.voice-video.pinned .voice-pin {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .voice-pin {
+    opacity: 1;
+  }
+}
+
+/* "N screens · N cameras · N tiles" beside the mode switch. */
+.voice-counts {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  padding-bottom: 8px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.voice-counts .muted {
+  margin-left: 6px;
 }
 
 /* "ожидание видео…" */

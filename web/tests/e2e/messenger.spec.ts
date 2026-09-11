@@ -83,20 +83,39 @@ test('group voice channel: join, mesh connection, presence and leave', async ({ 
   await expect(alicePage.locator('.voice-list li.connected', { hasText: bob })).toBeVisible({ timeout: 30_000 });
   await expect(carolPage.locator('.voice-bar')).toContainText(bob, { timeout: 15_000 });
 
-  // Alice streams her screen into the channel; Bob sees it, focuses it, and it
-  // disappears when she stops.
+  // Every participant is a tile whether or not their camera is on, so the grid
+  // exists as soon as anybody is in the channel.
+  await expect(bobPage.locator('.voice-video.camera')).toHaveCount(2, { timeout: 15_000 });
+
+  // Alice turns her camera on: Bob's tile for her carries frames.
+  await alicePage.locator('.voice').getByRole('button', { name: 'Camera on' }).click();
+  await expect(alicePage.locator('.voice').getByRole('button', { name: 'Camera off' })).toBeVisible({ timeout: 15_000 });
+  const aliceTile = bobPage.locator('.voice-video.camera', { hasText: alice });
+  await expect(aliceTile.locator('video')).toBeVisible({ timeout: 20_000 });
+  await expect.poll(async () => aliceTile.locator('video').evaluate((v) => (v as HTMLVideoElement).videoWidth), { timeout: 20_000 }).toBeGreaterThan(0);
+  await expect(carolPage.locator('.voice-bar use[href="#i-video"]')).toHaveCount(1);
+
+  // Alice streams her screen too: that is a tile of its own beside her camera.
   await alicePage.locator('.voice').getByRole('button', { name: 'Share screen' }).click();
   await expect(alicePage.locator('.voice').getByRole('button', { name: 'Stop sharing' })).toBeVisible({ timeout: 15_000 });
-  await expect(bobPage.locator('.voice-video video')).toBeVisible({ timeout: 20_000 });
+  await expect(bobPage.locator('.voice-video.screen video')).toBeVisible({ timeout: 20_000 });
   await expect
-    .poll(async () => bobPage.locator('.voice-video video').evaluate((v) => (v as HTMLVideoElement).videoWidth), { timeout: 20_000 })
+    .poll(async () => bobPage.locator('.voice-video.screen video').evaluate((v) => (v as HTMLVideoElement).videoWidth), { timeout: 20_000 })
     .toBeGreaterThan(0);
   // The sharer is marked with a monitor icon (an emoji before the redesign).
   await expect(carolPage.locator('.voice-bar use[href="#i-monitor"]')).toHaveCount(1);
-  await bobPage.locator('.voice-tabs button', { hasText: alice }).click();
+
+  // Pinning the screen switches the grid into speaker mode.
+  await bobPage.locator('.voice-video.screen').getByRole('button', { name: 'Pin' }).click();
   await expect(bobPage.locator('.voice-grid.focus')).toBeVisible();
+  await expect(bobPage.locator('.voice-video.pinned')).toHaveCount(1);
+  await bobPage.locator('.voice-video.pinned').getByRole('button', { name: 'Unpin' }).click();
+  await expect(bobPage.locator('.voice-grid.focus')).toHaveCount(0);
+
   await alicePage.locator('.voice').getByRole('button', { name: 'Stop sharing' }).click();
-  await expect(bobPage.locator('.voice-video')).toHaveCount(0, { timeout: 10_000 });
+  await expect(bobPage.locator('.voice-video.screen')).toHaveCount(0, { timeout: 10_000 });
+  await alicePage.locator('.voice').getByRole('button', { name: 'Camera off' }).click();
+  await expect(bobPage.locator('.voice-video.camera video')).toHaveCount(0, { timeout: 10_000 });
 
   // Mute state is shared.
   await bobPage.locator('.voice').getByRole('button', { name: 'Mute' }).click();
