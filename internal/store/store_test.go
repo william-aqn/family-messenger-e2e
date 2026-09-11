@@ -246,7 +246,7 @@ func TestUpdatePasswordKeepsPreviousGeneration(t *testing.T) {
 	now := time.Now().Unix()
 
 	acct := &Account{
-		ID: "acct-1", Username: "alice", Salt: []byte("salt-one"), AuthHash: []byte("hash-one"),
+		ID: "01a08f91-aa0b-7d17-a8a8-5ac45f876a79", Username: "alice", Salt: []byte("salt-one"), AuthHash: []byte("hash-one"),
 		SignPub: make([]byte, 32), EncPub: make([]byte, 32), KeyBundle: []byte("bundle-one"), CreatedAt: now,
 	}
 	first := &Device{ID: "dev-1", AccountID: acct.ID, Name: "laptop", TokenHash: []byte("t1"), CreatedAt: now, LastSeen: now}
@@ -308,5 +308,46 @@ func TestUpdatePasswordKeepsPreviousGeneration(t *testing.T) {
 
 	if _, err := s.UpdatePassword(ctx, "nobody", []byte("s"), []byte("h"), []byte("b"), ""); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("unknown account: %v", err)
+	}
+}
+
+// Deleting an account must not leave the previous generation of password
+// material behind: prev_key_bundle holds the account's secrets under the
+// earlier password (migration 004).
+func TestDeleteAccountClearsPreviousPassword(t *testing.T) {
+	s, err := Open(filepath.Join(t.TempDir(), "del.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	ctx := context.Background()
+	now := time.Now().Unix()
+
+	acct := &Account{
+		ID: "01a08f91-aa0b-7d17-a8a8-5ac45f876a79", Username: "alice", Salt: []byte("salt-one"), AuthHash: []byte("hash-one"),
+		SignPub: make([]byte, 32), EncPub: make([]byte, 32), KeyBundle: []byte("bundle-one"), CreatedAt: now,
+	}
+	dev := &Device{ID: "dev-1", AccountID: acct.ID, Name: "laptop", TokenHash: []byte("t1"), CreatedAt: now, LastSeen: now}
+	if err := s.CreateAccount(ctx, acct, dev, "", false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.UpdatePassword(ctx, acct.ID, []byte("salt-two"), []byte("hash-two"), []byte("bundle-two"), ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DeleteAccount(ctx, acct.ID); err != nil {
+		t.Fatal(err)
+	}
+	var salt, hash, bundle, prevSalt, prevHash, prevBundle []byte
+	row := s.db.QueryRowContext(ctx, `SELECT salt, auth_hash, key_bundle, prev_salt, prev_auth_hash, prev_key_bundle FROM accounts WHERE id = ?`, acct.ID)
+	if err := row.Scan(&salt, &hash, &bundle, &prevSalt, &prevHash, &prevBundle); err != nil {
+		t.Fatal(err)
+	}
+	for name, v := range map[string][]byte{
+		"salt": salt, "auth_hash": hash, "key_bundle": bundle,
+		"prev_salt": prevSalt, "prev_auth_hash": prevHash, "prev_key_bundle": prevBundle,
+	} {
+		if len(v) != 0 {
+			t.Errorf("%s survived the tombstone: %q", name, v)
+		}
 	}
 }

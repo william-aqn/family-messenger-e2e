@@ -306,8 +306,15 @@ func (s *Store) DeleteAccount(ctx context.Context, id string) error {
 			return err
 		}
 	}
-	tombstone := "~deleted-" + strings.ReplaceAll(id, "-", "")[:12]
-	if _, err := tx.ExecContext(ctx, `UPDATE accounts SET username = ?, display_name = '', salt = X'', auth_hash = X'', key_bundle = X'', is_admin = 0, disabled = 1, deleted_at = ? WHERE id = ?`,
+	// Ids are UUIDs, but never let a short one panic the handler.
+	flat := strings.ReplaceAll(id, "-", "")
+	tombstone := "~deleted-" + flat[:min(12, len(flat))]
+	// The previous generation goes with the current one: it holds an earlier
+	// key_bundle, which is the account's secrets under an earlier password,
+	// and leaving it behind would defeat the point of the tombstone.
+	if _, err := tx.ExecContext(ctx, `UPDATE accounts SET username = ?, display_name = '', salt = X'', auth_hash = X'', key_bundle = X'',
+			prev_salt = NULL, prev_auth_hash = NULL, prev_key_bundle = NULL,
+			is_admin = 0, disabled = 1, deleted_at = ? WHERE id = ?`,
 		tombstone, time.Now().Unix(), id); err != nil {
 		return err
 	}

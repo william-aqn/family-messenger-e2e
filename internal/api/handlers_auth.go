@@ -270,17 +270,20 @@ func (s *Server) changePassword(w http.ResponseWriter, r *http.Request) {
 		writeError(w, s.log, err)
 		return
 	}
+	// Prevention is gone with the old-password prompt, so detection has to
+	// carry the weight: every device of the account hears about the change.
+	// This has to happen BEFORE the evicted sockets are closed, or the
+	// devices with the most reason to hear would be the only ones that never
+	// do: a closed connection drops the frame, and the 1008 they get instead
+	// looks exactly like an ordinary sign-out. The device that made the
+	// change gets the frame too and recognises its own id.
+	s.hub.SendToAccount(p.AccountID, ws.NewFrame("event", map[string]any{
+		"kind": "password.changed", "device_id": p.DeviceID, "at": time.Now().Unix(), "proof": proof,
+	}))
 	for _, id := range gone {
 		s.challenges.forget(id)
 		s.hub.CloseDevice(id)
 	}
-	// Prevention is gone with the old-password prompt, so detection has to
-	// carry the weight: every device that is still connected hears about the
-	// change at once and shows it. The device that made it gets the frame
-	// too and recognises its own id.
-	s.hub.SendToAccount(p.AccountID, ws.NewFrame("event", map[string]any{
-		"kind": "password.changed", "device_id": p.DeviceID, "at": time.Now().Unix(), "proof": proof,
-	}))
 	s.log.Info("password changed", "account", p.AccountID, "device", p.DeviceID, "proof", proof, "other_devices_signed_out", len(gone))
 	writeJSON(w, http.StatusOK, map[string]any{"signed_out_devices": len(gone)})
 }
