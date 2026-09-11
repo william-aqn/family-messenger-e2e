@@ -219,9 +219,22 @@ jobs:
             echo "::warning::no ANDROID_KEYSTORE_BASE64: the APK is signed with the build machine's debug key"
             exit 0
           fi
+          # Half a set of secrets would otherwise reach Gradle as an empty alias
+          # or password and come back as "Keystore was tampered with", which
+          # says nothing about what is actually missing.
+          for name in ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD; do
+            [ -n "${!name:-}" ] || { echo "::error title=Incomplete signing secrets::ANDROID_KEYSTORE_BASE64 is set but $name is not"; exit 1; }
+          done
           umask 077
           ks="$RUNNER_TEMP/release.jks"
           printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$ks"
+          # Reading the key back is the cheapest way to learn that the secret is
+          # truncated, or that the alias is spelt differently, before a Gradle
+          # failure halfway through the build has to be read for it.
+          keytool -list -keystore "$ks" -storepass "$ANDROID_KEY_PASSWORD" -alias "$ANDROID_KEY_ALIAS" >/dev/null 2>&1 || {
+            echo "::error title=Signing key unusable::the keystore from the secrets holds no key '$ANDROID_KEY_ALIAS' under the given password, or the base64 is truncated"
+            exit 1
+          }
           cat > "$GITHUB_WORKSPACE/app/android/key.properties" <<EOF
           storeFile=$ks
           storePassword=$ANDROID_KEY_PASSWORD
