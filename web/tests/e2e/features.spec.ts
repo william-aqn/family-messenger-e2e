@@ -137,6 +137,49 @@ test('language switch to Russian persists', async ({ browser }) => {
   await expect(page.getByRole('button', { name: 'Sign out', exact: true })).toBeVisible();
 });
 
+test('text size: the whole interface grows and the choice survives a reload', async ({ browser }) => {
+  const alice = `talice${run}`;
+  const page = await register(browser, alice);
+  const headerHeight = async () => (await page.locator('.sidebar-header').boundingBox())!.height;
+
+  const before = await headerHeight();
+  await page.getByTitle('Settings').click();
+  await expect(page.locator('.size-step.active')).toHaveText('A');
+  // The steps are 100 / 115 / 130 / 145 / 160 per cent; take the largest.
+  await page.locator('.size-step').last().click();
+  await expect(page.locator('.modal', { hasText: '160%' })).toBeVisible();
+  await page.locator('.modal').getByRole('button', { name: 'Close' }).last().click();
+
+  // Not the text alone: the header is drawn 1.6 times as tall, so the design's
+  // proportions are kept.
+  expect(await headerHeight()).toBeCloseTo(before * 1.6, 0);
+
+  await page.reload();
+  await expect(page.getByText('No conversations yet')).toBeVisible();
+  expect(await headerHeight()).toBeCloseTo(before * 1.6, 0);
+
+  // A phone at the largest size is the tightest the layout ever gets: the
+  // window is worth 390 / 1.6 = 244 pixels to it. Nothing may stick out
+  // sideways — least of all the control the setting is changed with.
+  await page.setViewportSize({ width: 390, height: 844 });
+  // The sidebar column has to give way to the window, or it hangs over the
+  // right edge and takes the settings button — the way back — with it.
+  const gear = (await page.getByTitle('Settings').boundingBox())!;
+  expect(gear.x + gear.width).toBeLessThanOrEqual(390);
+
+  await page.getByTitle('Settings').click();
+  await expect(page.locator('.size-steps')).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(0);
+  const steps = (await page.locator('.size-steps').boundingBox())!;
+  const modal = (await page.locator('.modal').boundingBox())!;
+  expect(steps.x + steps.width).toBeLessThanOrEqual(modal.x + modal.width + 1);
+
+  await page.locator('.size-step').first().click();
+  await page.locator('.modal').getByRole('button', { name: 'Close' }).last().click();
+  await page.setViewportSize({ width: 1280, height: 720 });
+  expect(await headerHeight()).toBeCloseTo(before, 0);
+});
+
 test('bots: a webhook echo bot answers in a direct chat', async ({ browser }) => {
   const received: string[] = [];
   const hook: Server = createServer((req, res) => {

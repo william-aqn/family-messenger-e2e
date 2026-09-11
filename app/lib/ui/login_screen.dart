@@ -359,7 +359,8 @@ class _LoginScreenState extends State<LoginScreen> {
     final Widget tag = Padding(
       padding: const EdgeInsets.only(left: 8, right: 12),
       child: Container(
-        height: 20,
+        // A minimum, not a height: the tag grows with the text-size setting.
+        constraints: const BoxConstraints(minHeight: 20),
         alignment: Alignment.center,
         padding: const EdgeInsets.symmetric(horizontal: 8),
         decoration: BoxDecoration(

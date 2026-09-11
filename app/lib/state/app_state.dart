@@ -123,6 +123,27 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   bool syncing = false;
   String? busyText;
 
+  /// How much bigger than the system default the interface text is drawn, on
+  /// top of whatever the device's own font-size setting already says. One of
+  /// [textScales]; `main.dart` turns it into the app-wide `TextScaler`.
+  double textScale = 1.0;
+
+  /// The steps the settings sheet offers, from the design's own size upwards.
+  /// Nothing below 1.0: the complaint this setting answers is "too small",
+  /// and the layout is verified at 1.6, not beyond.
+  static const List<double> textScales = <double>[1.0, 1.15, 1.3, 1.45, 1.6];
+
+  /// The step nearest [value]. A size written by a build whose list was
+  /// different has to land on one of the buttons: kept as it was, the sheet
+  /// would ring none of them and there would be no way back to a known size.
+  static double nearestTextScale(double value) {
+    // A comparison against NaN is false either way, so the fold below would
+    // quietly settle on the largest step; a stored value that is not a number
+    // means "unreadable", which is the default size.
+    if (!value.isFinite) return textScales.first;
+    return textScales.reduce((double a, double b) => (a - value).abs() <= (b - value).abs() ? a : b);
+  }
+
   /// Set when the server reports that this account's password was changed
   /// from another device (PROTOCOL.md §3.2). A change no longer needs the old
   /// password, so finding out at once is the only defence left to the owner
@@ -155,6 +176,10 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     try {
       final lang = await _storage.read(key: 'lang');
       if (lang != null) L10n.set(lang);
+      final scale = double.tryParse(await _storage.read(key: 'text_scale') ?? '');
+      // Signing out keeps it (it is not in the list `logout` deletes): the
+      // size somebody's eyes need does not belong to a session.
+      if (scale != null) textScale = nearestTextScale(scale);
       final server = await _storage.read(key: 'server');
       final token = await _storage.read(key: 'token');
       final sessionJson = await _storage.read(key: 'session');
@@ -179,6 +204,12 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> setLanguage(String code) async {
     L10n.set(code);
     if (persist) await _storage.write(key: 'lang', value: code);
+    notifyListeners();
+  }
+
+  Future<void> setTextScale(double scale) async {
+    textScale = nearestTextScale(scale);
+    if (persist) await _storage.write(key: 'text_scale', value: textScale.toString());
     notifyListeners();
   }
 

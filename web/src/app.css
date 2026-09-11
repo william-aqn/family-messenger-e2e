@@ -62,6 +62,14 @@
   --font-form: Roboto, 'Helvetica Neue', Arial, sans-serif;
   --radius: 4px;            /* the only radius */
   --radius-pill: 16px;      /* tags only */
+  /* How big the interface is drawn; state/appearance.ts overwrites it on the
+     root element. Every length below is stated at scale 1 and multiplied by
+     the `zoom` on <html>, so nothing in this file has to know about it. */
+  --ui-scale: 1;
+  /* The exceptions: viewport units go on measuring the real viewport, so they
+     would come out multiplied. Use these instead of vw / vh. */
+  --vw: calc(1vw / var(--ui-scale));
+  --vh: calc(1vh / var(--ui-scale));
 }
 
 /* ───── Main theme: Crimson Lab (default, no data-theme needed) ───── */
@@ -151,6 +159,15 @@
 
 * {
   box-sizing: border-box;
+}
+
+/* The interface size, from the settings modal. The whole document is scaled,
+   the way the browser's own zoom scales a page, so the design's proportions
+   survive: text, icons, paddings and the 44px hit targets grow together.
+   Percentage heights are divided back by the browser, so the 100% chain below
+   still means "the screen". */
+html {
+  zoom: var(--ui-scale);
 }
 
 html,
@@ -873,7 +890,7 @@ input[type='file'].hidden-input {
   top: 12px;
   left: 50%;
   transform: translateX(-50%);   /* centring only — not motion */
-  width: min(480px, calc(100vw - 24px));
+  width: min(480px, calc(100 * var(--vw) - 24px));
   z-index: 40;
 }
 
@@ -960,7 +977,7 @@ input[type='file'].hidden-input {
 .modal {
   width: 420px;
   max-width: 100%;
-  max-height: 90vh;
+  max-height: calc(90 * var(--vh));
   overflow-y: auto;
   padding: 24px 32px 32px;
   box-shadow: var(--shadow-pop);
@@ -1936,8 +1953,8 @@ input[type='file'].hidden-input {
 }
 
 .lightbox img {
-  max-width: 90vw;
-  max-height: 85vh;
+  max-width: calc(90 * var(--vw));
+  max-height: calc(85 * var(--vh));
   border-radius: var(--radius);
 }
 
@@ -2184,7 +2201,7 @@ input[type='file'].hidden-input {
   bottom: 24px;
   z-index: 35;
   width: 340px;
-  max-width: calc(100vw - 48px);
+  max-width: calc(100 * var(--vw) - 48px);
   display: flex;
   flex-direction: column;
   gap: 16px;
@@ -2671,7 +2688,7 @@ input[type='file'].hidden-input {
   top: 12px;
   left: 50%;
   transform: translateX(-50%);   /* centring only — not motion */
-  width: min(480px, calc(100vw - 24px));
+  width: min(480px, calc(100 * var(--vw) - 24px));
   z-index: 40;
 }
 
@@ -2687,7 +2704,7 @@ input[type='file'].hidden-input {
   left: 50%;
   bottom: 12px;
   transform: translateX(-50%);   /* centring only */
-  width: min(480px, calc(100vw - 24px));
+  width: min(480px, calc(100 * var(--vw) - 24px));
   z-index: 40;
   display: flex;
   align-items: center;
@@ -2721,9 +2738,19 @@ input[type='file'].hidden-input {
    the member panel becomes a sheet and the call a bottom strip.
    -------------------------------------------------------------------------- */
 
-@media (max-width: 720px) {
+/* The one-column layout. It is a nested rule and not a media query because
+   the interface scale divides the width the layout sees: state/appearance.ts
+   evaluates the 720px breakpoint against that width and sets `.narrow` here.
+   `:where()` keeps the specificity of the selectors inside exactly what it was
+   inside the media query. */
+:where(:root.narrow) {
+  /* minmax(0, …) and not a bare 1fr, as in the desktop rule: a `1fr` track
+     refuses to go below the width its content asks for, and the column then
+     hangs over the right edge of the window, where `.app { overflow: hidden }`
+     cuts the settings button off. It is reachable at the larger interface
+     sizes, which divide the width the layout sees. */
   .app {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .app > .chat {
@@ -3282,6 +3309,28 @@ label.check.large {
   color: var(--text);
 }
 
+/* The five interface sizes, each drawn as a letter of the size it sets. The
+   row is inside the scaled document like everything else, so the samples keep
+   their proportions to each other whichever one is picked. */
+.size-steps {
+  display: flex;
+  gap: 8px;
+}
+
+.size-step {
+  flex: 1;
+  height: 44px;
+  padding: 0;
+  font-family: var(--font-ui);
+  line-height: 1;
+}
+
+.size-step.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
 /* The safety number and its copy button. */
 .fp-row {
   display: flex;
@@ -3585,7 +3634,7 @@ textarea.tall {
    full width, so the grids collapse and the tables scroll in .table-wrap.
    -------------------------------------------------------------------------- */
 
-@media (max-width: 720px) {
+:where(:root.narrow) {
   .form-grid,
   .form-grid.bots,
   .form-grid.invite,
@@ -3828,7 +3877,7 @@ textarea.tall {
    and the plate centres itself.
    -------------------------------------------------------------------------- */
 
-@media (max-width: 720px) {
+:where(:root.narrow) {
   .creds.with-qr {
     flex-direction: column;
   }

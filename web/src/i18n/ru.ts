@@ -197,6 +197,8 @@ export const ru: Partial<Dict> = {
   invalid_signature: 'Устройство не смогло подтвердить, что владеет ключами аккаунта',
   sign_out: 'Выйти',
   language: 'Язык',
+  text_size: 'Размер текста',
+  text_size_sample: 'А',
   my_bots: 'Мои боты',
   admin_panel: 'Админ-панель',
   server: 'Сервер',

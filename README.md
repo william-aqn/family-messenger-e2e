@@ -27,6 +27,9 @@ building from source stay as options).
 - **Group voice channels**: any member joins the group's channel whenever they
   like, no ringing; audio flows peer-to-peer (mesh), so it stays end-to-end
   encrypted.
+- **Text size** in the settings of both clients, 100 % to 160 %, remembered on
+  that device: the web client redraws the whole interface at that scale, the
+  app multiplies the system font size the phone already asks for.
 - **Web client** in English and Russian (more languages are one file away);
   works as a PWA on desktop and mobile browsers.
 - **Flutter app** for Android, iOS, Windows, Linux and macOS from one codebase

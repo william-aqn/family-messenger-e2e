@@ -13,6 +13,9 @@ test('direct chat: messages flow both ways and survive a reload', async ({ brows
   await selectConversation(bobPage, alice);
   await expect(bobPage.locator('.bubble', { hasText: 'Привет, Боб! 🔐' })).toBeVisible();
   await expect(bobPage.locator('.system', { hasText: 'started the chat' })).toBeVisible();
+  // One other person writes here and the header names them: no sender above
+  // the bubble, unlike a group.
+  await expect(bobPage.locator('.bubble .author')).toHaveCount(0);
   await send(bobPage, 'Hi Alice, all good.');
   await expect(alicePage.locator('.bubble', { hasText: 'Hi Alice, all good.' })).toBeVisible();
 
@@ -47,6 +50,8 @@ test('group chat with a signed roster', async ({ browser }) => {
   await send(carolPage, 'Hi from Carol');
   await expect(bobPage.locator('.bubble', { hasText: 'Hi from Carol' })).toBeVisible();
   await expect(alicePage.locator('.bubble', { hasText: 'Hi from Carol' })).toBeVisible();
+  // Three people write here, so every incoming bubble says who did.
+  await expect(bobPage.locator('.bubble .author', { hasText: carol })).toBeVisible();
 
   // Carol leaves; the remaining members see the signed event.
   await carolPage.getByTitle('Members and security').click();

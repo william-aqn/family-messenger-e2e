@@ -207,6 +207,9 @@ export const en = {
   invalid_signature: 'This device could not prove it holds the account keys',
   sign_out: 'Sign out',
   language: 'Language',
+  text_size: 'Text size',
+  // One letter, drawn at each of the sizes on offer.
+  text_size_sample: 'A',
   my_bots: 'My bots',
   admin_panel: 'Admin panel',
   server: 'Server',

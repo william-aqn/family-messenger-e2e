@@ -67,6 +67,9 @@ const Map<String, String> _en = {
   'settings': 'Settings',
   'sign_out': 'Sign out',
   'language': 'Language',
+  'text_size': 'Text size',
+  // One letter, drawn at each of the sizes on offer.
+  'text_size_sample': 'A',
   'safety_number': 'Your safety number',
   'safety_number_hint': 'Read it out to the person you chat with, in person or on a call. If your codes match, nobody has slipped into the middle of your conversation.',
   'members': 'Members',
@@ -233,6 +236,8 @@ const Map<String, String> _ru = {
   'settings': 'Настройки',
   'sign_out': 'Выйти',
   'language': 'Язык',
+  'text_size': 'Размер текста',
+  'text_size_sample': 'А',
   'safety_number': 'Ваш код безопасности',
   'safety_number_hint': 'Продиктуйте его собеседнику при встрече или по телефону. Если коды совпали, в вашу переписку никто не встроился.',
   'members': 'Участники',

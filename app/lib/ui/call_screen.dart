@@ -309,14 +309,18 @@ class _CallScreenState extends State<CallScreen> {
     final bool phone = Platform.isAndroid || Platform.isIOS;
     return Column(
       children: [
-        SizedBox(
-          height: 56,
+        ConstrainedBox(
+          // A minimum, not the 56 A09 draws: the title and the line under it
+          // need more than that at the larger text sizes, and a fixed height
+          // cuts them off mid-letter.
+          constraints: const BoxConstraints(minHeight: 56),
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: Row(
               children: [
                 Expanded(
                   child: Column(
+                    mainAxisSize: MainAxisSize.min,
                     mainAxisAlignment: MainAxisAlignment.center,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [

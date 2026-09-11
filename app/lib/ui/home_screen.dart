@@ -154,8 +154,10 @@ class _HomeScreenState extends State<HomeScreen> {
       WsStatus.connecting => t('connecting'),
       WsStatus.offline => t('offline'),
     };
-    return SizedBox(
-      height: 56,
+    return ConstrainedBox(
+      // A minimum, not the 56 X01 draws: the account over its presence needs
+      // more than that once the text-size setting is turned up.
+      constraints: const BoxConstraints(minHeight: 56),
       child: Padding(
         padding: const EdgeInsets.only(left: 16, right: 8),
         child: Row(
@@ -164,6 +166,7 @@ class _HomeScreenState extends State<HomeScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisAlignment: MainAxisAlignment.center,
+                mainAxisSize: MainAxisSize.min,
                 children: <Widget>[
                   Text('@${app.session!.username}', style: text.titleMedium, overflow: TextOverflow.ellipsis),
                   const SizedBox(height: 2),
@@ -489,169 +492,264 @@ class _HomeScreenState extends State<HomeScreen> {
         borderRadius: const BorderRadius.vertical(top: Radius.circular(fmRadius)),
         side: BorderSide(color: FmColors.of(context).ringStrong),
       ),
-      builder: (BuildContext context) {
-        final ThemeData theme = Theme.of(context);
-        final ColorScheme scheme = theme.colorScheme;
-        return SafeArea(
-          top: false,
-          child: Padding(
-            padding: const EdgeInsets.only(bottom: 20),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: <Widget>[
-                const _SheetHandle(),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
-                  child: Text(t('settings'), style: theme.textTheme.headlineSmall?.copyWith(fontSize: 22)),
-                ),
-                // The safety number with the 44px copy button beside it.
-                _SheetSection(
-                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    spacing: 6,
-                    children: <Widget>[
-                      Text(t('safety_number'), style: theme.inputDecorationTheme.labelStyle),
-                      Text(t('safety_number_hint'), style: theme.textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant)),
-                      Row(
-                        spacing: 12,
+      // The sheet listens to `app` so the text-size buttons redraw it at the
+      // size they just picked, and scrolls because at the largest size (or on
+      // a short screen) the sections no longer fit between the grip and the
+      // sign-out button.
+      builder: (BuildContext context) => ListenableBuilder(
+        listenable: app,
+        builder: (BuildContext context, Widget? _) {
+          final ThemeData theme = Theme.of(context);
+          final ColorScheme scheme = theme.colorScheme;
+          return SafeArea(
+            top: false,
+            child: SingleChildScrollView(
+              child: Padding(
+                padding: const EdgeInsets.only(bottom: 20),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: <Widget>[
+                    const _SheetHandle(),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
+                      child: Text(t('settings'), style: theme.textTheme.headlineSmall?.copyWith(fontSize: 22)),
+                    ),
+                    // The safety number with the 44px copy button beside it.
+                    _SheetSection(
+                      padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        spacing: 6,
                         children: <Widget>[
-                          // Roboto 13 grouped by four: the style the theme
-                          // keeps for safety numbers, in the accent colour.
-                          Expanded(child: SelectableText(fp, style: theme.textTheme.bodySmall?.copyWith(color: scheme.primary))),
-                          IconButton(
-                            icon: const Icon(LucideIcons.copy, size: 20),
-                            color: scheme.primary,
-                            tooltip: t('copy'),
-                            onPressed: () async {
-                              await Clipboard.setData(ClipboardData(text: fp));
-                              messenger
-                                ..clearSnackBars()
-                                ..showSnackBar(SnackBar(content: Text(t('copied'))));
-                            },
+                          Text(t('safety_number'), style: theme.inputDecorationTheme.labelStyle),
+                          Text(t('safety_number_hint'), style: theme.textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant)),
+                          Row(
+                            spacing: 12,
+                            children: <Widget>[
+                              // Roboto 13 grouped by four: the style the theme
+                              // keeps for safety numbers, in the accent colour.
+                              Expanded(child: SelectableText(fp, style: theme.textTheme.bodySmall?.copyWith(color: scheme.primary))),
+                              IconButton(
+                                icon: const Icon(LucideIcons.copy, size: 20),
+                                color: scheme.primary,
+                                tooltip: t('copy'),
+                                onPressed: () async {
+                                  await Clipboard.setData(ClipboardData(text: fp));
+                                  messenger
+                                    ..clearSnackBars()
+                                    ..showSnackBar(SnackBar(content: Text(t('copied'))));
+                                },
+                              ),
+                            ],
                           ),
                         ],
                       ),
-                    ],
-                  ),
-                ),
-                // The 48px language select; picking one closes the sheet.
-                _SheetSection(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    spacing: 4,
-                    children: <Widget>[
-                      Text(t('language'), style: theme.inputDecorationTheme.labelStyle),
-                      Container(
-                        height: 48,
-                        padding: const EdgeInsets.symmetric(horizontal: 12),
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(fmRadius),
-                          border: Border.all(color: scheme.outline, width: 2),
-                        ),
-                        child: DropdownButtonHideUnderline(
-                          child: DropdownButton<String>(
-                            value: L10n.current,
-                            isExpanded: true,
-                            // The 48 belongs to the box around it, not to the
-                            // button's own 48-high item.
-                            isDense: true,
-                            style: theme.inputDecorationTheme.hintStyle?.copyWith(color: scheme.primary),
-                            iconSize: 12,
-                            icon: Icon(LucideIcons.chevronDown, size: 12, color: scheme.primary),
-                            dropdownColor: scheme.surfaceContainerHighest,
-                            borderRadius: BorderRadius.circular(fmRadius),
-                            focusColor: Colors.transparent,
-                            items: <DropdownMenuItem<String>>[
-                              for (final String c in L10n.codes) DropdownMenuItem<String>(value: c, child: Text(languageNames[c] ?? c)),
-                            ],
-                            onChanged: (String? v) {
-                              if (v != null) {
-                                app.setLanguage(v);
-                                Navigator.pop(context);
-                              }
-                            },
+                    ),
+                    // The 48px language select; picking one closes the sheet.
+                    _SheetSection(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        spacing: 4,
+                        children: <Widget>[
+                          Text(t('language'), style: theme.inputDecorationTheme.labelStyle),
+                          Container(
+                            // A minimum, not a height: the largest text size
+                            // needs more than 48 and would otherwise be cut.
+                            constraints: const BoxConstraints(minHeight: 48),
+                            padding: const EdgeInsets.symmetric(horizontal: 12),
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(fmRadius),
+                              border: Border.all(color: scheme.outline, width: 2),
+                            ),
+                            child: DropdownButtonHideUnderline(
+                              child: DropdownButton<String>(
+                                value: L10n.current,
+                                isExpanded: true,
+                                // The 48 belongs to the box around it, not to the
+                                // button's own 48-high item.
+                                isDense: true,
+                                style: theme.inputDecorationTheme.hintStyle?.copyWith(color: scheme.primary),
+                                iconSize: 12,
+                                icon: Icon(LucideIcons.chevronDown, size: 12, color: scheme.primary),
+                                dropdownColor: scheme.surfaceContainerHighest,
+                                borderRadius: BorderRadius.circular(fmRadius),
+                                focusColor: Colors.transparent,
+                                items: <DropdownMenuItem<String>>[
+                                  for (final String c in L10n.codes) DropdownMenuItem<String>(value: c, child: Text(languageNames[c] ?? c)),
+                                ],
+                                onChanged: (String? v) {
+                                  if (v != null) {
+                                    app.setLanguage(v);
+                                    Navigator.pop(context);
+                                  }
+                                },
+                              ),
+                            ),
                           ),
-                        ),
+                        ],
                       ),
-                    ],
-                  ),
+                    ),
+                    // The text size, five steps drawn at the size they set.
+                    _SheetSection(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        spacing: 4,
+                        children: <Widget>[
+                          Row(
+                            children: <Widget>[
+                              Expanded(child: Text(t('text_size'), style: theme.inputDecorationTheme.labelStyle)),
+                              Text('${(app.textScale * 100).round()}%', style: theme.textTheme.bodySmall?.copyWith(color: scheme.primary)),
+                            ],
+                          ),
+                          // Not const, and the current size is a parameter:
+                          // a const widget is canonicalised and the sheet
+                          // rebuilding around it would not touch the row, so
+                          // the ring would stay on whichever step was current
+                          // when the sheet opened.
+                          _TextSizePicker(current: app.textScale),
+                        ],
+                      ),
+                    ),
+                    // "<server> · @user" behind a lock.
+                    _SheetSection(
+                      child: Row(
+                        spacing: 8,
+                        children: <Widget>[
+                          Icon(LucideIcons.lock, size: 16, color: scheme.outline),
+                          Expanded(
+                            child: Text(
+                              '${app.serverUrl} · @${app.session!.username}',
+                              style: theme.inputDecorationTheme.labelStyle,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        mainAxisSize: MainAxisSize.min,
+                        spacing: 12,
+                        children: <Widget>[
+                          // A19, administrators only: the invitation to show a
+                          // relative who is standing next to you.
+                          if (app.session?.isAdmin ?? false)
+                            OutlinedButton(
+                              style: _secondaryButton(scheme),
+                              onPressed: () {
+                                Navigator.pop(context);
+                                _showInvite(screen);
+                              },
+                              child: _iconLabel(LucideIcons.qrCode, t('invite_share_title')),
+                            ),
+                          OutlinedButton(
+                            style: _secondaryButton(scheme),
+                            onPressed: () {
+                              Navigator.pop(context);
+                              _changePassword(screen);
+                            },
+                            child: _iconLabel(LucideIcons.lock, t('change_password')),
+                          ),
+                          OutlinedButton(
+                            style: _secondaryButton(scheme),
+                            onPressed: () {
+                              Navigator.pop(context);
+                              _checkUpdates(screen);
+                            },
+                            child: _iconLabel(LucideIcons.refreshCw, t('check_updates')),
+                          ),
+                          // Destructive outline, and no confirmation: A13.
+                          OutlinedButton(
+                            style: _dangerButton(scheme),
+                            onPressed: () {
+                              Navigator.pop(context);
+                              app.logout();
+                            },
+                            child: _iconLabel(LucideIcons.logOut, t('sign_out')),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
-                // "<server> · @user" behind a lock.
-                _SheetSection(
-                  child: Row(
-                    spacing: 8,
-                    children: <Widget>[
-                      Icon(LucideIcons.lock, size: 16, color: scheme.outline),
-                      Expanded(
-                        child: Text(
-                          '${app.serverUrl} · @${app.session!.username}',
-                          style: theme.inputDecorationTheme.labelStyle,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    mainAxisSize: MainAxisSize.min,
-                    spacing: 12,
-                    children: <Widget>[
-                      // A19, administrators only: the invitation to show a
-                      // relative who is standing next to you.
-                      if (app.session?.isAdmin ?? false)
-                        OutlinedButton(
-                          style: _secondaryButton(scheme),
-                          onPressed: () {
-                            Navigator.pop(context);
-                            _showInvite(screen);
-                          },
-                          child: _iconLabel(LucideIcons.qrCode, t('invite_share_title')),
-                        ),
-                      OutlinedButton(
-                        style: _secondaryButton(scheme),
-                        onPressed: () {
-                          Navigator.pop(context);
-                          _changePassword(screen);
-                        },
-                        child: _iconLabel(LucideIcons.lock, t('change_password')),
-                      ),
-                      OutlinedButton(
-                        style: _secondaryButton(scheme),
-                        onPressed: () {
-                          Navigator.pop(context);
-                          _checkUpdates(screen);
-                        },
-                        child: _iconLabel(LucideIcons.refreshCw, t('check_updates')),
-                      ),
-                      // Destructive outline, and no confirmation: A13.
-                      OutlinedButton(
-                        style: _dangerButton(scheme),
-                        onPressed: () {
-                          Navigator.pop(context);
-                          app.logout();
-                        },
-                        child: _iconLabel(LucideIcons.logOut, t('sign_out')),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
+              ),
             ),
-          ),
-        );
-      },
+          );
+        },
+      ),
     );
   }
 }
 
 // ───── components ──────────────────────────────────────────────────────────
+
+/// The five text sizes of the settings sheet, each drawn as a letter of the
+/// size it sets.
+///
+/// The samples are the one place in the app that ignores the setting they
+/// control: scaled like everything else, all five boxes would grow together
+/// and the row would say nothing about the difference between them.
+class _TextSizePicker extends StatelessWidget {
+  const _TextSizePicker({required this.current});
+
+  final double current;
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+    return MediaQuery.withNoTextScaling(
+      child: Row(
+        spacing: 8,
+        children: <Widget>[
+          for (final double scale in AppState.textScales)
+            Expanded(
+              child: _TextSizeStep(
+                scale: scale,
+                selected: (scale - current).abs() < 0.001,
+                scheme: scheme,
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TextSizeStep extends StatelessWidget {
+  const _TextSizeStep({required this.scale, required this.selected, required this.scheme});
+
+  final double scale;
+  final bool selected;
+  final ColorScheme scheme;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: () => app.setTextScale(scale),
+      borderRadius: BorderRadius.circular(fmRadius),
+      child: Container(
+        height: 48,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: selected ? scheme.primaryContainer : Colors.transparent,
+          borderRadius: BorderRadius.circular(fmRadius),
+          border: Border.all(color: selected ? scheme.primary : scheme.outline, width: 2),
+        ),
+        child: Text(
+          t('text_size_sample'),
+          semanticsLabel: '${(scale * 100).round()}%',
+          style: TextStyle(fontSize: 12 * scale, color: selected ? scheme.primary : scheme.onSurfaceVariant),
+        ),
+      ),
+    );
+  }
+}
 
 /// The 32x4 grip A13 opens the settings sheet with.
 class _SheetHandle extends StatelessWidget {
@@ -940,8 +1038,9 @@ class _UnreadBadge extends StatelessWidget {
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
     return Container(
-      height: 20,
-      constraints: const BoxConstraints(minWidth: 20),
+      // Minimums, not a height: the number inside is scaled by the text-size
+      // setting and would spill out of a 20px pill.
+      constraints: const BoxConstraints(minWidth: 20, minHeight: 20),
       padding: const EdgeInsets.symmetric(horizontal: 6),
       alignment: Alignment.center,
       decoration: BoxDecoration(color: theme.colorScheme.primary, borderRadius: BorderRadius.circular(fmPillRadius)),

@@ -296,6 +296,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     final m = list[list.length - 1 - i];
                     return _MessageTile(
                       message: m,
+                      showAuthor: conv.kind != 'direct',
                       marked: m.clientMsgId == editing?.clientMsgId || m.clientMsgId == selected?.clientMsgId,
                       onActions: (m) => _showActions(context, m),
                     );
@@ -513,8 +514,9 @@ class _VoiceAction extends StatelessWidget {
                 const Icon(LucideIcons.headphones),
                 if (count > 0)
                   Container(
-                    height: 20,
-                    constraints: const BoxConstraints(minWidth: 20),
+                    // Minimums, not a height: the count is scaled by the
+                    // text-size setting and would spill out of a 20px pill.
+                    constraints: const BoxConstraints(minWidth: 20, minHeight: 20),
                     alignment: Alignment.center,
                     padding: const EdgeInsets.symmetric(horizontal: 6),
                     decoration: BoxDecoration(color: scheme.primary, borderRadius: BorderRadius.circular(fmPillRadius)),
@@ -748,10 +750,14 @@ class _Footer extends StatelessWidget {
 // ───── Message rows ────────────────────────────────────────────────────────
 
 class _MessageTile extends StatelessWidget {
-  const _MessageTile({required this.message, required this.onActions, this.marked = false});
+  const _MessageTile({required this.message, required this.onActions, required this.showAuthor, this.marked = false});
 
   final Message message;
   final void Function(Message) onActions;
+
+  /// Off in a one-to-one chat: only one other person writes there, and the
+  /// app bar already names them.
+  final bool showAuthor;
 
   /// Being edited, or the one the actions sheet is open for: an accent ring.
   final bool marked;
@@ -824,7 +830,7 @@ class _MessageTile extends StatelessWidget {
                 mainAxisSize: MainAxisSize.min,
                 spacing: 4,
                 children: [
-                  if (!mine)
+                  if (!mine && showAuthor)
                     Padding(
                       padding: inset.add(image ? const EdgeInsets.only(top: 2) : EdgeInsets.zero),
                       child: Text(
@@ -1159,7 +1165,8 @@ class _Tag extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 20,
+      // A minimum, not a height: the label grows with the text-size setting.
+      constraints: const BoxConstraints(minHeight: 20),
       padding: const EdgeInsets.symmetric(horizontal: 8),
       decoration: BoxDecoration(color: background, borderRadius: BorderRadius.circular(fmPillRadius)),
       child: Row(

@@ -104,6 +104,7 @@ function Bubble({
   me,
   isAdmin,
   isEditing,
+  showAuthor,
   onOpen,
   onEdit,
 }: {
@@ -111,6 +112,8 @@ function Bubble({
   me: string;
   isAdmin: boolean;
   isEditing: boolean;
+  /** Off in a one-to-one chat: only one other person writes there, and the header already names them. */
+  showAuthor: boolean;
   onOpen: (item: LightboxItem) => void;
   onEdit: (m: StoredMessage) => void;
 }) {
@@ -155,7 +158,7 @@ function Bubble({
         setMenu(true);
       }}
     >
-      {!mine && <div class="author">{usernameOf(m.sender, me)}</div>}
+      {!mine && showAuthor && <div class="author">{usernameOf(m.sender, me)}</div>}
       {m.payload.t === 'text' ? <div class="body">{m.payload.body}</div> : <Attachment p={m.payload} onOpen={onOpen} />}
       <div class="meta">
         {m.edited && <span class="edited">{t('edited')} ·</span>}
@@ -424,7 +427,16 @@ export function ChatView() {
       <div class="chat-body">
         <div class="messages" ref={listRef}>
           {list.map((m) => (
-            <Bubble key={m.seq} m={m} me={me.accountId} isAdmin={me.isAdmin} isEditing={editing?.seq === m.seq} onOpen={setLightbox} onEdit={startEdit} />
+            <Bubble
+              key={m.seq}
+              m={m}
+              me={me.accountId}
+              isAdmin={me.isAdmin}
+              isEditing={editing?.seq === m.seq}
+              showAuthor={conv.kind !== 'direct'}
+              onOpen={setLightbox}
+              onEdit={startEdit}
+            />
           ))}
           {mine.map((p) => (
             <div key={p.clientMsgId} class={`bubble mine pending ${p.failed ? 'failed' : ''}`}>

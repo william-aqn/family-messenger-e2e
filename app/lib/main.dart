@@ -47,6 +47,21 @@ void main() {
   updater.start();
 }
 
+/// The app's own text size, applied on top of the device's.
+///
+/// The system setting stays the base — somebody who already enlarged the font
+/// in Android's accessibility screen keeps that — and `app.textScale`
+/// multiplies it. The platform scaler can be non-linear (Android 14 and
+/// later), so it is read once at the body size and continued linearly, which
+/// is predictable and close enough over the range the settings sheet offers.
+/// The product is clamped: past 2.0 the screens stop fitting, whatever the
+/// two settings say between them.
+TextScaler _textScaler(BuildContext context) {
+  const double at = 16;
+  final double system = MediaQuery.textScalerOf(context).scale(at) / at;
+  return TextScaler.linear((system * app.textScale).clamp(0.8, 2.0));
+}
+
 class FamilyMessengerApp extends StatelessWidget {
   const FamilyMessengerApp({super.key});
 
@@ -62,14 +77,19 @@ class FamilyMessengerApp extends StatelessWidget {
       darkTheme: fmCrimson(),
       themeMode: ThemeMode.dark,
       builder: (context, child) => ListenableBuilder(
-        listenable: app.calls,
-        builder: (context, _) => Stack(
-          children: [
-            ?child,
-            // The call screen sits above the Navigator, so it brings its own
-            // Overlay: tooltips (and anything else that floats) need one.
-            if (app.calls.call != null) Overlay(initialEntries: [OverlayEntry(builder: (_) => const CallScreen())]),
-          ],
+        // `app` is in the list for the text size: it has to reach every
+        // screen, the call screen below included, the moment it is changed.
+        listenable: Listenable.merge([app, app.calls]),
+        builder: (context, _) => MediaQuery(
+          data: MediaQuery.of(context).copyWith(textScaler: _textScaler(context)),
+          child: Stack(
+            children: [
+              ?child,
+              // The call screen sits above the Navigator, so it brings its own
+              // Overlay: tooltips (and anything else that floats) need one.
+              if (app.calls.call != null) Overlay(initialEntries: [OverlayEntry(builder: (_) => const CallScreen())]),
+            ],
+          ),
         ),
       ),
       home: ListenableBuilder(

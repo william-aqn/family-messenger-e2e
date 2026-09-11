@@ -4,6 +4,7 @@ import type { DeviceView } from '../api/types';
 import { wsClient } from '../api/ws';
 import { fingerprint } from '../crypto/fingerprint';
 import { describeError, lang, languages, setLang, t } from '../i18n';
+import { setUiScale, uiScale, uiScales } from '../state/appearance';
 import { serverSettings, serverVersion, session, showToast } from '../state/model';
 import { authBusy, changePassword, keys, logout, MIN_PASSWORD_LENGTH } from '../state/session';
 import { AdminPanel } from './AdminPanel';
@@ -106,6 +107,30 @@ export function Settings({ onClose }: { onClose: () => void }) {
             ))}
           </select>
         </label>
+
+        {/* Buttons and not a <select>: the modal's first one belongs to the
+            language above, and a letter at each size says more than a list. */}
+        <div class="section tight">
+          <div class="row">
+            <span class="field-label grow">{t('text_size')}</span>
+            <span class="note">{Math.round(uiScale.value * 100)}%</span>
+          </div>
+          <div class="size-steps">
+            {uiScales.map((scale) => (
+              <button
+                key={scale}
+                type="button"
+                class={scale === uiScale.value ? 'size-step active' : 'size-step'}
+                style={{ fontSize: `${12 * scale}px` }}
+                aria-pressed={scale === uiScale.value}
+                aria-label={`${Math.round(scale * 100)}%`}
+                onClick={() => setUiScale(scale)}
+              >
+                {t('text_size_sample')}
+              </button>
+            ))}
+          </div>
+        </div>
 
         <div class="section">
           <span class="field-label">{t('devices')}</span>
