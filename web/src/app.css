@@ -1170,12 +1170,6 @@ input[type='file'].hidden-input {
   font-size: 12px;
 }
 
-/* The superseded key when the peer's keys have changed. */
-.fp.old {
-  color: var(--faint);
-  text-decoration: line-through;
-}
-
 /* -----------------------------------------------------------------------------
    15. Utilities
    -------------------------------------------------------------------------- */
@@ -1439,6 +1433,38 @@ input[type='file'].hidden-input {
 .conv-list li:hover,
 .conv-list li.selected {
   background: var(--chrome-3);
+}
+
+/* The row the chat menu belongs to, with the accent rail of W19. */
+.conv-list li.menu-open {
+  background: var(--chrome-3);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+/* "Pinned" / "All chats" over their part of the list. */
+.conv-list li.conv-section {
+  min-height: 0;
+  padding: 12px 20px 4px;
+  font-family: var(--font-form);
+  font-size: 12px;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--on-chrome-muted);
+  cursor: default;
+}
+
+.conv-list li.conv-section:hover {
+  background: none;
+}
+
+/* The pin in the row itself sits just before the time. */
+.conv-row .icon.pinned {
+  color: var(--accent);
+}
+
+/* The chat's menu follows the pointer, so it is placed in the window. */
+.chat-menu {
+  position: fixed;
 }
 
 /* The two lines of a row: [type icon] title [timer] time / preview + unread. */

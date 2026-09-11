@@ -97,7 +97,9 @@ export function MemberPanel({ conv, onClose }: { conv: Conversation; onClose: ()
               </div>
               {c.pendingKeys ? (
                 <>
-                  <code class="fp old">{fingerprint(c.signPub, c.encPub)}</code>
+                  {/* Only the new code (W05): the superseded one was struck
+                      through in a colour too faint to read, and nobody
+                      compares a code that no longer applies. */}
                   <code class="fp">
                     <span class="fp-label">{t('new_keys')}</span> {fingerprint(c.pendingKeys.signPub, c.pendingKeys.encPub)}
                   </code>

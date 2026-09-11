@@ -54,6 +54,20 @@ export const en = {
   new_chat: 'New chat',
   settings: 'Settings',
   no_conversations: 'No conversations yet. Start one with +.',
+
+  // the chat's own menu (W19): pinning and muting are this person's view of
+  // the list and never leave this browser
+  pinned_section: 'Pinned',
+  all_chats_section: 'All chats',
+  chat_actions: 'Chat actions',
+  pin_chat: 'Pin chat',
+  unpin_chat: 'Unpin chat',
+  mute_chat: 'Mute',
+  unmute_chat: 'Unmute',
+  mark_read: 'Mark as read',
+  delete_chat: 'Delete chat',
+  confirm_delete_chat: 'Leave this group?',
+  confirm_clear_chat: 'Remove this chat from your list? The messages stay on the server and the chat comes back with the next message.',
   direct_chat: 'Direct chat',
   group: 'Group',
   you: 'you',

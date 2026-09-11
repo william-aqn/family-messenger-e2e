@@ -23,6 +23,7 @@ import {
   type StoredMessage,
 } from '../store/db';
 import { handleCallSignal } from './calls';
+import { mutedChats, unhideChat } from './chatPrefs';
 import { handleVoiceSignal } from './voice';
 import {
   contacts,
@@ -420,6 +421,8 @@ async function applyStored(msg: StoredMessage): Promise<void> {
   if (msg.sender === s.accountId && msg.seq > next.readSeq) next.readSeq = msg.seq;
   await persistConversation(next);
   if ((p?.t === 'text' || p?.t === 'file') && msg.sender !== s.accountId && msg.seq > conv.readSeq) {
+    // A chat taken off the list comes back with the next message in it (W19).
+    unhideChat(conv.id);
     maybeNotify(next, msg, p.t === 'text' ? p.body : preview);
   }
 }
@@ -495,6 +498,7 @@ async function advanceSilently(convId: string, seq: number): Promise<void> {
 
 function maybeNotify(conv: Conversation, msg: StoredMessage, body: string): void {
   if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+  if (mutedChats.value.has(conv.id)) return;
   if (document.visibilityState === 'visible' && selectedId.value === conv.id) return;
   if (Date.now() - msg.serverTs > 60_000) return; // backfilled history, not a live message
   const from = contacts.value.get(msg.sender)?.username ?? 'New message';

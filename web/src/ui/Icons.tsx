@@ -5,6 +5,7 @@
 export const iconNames = [
   'alert',
   'arrow-left',
+  'bell-off',
   'bot',
   'check',
   'chevron-down',
@@ -57,6 +58,7 @@ export function IconSprite() {
     <svg class="icon-sprite" aria-hidden="true">
       <symbol id="i-alert" viewBox="0 0 24 24"><g><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"></path><path d="M12 9v4"></path><path d="M12 17h.01"></path></g></symbol>
       <symbol id="i-arrow-left" viewBox="0 0 24 24"><g><path d="m12 19-7-7 7-7"></path><path d="M19 12H5"></path></g></symbol>
+      <symbol id="i-bell-off" viewBox="0 0 24 24"><g><path d="M8.7 3A6 6 0 0 1 18 8a21.3 21.3 0 0 0 .6 5"></path><path d="M17 17H3s3-2 3-9a4.67 4.67 0 0 1 .3-1.7"></path><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"></path><path d="m2 2 20 20"></path></g></symbol>
       <symbol id="i-bot" viewBox="0 0 24 24"><g><path d="M12 8V4H8"></path><rect width="16" height="12" x="4" y="8" rx="2"></rect><path d="M2 14h2"></path><path d="M20 14h2"></path><path d="M15 13v2"></path><path d="M9 13v2"></path></g></symbol>
       <symbol id="i-check" viewBox="0 0 24 24"><g><path d="M20 6 9 17l-5-5"></path></g></symbol>
       <symbol id="i-chevron-down" viewBox="0 0 24 24"><g><path d="m6 9 6 6 6-6"></path></g></symbol>

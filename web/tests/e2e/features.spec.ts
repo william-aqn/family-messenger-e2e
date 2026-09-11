@@ -1,7 +1,7 @@
 import { createServer, type Server } from 'node:http';
 import { readFileSync } from 'node:fs';
 import { expect, test } from '@playwright/test';
-import { login, makePng, newContext, openDirect, password, register, run, selectConversation, send } from './helpers';
+import { createGroup, login, makePng, newContext, openDirect, password, register, run, selectConversation, send } from './helpers';
 
 // The first account registered on a fresh server becomes the administrator,
 // so this file runs its admin scenario first (files run alphabetically and
@@ -399,4 +399,41 @@ test('password change: no old password, other devices warned then signed out', a
   await expect(again.getByText(`@${name}`)).toBeVisible({ timeout: 60_000 });
   await again.getByTitle('Settings').click();
   await expect(again.locator('code.fp')).toHaveText(fpBefore!);
+});
+
+test('pinned chats: the sections, the menu and mute survive a reload', async ({ browser }) => {
+  const alice = `palice${run}`;
+  const bob = `pbob${run}`;
+  const carol = `pcarol${run}`;
+  const page = await register(browser, alice, '203.0.113.40');
+  await register(browser, bob, '203.0.113.41');
+  await register(browser, carol, '203.0.113.42');
+  await createGroup(page, 'Barn', [bob]);
+  await createGroup(page, 'Orchard', [carol]);
+  // Nothing is pinned yet, so neither heading is drawn.
+  await expect(page.locator('.conv-section')).toHaveCount(0);
+
+  await page.locator('.conv-list li', { hasText: 'Barn' }).click({ button: 'right' });
+  await expect(page.locator('.chat-menu')).toBeVisible();
+  await page.locator('.chat-menu').getByRole('button', { name: 'Pin chat' }).click();
+  await expect(page.locator('.conv-section')).toHaveText(['Pinned', 'All chats']);
+  // The pinned chat is first, whatever the order of the last messages.
+  await expect(page.locator('.conv-list li.conv-section, .conv-list li .conv-title')).toContainText([
+    'Pinned',
+    'Barn',
+    'All chats',
+    'Orchard',
+  ]);
+
+  await page.locator('.conv-list li', { hasText: 'Orchard' }).click({ button: 'right' });
+  await page.locator('.chat-menu').getByRole('button', { name: 'Mute' }).click();
+  await expect(page.locator('.conv-list li', { hasText: 'Orchard' }).locator('.icon')).toHaveCount(2);
+
+  // Both are this browser's own view of the list, so they outlive a reload.
+  await page.reload();
+  await expect(page.locator('.conv-section')).toHaveText(['Pinned', 'All chats']);
+  await page.locator('.conv-list li', { hasText: 'Barn' }).click({ button: 'right' });
+  await expect(page.locator('.chat-menu').getByRole('button', { name: 'Unpin chat' })).toBeVisible();
+  await page.locator('.chat-menu').getByRole('button', { name: 'Unpin chat' }).click();
+  await expect(page.locator('.conv-section')).toHaveCount(0);
 });
