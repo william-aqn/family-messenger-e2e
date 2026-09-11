@@ -13,6 +13,16 @@ Future<void> joinVoice(BuildContext context, String convId) async {
   if (err != null && context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(t(err))));
 }
 
+Future<void> _toggleCamera(BuildContext context) async {
+  final messenger = ScaffoldMessenger.of(context);
+  final err = await app.voice.toggleCamera();
+  if (err != null) {
+    messenger
+      ..clearSnackBars()
+      ..showSnackBar(SnackBar(content: Text(t(err))));
+  }
+}
+
 Future<void> _toggleShare(BuildContext context) async {
   final ch = app.voice.channel;
   if (ch == null) return;
@@ -39,7 +49,9 @@ class VoicePanel extends StatelessWidget {
         if (ch == null) return const SizedBox.shrink();
         final conv = app.conversations[ch.convId];
         final people = List.of(app.voice.participantsOf(ch.convId))..sort((a, b) => (b.session == ch.session ? 1 : 0) - (a.session == ch.session ? 1 : 0));
-        final streamers = app.voice.streamers();
+        // One tile per participant, plus one for every shared screen: the
+        // number the "Video and screens" button carries.
+        final tileCount = people.length + app.voice.streamers().length;
         final scheme = Theme.of(context).colorScheme;
         return Material(
           // Chrome 2 with the ring on top: the design system's stand-in for
@@ -73,6 +85,12 @@ class VoicePanel extends StatelessWidget {
                           onPressed: app.voice.toggleMute,
                         ),
                         IconButton(
+                          icon: Icon(ch.camera ? LucideIcons.videoOff : LucideIcons.video),
+                          color: ch.camera ? scheme.primary : scheme.onSurface,
+                          tooltip: ch.camera ? t('camera_off') : t('camera_on'),
+                          onPressed: () => _toggleCamera(context),
+                        ),
+                        IconButton(
                           icon: Icon(ch.sharing ? LucideIcons.monitorOff : LucideIcons.monitor),
                           // Active button: the accent, as everywhere else.
                           color: ch.sharing ? scheme.primary : scheme.onSurface,
@@ -90,27 +108,23 @@ class VoicePanel extends StatelessWidget {
                     const SizedBox(height: 10),
                     Padding(
                       padding: const EdgeInsets.only(right: 8),
-                      child: Row(
+                      // One Wrap for the participants and the tiles button
+                      // together: at the larger text sizes the button no
+                      // longer fits beside them and has to move to its own
+                      // line rather than run off the edge.
+                      child: Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
                         children: [
-                          Expanded(
-                            child: Wrap(
-                              spacing: 8,
-                              runSpacing: 8,
-                              children: [
-                                for (final p in people)
-                                  _ParticipantChip(participant: p, state: p.session == ch.session ? null : (ch.peers[p.session] ?? PeerState.connecting)),
-                              ],
-                            ),
-                          ),
-                          if (streamers.isNotEmpty) ...[
-                            const SizedBox(width: 8),
+                          for (final p in people)
+                            _ParticipantChip(participant: p, state: p.session == ch.session ? null : (ch.peers[p.session] ?? PeerState.connecting)),
+                          if (tileCount > 0)
                             _VoiceChip(
-                              icon: LucideIcons.monitor,
-                              label: '${t('voice_screens')} (${streamers.length})',
+                              icon: LucideIcons.video,
+                              label: t('video_and_screens', {'n': tileCount}),
                               selected: true,
                               onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const VoiceScreensPage())),
                             ),
-                          ],
                         ],
                       ),
                     ),
@@ -319,7 +333,8 @@ class VoiceScreensPage extends StatefulWidget {
 }
 
 class _VoiceScreensPageState extends State<VoiceScreensPage> {
-  String? _focus;
+  /// The tile on the stage in speaker mode, by its renderer key.
+  String? _pinned;
 
   @override
   Widget build(BuildContext context) {
@@ -327,12 +342,16 @@ class _VoiceScreensPageState extends State<VoiceScreensPage> {
       listenable: app.voice,
       builder: (context, _) {
         final scheme = Theme.of(context).colorScheme;
-        final streamers = app.voice.streamers();
-        // A focused streamer who stopped falls back to the grid.
-        final focused = streamers.any((p) => p.session == _focus) ? _focus : null;
-        final shown = focused == null ? streamers : streamers.where((p) => p.session == focused).toList();
+        final tiles = _tiles();
+        // A pinned tile that went away falls back to the grid.
+        final pinned = tiles.any((x) => x.key == _pinned) ? _pinned : null;
+        final stage = pinned == null ? null : tiles.firstWhere((x) => x.key == pinned);
+        final rest = pinned == null ? tiles : tiles.where((x) => x.key != pinned).toList();
+        final screens = tiles.where((x) => x.screen).length;
+        final cameras = tiles.where((x) => !x.screen && x.live).length;
         final wide = MediaQuery.sizeOf(context).width > 900;
         final sharing = app.voice.channel?.sharing == true;
+        final cameraOn = app.voice.channel?.camera == true;
         final gap = wide ? 16.0 : 12.0;
         return Scaffold(
           backgroundColor: context.fm.chrome,
@@ -344,6 +363,12 @@ class _VoiceScreensPageState extends State<VoiceScreensPage> {
             ),
             title: Text(t('voice_screens')),
             actions: [
+              IconButton(
+                icon: Icon(cameraOn ? LucideIcons.videoOff : LucideIcons.video),
+                color: cameraOn ? scheme.primary : scheme.onSurface,
+                tooltip: cameraOn ? t('camera_off') : t('camera_on'),
+                onPressed: () => _toggleCamera(context),
+              ),
               // Wide windows get the labelled secondary button of the design,
               // phones the icon button.
               if (wide)
@@ -370,7 +395,7 @@ class _VoiceScreensPageState extends State<VoiceScreensPage> {
                 ),
             ],
           ),
-          body: streamers.isEmpty
+          body: tiles.isEmpty
               ? Center(
                   child: Padding(
                     padding: const EdgeInsets.all(24),
@@ -379,38 +404,46 @@ class _VoiceScreensPageState extends State<VoiceScreensPage> {
                 )
               : Column(
                   children: [
-                    SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
+                    Padding(
                       padding: EdgeInsets.fromLTRB(wide ? 24 : 16, 12, wide ? 24 : 16, 4),
                       child: Row(
                         children: [
-                          _VoiceChip(label: t('voice_all_screens'), selected: focused == null, onTap: () => setState(() => _focus = null)),
-                          for (final p in streamers) ...[
-                            const SizedBox(width: 8),
-                            _VoiceChip(
-                              icon: LucideIcons.monitor,
-                              label: app.usernameOf(p.account),
-                              selected: focused == p.session,
-                              onTap: () => setState(() => _focus = p.session),
-                            ),
-                          ],
+                          _VoiceChip(label: t('grid_mode'), selected: pinned == null, onTap: () => setState(() => _pinned = null)),
+                          const SizedBox(width: 8),
+                          _VoiceChip(
+                            label: t('speaker_mode'),
+                            selected: pinned != null,
+                            onTap: () => setState(() => _pinned = pinned ?? tiles.firstWhere((x) => x.live, orElse: () => tiles.first).key),
+                          ),
+                          const Spacer(),
+                          Icon(LucideIcons.monitor, size: 16, color: scheme.onSurfaceVariant),
+                          const SizedBox(width: 4),
+                          Text('$screens', style: Theme.of(context).textTheme.bodySmall),
+                          const SizedBox(width: 8),
+                          Icon(LucideIcons.video, size: 16, color: scheme.onSurfaceVariant),
+                          const SizedBox(width: 4),
+                          Text('$cameras', style: Theme.of(context).textTheme.bodySmall),
                         ],
                       ),
                     ),
+                    if (stage != null)
+                      Padding(
+                        padding: EdgeInsets.fromLTRB(wide ? 24 : 16, gap, wide ? 24 : 16, 0),
+                        child: AspectRatio(
+                          aspectRatio: 16 / 9,
+                          child: _VoiceTile(tile: stage, pinned: true, onPin: () => setState(() => _pinned = null)),
+                        ),
+                      ),
                     Expanded(
                       child: GridView.count(
-                        crossAxisCount: focused != null || !wide ? 1 : 2,
+                        crossAxisCount: wide ? 3 : 2,
                         childAspectRatio: 16 / 9,
                         padding: EdgeInsets.fromLTRB(wide ? 24 : 16, gap, wide ? 24 : 16, wide ? 24 : 16),
                         mainAxisSpacing: gap,
                         crossAxisSpacing: gap,
                         children: [
-                          for (final p in shown)
-                            _ScreenTile(
-                              name: app.usernameOf(p.account),
-                              renderer: app.voice.renderers[p.session],
-                              onTap: () => setState(() => _focus = focused == null ? p.session : null),
-                            ),
+                          for (final tile in rest)
+                            _VoiceTile(tile: tile, pinned: false, onPin: () => setState(() => _pinned = tile.key)),
                         ],
                       ),
                     ),
@@ -420,51 +453,160 @@ class _VoiceScreensPageState extends State<VoiceScreensPage> {
       },
     );
   }
+
+  /// Every participant is a tile whether or not their camera is on, and every
+  /// shared screen is a tile of its own.
+  List<_Tile> _tiles() {
+    final ch = app.voice.channel;
+    if (ch == null) return const [];
+    final out = <_Tile>[];
+    for (final p in app.voice.participantsOf(ch.convId)) {
+      final self = p.session == ch.session;
+      final key = self ? VoiceController.selfTile : VoiceController.tileKey(p.session, screen: false);
+      out.add(_Tile(
+        key: key,
+        name: self ? (app.session?.username ?? '') : app.usernameOf(p.account),
+        screen: false,
+        self: self,
+        muted: p.muted,
+        live: self ? ch.camera : p.camera,
+        renderer: app.voice.renderers[key],
+      ));
+      // Our own screen is not looped back: the machine is already showing it.
+      if (p.sharing && !self) {
+        final screenKey = VoiceController.tileKey(p.session, screen: true);
+        out.add(_Tile(
+          key: screenKey,
+          name: app.usernameOf(p.account),
+          screen: true,
+          self: false,
+          muted: p.muted,
+          live: true,
+          renderer: app.voice.renderers[screenKey],
+        ));
+      }
+    }
+    return out;
+  }
+
+  Future<void> _toggleCamera(BuildContext context) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final error = await app.voice.toggleCamera();
+    if (error != null) {
+      messenger
+        ..clearSnackBars()
+        ..showSnackBar(SnackBar(content: Text(t(error))));
+    }
+  }
 }
 
-/// One 16:9 tile: the screen itself or the waiting placeholder, with the name
-/// plate in the bottom left corner.
-class _ScreenTile extends StatelessWidget {
-  const _ScreenTile({required this.name, required this.renderer, required this.onTap});
+/// One track of the channel: somebody's camera, or somebody's screen.
+class _Tile {
+  const _Tile({
+    required this.key,
+    required this.name,
+    required this.screen,
+    required this.self,
+    required this.muted,
+    required this.live,
+    required this.renderer,
+  });
 
+  final String key;
   final String name;
+  final bool screen;
+  final bool self;
+  final bool muted;
+
+  /// The track is carrying frames — the camera or the screen is on.
+  final bool live;
   final RTCVideoRenderer? renderer;
-  final VoidCallback onTap;
+}
+
+/// One 16:9 tile: a camera, a screen, or the initial of somebody who has
+/// neither on, with the name plate in the bottom left corner and the pin in
+/// the top right.
+class _VoiceTile extends StatelessWidget {
+  const _VoiceTile({required this.tile, required this.pinned, required this.onPin});
+
+  final _Tile tile;
+  final bool pinned;
+  final VoidCallback onPin;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final r = renderer;
+    final r = tile.renderer;
+    final live = tile.live && r != null;
     return GestureDetector(
-      onTap: onTap,
+      onTap: onPin,
       child: ClipRRect(
         borderRadius: BorderRadius.circular(fmRadius),
-        child: ColoredBox(
-          color: scheme.surfaceContainerHighest,
+        child: Container(
+          decoration: BoxDecoration(
+            color: live ? context.fm.chrome : scheme.surfaceContainerHigh,
+            border: tile.self
+                ? Border.all(color: scheme.primary, width: 2)
+                : pinned
+                    ? Border.all(color: scheme.primary.withValues(alpha: .5), width: 2)
+                    : null,
+          ),
           child: Stack(
             fit: StackFit.expand,
             children: [
-              if (r != null)
-                RTCVideoView(r, objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitContain)
+              if (live)
+                RTCVideoView(r, mirror: tile.self, objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitContain)
+              else if (tile.screen)
+                Center(child: Text(t('voice_waiting_video'), style: Theme.of(context).textTheme.bodyMedium))
               else
-                Center(child: Text(t('voice_waiting_video'), style: Theme.of(context).textTheme.bodyMedium)),
+                Center(
+                  child: Container(
+                    width: 56,
+                    height: 56,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(color: context.fm.chrome, shape: BoxShape.circle),
+                    child: Text(
+                      tile.name.isEmpty ? '?' : tile.name.substring(0, 1).toUpperCase(),
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(fontSize: 22, color: scheme.primary),
+                    ),
+                  ),
+                ),
               Positioned(
                 left: 12,
                 bottom: 10,
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                   decoration: BoxDecoration(
-                    color: context.fm.chrome.withValues(alpha: .85),
+                    color: context.fm.chrome.withValues(alpha: .9),
                     borderRadius: BorderRadius.circular(fmRadius),
                   ),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
+                    spacing: 6,
                     children: [
-                      Icon(LucideIcons.monitor, size: 12, color: scheme.onSurface),
-                      const SizedBox(width: 6),
-                      Text(name, style: Theme.of(context).textTheme.labelSmall!.copyWith(fontSize: 13, color: scheme.onSurface)),
+                      if (tile.screen) Icon(LucideIcons.monitor, size: 12, color: scheme.primary),
+                      Text(
+                        tile.screen ? t('screen_of', {'name': tile.name}) : (tile.self ? '${tile.name} (${t('you')})' : tile.name),
+                        style: Theme.of(context).textTheme.labelSmall!.copyWith(fontSize: 13, color: scheme.onSurface),
+                      ),
+                      if (!tile.screen && tile.muted) Icon(LucideIcons.micOff, size: 12, color: scheme.onSurfaceVariant),
+                      if (!tile.screen && !live) Icon(LucideIcons.videoOff, size: 12, color: scheme.onSurfaceVariant),
                     ],
                   ),
+                ),
+              ),
+              Positioned(
+                right: 8,
+                top: 8,
+                child: IconButton(
+                  icon: Icon(LucideIcons.pin, size: 14, color: pinned ? scheme.primary : scheme.onSurface),
+                  tooltip: pinned ? t('unpin_tile') : t('pin_tile'),
+                  style: IconButton.styleFrom(
+                    backgroundColor: context.fm.chrome.withValues(alpha: .9),
+                    minimumSize: const Size(28, 28),
+                    padding: EdgeInsets.zero,
+                  ),
+                  onPressed: onPin,
                 ),
               ),
             ],

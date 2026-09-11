@@ -18,7 +18,15 @@ import 'call_controller.dart';
 enum PeerState { connecting, connected, failed }
 
 class VoiceParticipant {
-  VoiceParticipant({required this.session, required this.account, required this.device, required this.muted, required this.sharing, required this.seen});
+  VoiceParticipant({
+    required this.session,
+    required this.account,
+    required this.device,
+    required this.muted,
+    required this.sharing,
+    required this.seen,
+    this.camera = false,
+  });
 
   final String session;
   final String account;
@@ -26,6 +34,8 @@ class VoiceParticipant {
   bool muted;
   /// Streaming their screen (from the join/here/share signals).
   bool sharing;
+  /// Camera on (from the join/here/camera signals).
+  bool camera;
   /// Last join or heartbeat, ms since epoch.
   int seen;
 }
@@ -38,6 +48,8 @@ class VoiceChannel {
   final String session;
   bool muted = false;
   bool sharing = false;
+  /// This device's camera is on.
+  bool camera = false;
   /// Connection state per remote session.
   final Map<String, PeerState> peers = {};
 }
@@ -46,7 +58,16 @@ class _Peer {
   _Peer(this.pc);
 
   final RTCPeerConnection pc;
-  RTCRtpTransceiver? videoTx;
+
+  /// The pair's two video slots, in the order both sides negotiate them:
+  /// camera first, screen second.
+  RTCRtpTransceiver? cameraTx;
+  RTCRtpTransceiver? screenTx;
+
+  /// How many remote video tracks have arrived. The order of arrival is the
+  /// slot: asking the peer connection for its transceivers inside onTrack
+  /// aborts the process on Android (see CallController._storeRemoteVideo).
+  int videoTracksSeen = 0;
   final List<Map<String, dynamic>> queued = [];
   final List<Map<String, dynamic>> outgoing = [];
   Timer? flush;
@@ -65,9 +86,17 @@ class VoiceController extends ChangeNotifier {
   /// Who is in which group's channel, by conversation id (from voice.* signals).
   final Map<String, List<VoiceParticipant>> rooms = {};
 
-  /// Video of every connected peer, by session; it shows frames only while
-  /// that peer is sharing its screen.
+  /// A renderer per tile: `<session>:camera`, `<session>:screen` for the
+  /// peers, and "self:camera" for this device's own camera. A slot is
+  /// negotiated up front and shows frames only once that peer turns the
+  /// camera or the screen on.
   final Map<String, RTCVideoRenderer> renderers = {};
+
+  /// The key under which [renderers] holds one tile's video.
+  static String tileKey(String session, {required bool screen}) => '$session:${screen ? 'screen' : 'camera'}';
+
+  /// This device's own camera tile.
+  static const String selfTile = 'self:camera';
 
   static const _heartbeat = Duration(seconds: 20);
   static const _expireMs = 65000;
@@ -77,6 +106,7 @@ class VoiceController extends ChangeNotifier {
   final Set<String> _connecting = {};
   MediaStream? _local;
   MediaStream? _screen;
+  MediaStream? _camera;
   Timer? _heartbeatTimer;
   Timer? _pruneTimer;
   List<Map<String, dynamic>> _ice = [];
@@ -102,7 +132,8 @@ class VoiceController extends ChangeNotifier {
     }
   }
 
-  Map<String, dynamic> _presence() => {'t': 'voice.here', 'session': channel!.session, 'muted': channel!.muted, 'sharing': channel!.sharing};
+  Map<String, dynamic> _presence() =>
+      {'t': 'voice.here', 'session': channel!.session, 'muted': channel!.muted, 'sharing': channel!.sharing, 'camera': channel!.camera};
 
   void _setParticipant(String convId, VoiceParticipant p) {
     final list = rooms.putIfAbsent(convId, () => []);
@@ -125,7 +156,18 @@ class VoiceController extends ChangeNotifier {
     final ch = channel;
     final me = app.session;
     if (ch == null || me == null) return;
-    _setParticipant(ch.convId, VoiceParticipant(session: ch.session, account: me.accountId, device: me.deviceId, muted: ch.muted, sharing: ch.sharing, seen: _now()));
+    _setParticipant(
+      ch.convId,
+      VoiceParticipant(
+        session: ch.session,
+        account: me.accountId,
+        device: me.deviceId,
+        muted: ch.muted,
+        sharing: ch.sharing,
+        camera: ch.camera,
+        seen: _now(),
+      ),
+    );
   }
 
   Future<void> _refreshIce() async {
@@ -233,7 +275,7 @@ class VoiceController extends ChangeNotifier {
       final track = stream.getVideoTracks().first;
       _screen = stream;
       for (final p in _peers.values) {
-        final tx = p.videoTx;
+        final tx = p.screenTx;
         if (tx == null) continue;
         try {
           await tx.sender.replaceTrack(track);
@@ -256,7 +298,7 @@ class VoiceController extends ChangeNotifier {
     final screen = _screen;
     _screen = null;
     for (final p in _peers.values) {
-      final tx = p.videoTx;
+      final tx = p.screenTx;
       if (tx == null) continue;
       try {
         await tx.sender.replaceTrack(null);
@@ -294,8 +336,8 @@ class VoiceController extends ChangeNotifier {
     notifyListeners();
   }
 
-  void _dropRenderer(String remote) {
-    final r = renderers.remove(remote);
+  void _dropRenderer(String key) {
+    final r = renderers.remove(key);
     if (r == null) return;
     r.srcObject = null;
     unawaited(r.dispose());
@@ -308,7 +350,8 @@ class VoiceController extends ChangeNotifier {
     p.closed = true;
     p.flush?.cancel();
     unawaited(p.pc.close());
-    _dropRenderer(session);
+    _dropRenderer(tileKey(session, screen: false));
+    _dropRenderer(tileKey(session, screen: true));
     _setPeerState(session, null);
   }
 
@@ -327,9 +370,12 @@ class VoiceController extends ChangeNotifier {
     // Remote audio plays through the platform automatically; video goes to a renderer.
     pc.onTrack = (RTCTrackEvent event) {
       if (event.track.kind != 'video') return;
+      // The order of arrival is the slot; the transceivers must not be asked
+      // for here (it aborts the process on Android).
+      final bool screen = peer.videoTracksSeen++ == 1;
       unawaited(() async {
-        final stream = await remoteStreamFor(event, 'voice-$remote');
-        if (stream != null && _peers[remote] == peer) await _attachRenderer(remote, stream);
+        final stream = await remoteStreamFor(event, 'voice-$remote-${screen ? 'screen' : 'camera'}');
+        if (stream != null && _peers[remote] == peer) await _attachRenderer(tileKey(remote, screen: screen), stream);
       }());
     };
     pc.onIceCandidate = (RTCIceCandidate c) {
@@ -364,33 +410,98 @@ class VoiceController extends ChangeNotifier {
     return peer;
   }
 
-  /// The pair's video transceiver: negotiated once, fed with the screen track
-  /// while sharing. The mic stream is announced as the track's stream so the
-  /// m-line carries an msid and receivers get the track inside a stream.
+  /// The pair's two video slots, negotiated once in the order the web client
+  /// uses — camera first, screen second — and fed with whichever track is on.
+  /// The mic stream is announced for each so the m-line carries an msid and
+  /// receivers get the track inside a stream.
   Future<void> _ensureVideo(_Peer peer) async {
-    var tx = peer.videoTx;
-    if (tx == null) {
-      for (final candidate in await peer.pc.getTransceivers()) {
-        if (candidate.receiver.track?.kind == 'video') {
-          tx = candidate;
-          await tx.setDirection(TransceiverDirection.SendRecv);
-          // Created from a remote offer: announce the mic stream for the track ("msid:-" otherwise).
-          if (_local != null) {
-            try {
-              await tx.sender.setStreams([_local!]);
-            } catch (_) {}
-          }
-          break;
+    if (peer.cameraTx == null || peer.screenTx == null) {
+      final List<RTCRtpTransceiver> videos = [
+        for (final candidate in await peer.pc.getTransceivers())
+          if (candidate.receiver.track?.kind == 'video') candidate,
+      ];
+      for (final tx in videos) {
+        await tx.setDirection(TransceiverDirection.SendRecv);
+        // Created from a remote offer: announce the mic stream ("msid:-" otherwise).
+        if (_local != null) {
+          try {
+            await tx.sender.setStreams([_local!]);
+          } catch (_) {}
         }
       }
-      tx ??= await peer.pc.addTransceiver(
-        kind: RTCRtpMediaType.RTCRtpMediaTypeVideo,
-        init: RTCRtpTransceiverInit(direction: TransceiverDirection.SendRecv, streams: [?_local]),
-      );
-      peer.videoTx = tx;
+      while (videos.length < 2) {
+        videos.add(await peer.pc.addTransceiver(
+          kind: RTCRtpMediaType.RTCRtpMediaTypeVideo,
+          init: RTCRtpTransceiverInit(direction: TransceiverDirection.SendRecv, streams: [?_local]),
+        ));
+      }
+      peer.cameraTx = videos[0];
+      peer.screenTx = videos[1];
     }
-    final track = _screen?.getVideoTracks().firstOrNull;
-    if (track != null) await tx.sender.replaceTrack(track);
+    final cam = _camera?.getVideoTracks().firstOrNull;
+    if (cam != null) await peer.cameraTx!.sender.replaceTrack(cam);
+    final scr = _screen?.getVideoTracks().firstOrNull;
+    if (scr != null) await peer.screenTx!.sender.replaceTrack(scr);
+  }
+
+  /// Shows this camera to every participant. Returns a translation key on
+  /// failure, null on success.
+  Future<String?> startCamera() async {
+    final ch = channel;
+    if (ch == null || ch.camera) return null;
+    try {
+      final stream = await navigator.mediaDevices.getUserMedia({
+        'audio': false,
+        'video': {'width': 640, 'height': 360, 'facingMode': 'user'},
+      });
+      final track = stream.getVideoTracks().first;
+      _camera = stream;
+      await _attachRenderer(selfTile, stream);
+      for (final p in _peers.values) {
+        final tx = p.cameraTx;
+        if (tx == null) continue;
+        try {
+          await tx.sender.replaceTrack(track);
+        } catch (_) {}
+      }
+      ch.camera = true;
+      _updateSelf();
+      await _signal(ch.convId, {'t': 'voice.camera', 'session': ch.session, 'on': true});
+      notifyListeners();
+      return null;
+    } catch (e) {
+      debugPrint('voice camera failed: $e');
+      return 'camera_failed';
+    }
+  }
+
+  Future<void> stopCamera() async {
+    final ch = channel;
+    final wasOn = _camera != null || (ch?.camera ?? false);
+    final camera = _camera;
+    _camera = null;
+    _dropRenderer(selfTile);
+    for (final p in _peers.values) {
+      final tx = p.cameraTx;
+      if (tx == null) continue;
+      try {
+        await tx.sender.replaceTrack(null);
+      } catch (_) {}
+    }
+    await _dispose(camera);
+    if (ch == null) return;
+    ch.camera = false;
+    _updateSelf();
+    notifyListeners();
+    if (wasOn) await _signal(ch.convId, {'t': 'voice.camera', 'session': ch.session, 'on': false});
+  }
+
+  Future<String?> toggleCamera() async {
+    if (channel?.camera ?? false) {
+      await stopCamera();
+      return null;
+    }
+    return startCamera();
   }
 
   void _maybeConnect(VoiceParticipant p) {
@@ -499,7 +610,15 @@ class VoiceController extends ChangeNotifier {
     switch (payload['t']) {
       case 'voice.join':
       case 'voice.here':
-        final p = VoiceParticipant(session: session, account: sender, device: senderDevice, muted: payload['muted'] == true, sharing: payload['sharing'] == true, seen: _now());
+        final p = VoiceParticipant(
+          session: session,
+          account: sender,
+          device: senderDevice,
+          muted: payload['muted'] == true,
+          sharing: payload['sharing'] == true,
+          camera: payload['camera'] == true,
+          seen: _now(),
+        );
         _setParticipant(convId, p);
         if (payload['t'] == 'voice.join' && here) unawaited(_signal(convId, _presence())); // tell the newcomer we are here
         if (here) _maybeConnect(p);
@@ -507,6 +626,14 @@ class VoiceController extends ChangeNotifier {
         for (final p in participantsOf(convId)) {
           if (p.session == session) {
             p.sharing = payload['on'] == true;
+            p.seen = _now();
+            notifyListeners();
+          }
+        }
+      case 'voice.camera':
+        for (final p in participantsOf(convId)) {
+          if (p.session == session) {
+            p.camera = payload['on'] == true;
             p.seen = _now();
             notifyListeners();
           }
