@@ -48,6 +48,9 @@ class _HomeScreenState extends State<HomeScreen> {
   /// phone layout pushes a route instead and never sets this.
   String? _selected;
 
+  /// The chat whose actions sheet is open; its row wears the accent rail (A22).
+  String? _menuFor;
+
   @override
   Widget build(BuildContext context) {
     final bool twoPane = MediaQuery.sizeOf(context).width >= _twoPaneWidth;
@@ -56,7 +59,7 @@ class _HomeScreenState extends State<HomeScreen> {
       // of the conversation list in both layouts.
       listenable: Listenable.merge(<Listenable>[app, app.search, updater]),
       builder: (BuildContext context, _) {
-        final List<Conversation> list = app.sortedConversations;
+        final List<Conversation> list = app.listedConversations;
         // A conversation that was left or removed must not stay in the pane.
         final Conversation? open = _selected == null ? null : app.conversations[_selected];
         final String? selectedId = open == null || open.removed ? null : open.id;
@@ -240,21 +243,126 @@ class _HomeScreenState extends State<HomeScreen> {
   // ───── list ──────────────────────────────────────────────────────────────
 
   /// Rows are 76 high on a phone and 72 in the desktop column (A02 / X01).
+  /// Pinned chats come first under their own heading; the headings appear
+  /// only once something is pinned (A22).
   Widget _list(BuildContext context, List<Conversation> list, {required bool twoPane, String? selectedId}) {
     if (list.isEmpty) return _empty(context);
+    final int pinned = list.where((Conversation c) => app.pinnedChats.contains(c.id)).length;
+    final bool sections = pinned > 0 && pinned < list.length;
+    // One entry per row, with a heading spliced in where a section starts.
+    final List<Object> entries = <Object>[
+      if (sections) t('pinned_section'),
+      ...list.take(sections ? pinned : list.length),
+      if (sections) t('all_chats_section'),
+      if (sections) ...list.skip(pinned),
+    ];
     return ListView.builder(
       padding: const EdgeInsets.symmetric(vertical: 4),
-      itemCount: list.length,
+      itemCount: entries.length,
       itemBuilder: (BuildContext context, int i) {
-        final Conversation c = list[i];
+        final Object entry = entries[i];
+        if (entry is String) return _SectionLabel(label: entry);
+        final Conversation c = entry as Conversation;
         return _ConversationRow(
           conv: c,
           compact: twoPane,
           selected: c.id == selectedId,
+          marked: _menuFor == c.id,
           onTap: () => _open(context, c.id, twoPane: twoPane),
+          onLongPress: () => _showChatActions(context, c),
         );
       },
     );
+  }
+
+  /// A22: the chat's own actions, on a long press (or a right click) in the
+  /// list. Pinning and muting stay on this device; the rest is the same work
+  /// the chat screen does.
+  Future<void> _showChatActions(BuildContext context, Conversation conv) async {
+    final bool pinned = app.pinnedChats.contains(conv.id);
+    final bool muted = app.mutedChats.contains(conv.id);
+    setState(() => _menuFor = conv.id);
+    await showModalBottomSheet<void>(
+      context: context,
+      builder: (BuildContext sheet) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: <Widget>[
+            const _SheetHandle(),
+            // "@sergey · Direct" for a person, the plain name for a group.
+            _SheetCaption(conv.isGroup ? '${app.titleOf(conv)} · ${t('group')}' : '@${app.titleOf(conv)} · ${t('direct')}'),
+            _ChatAction(
+              icon: LucideIcons.pin,
+              label: t(pinned ? 'unpin_chat' : 'pin_chat'),
+              onTap: () {
+                Navigator.pop(sheet);
+                unawaited(app.togglePinned(conv.id));
+              },
+            ),
+            _ChatAction(
+              icon: muted ? LucideIcons.bell : LucideIcons.bellOff,
+              label: t(muted ? 'unmute_chat' : 'mute_chat'),
+              onTap: () {
+                Navigator.pop(sheet);
+                unawaited(app.toggleMuted(conv.id));
+              },
+            ),
+            _ChatAction(
+              icon: LucideIcons.check,
+              label: t('mark_read'),
+              enabled: conv.lastSeq > conv.readSeq,
+              onTap: () {
+                Navigator.pop(sheet);
+                unawaited(app.markRead(conv.id));
+              },
+            ),
+            _ChatAction(
+              icon: LucideIcons.trash2,
+              label: t('delete_chat'),
+              danger: true,
+              onTap: () {
+                Navigator.pop(sheet);
+                unawaited(_confirmDeleteChat(context, conv));
+              },
+            ),
+            const SizedBox(height: 16),
+          ],
+        ),
+      ),
+    );
+    if (mounted) setState(() => _menuFor = null);
+  }
+
+  /// Leaving a group is on the server; a direct chat, which the server has no
+  /// notion of leaving, only goes off this list.
+  Future<void> _confirmDeleteChat(BuildContext context, Conversation conv) async {
+    final bool group = conv.isGroup;
+    final bool? ok = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext dialog) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(fmRadius)),
+        content: Text(t(group ? 'confirm_delete_chat' : 'confirm_clear_chat')),
+        actions: <Widget>[
+          TextButton(onPressed: () => Navigator.pop(dialog, false), child: Text(t('cancel'))),
+          TextButton(
+            onPressed: () => Navigator.pop(dialog, true),
+            child: Text(t('delete_chat'), style: TextStyle(color: Theme.of(dialog).colorScheme.error)),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    if (_selected == conv.id) setState(() => _selected = null);
+    if (group) {
+      try {
+        await app.leave(conv.id);
+      } catch (e) {
+        if (mounted) ScaffoldMessenger.of(this.context).showSnackBar(SnackBar(content: Text('$e')));
+      }
+    } else {
+      await app.hideChat(conv.id);
+    }
   }
 
   /// A03: nothing to show yet.
@@ -1057,12 +1165,23 @@ class _LinkButton extends StatelessWidget {
 /// the type icon, the title with the disappearing-messages timer, the time,
 /// the preview and the unread badge. No avatar: the design draws none.
 class _ConversationRow extends StatelessWidget {
-  const _ConversationRow({required this.conv, required this.compact, required this.selected, required this.onTap});
+  const _ConversationRow({
+    required this.conv,
+    required this.compact,
+    required this.selected,
+    required this.onTap,
+    this.marked = false,
+    this.onLongPress,
+  });
 
   final Conversation conv;
   final bool compact;
   final bool selected;
   final VoidCallback onTap;
+
+  /// The actions sheet is open for this row.
+  final bool marked;
+  final VoidCallback? onLongPress;
 
   /// AppState marks a direct bot chat with an emoji in the title; the row
   /// draws a Lucide icon instead, so the prefix goes.
@@ -1078,14 +1197,16 @@ class _ConversationRow extends StatelessWidget {
     final String title = app.titleOf(conv).replaceFirst(_botPrefix, '');
     final String time = _rowTime(conv.updatedAt);
     return Material(
-      color: selected ? scheme.surfaceContainerHigh : Colors.transparent,
+      color: selected || marked ? scheme.surfaceContainerHigh : Colors.transparent,
       animationDuration: _fade,
       child: InkWell(
         onTap: onTap,
+        onLongPress: onLongPress,
         hoverColor: scheme.surfaceContainerHigh,
         child: Container(
           constraints: BoxConstraints(minHeight: compact ? 72 : 76),
           padding: EdgeInsets.symmetric(horizontal: 16, vertical: compact ? 12 : 14),
+          decoration: marked ? BoxDecoration(border: Border(left: BorderSide(color: scheme.primary, width: 2))) : null,
           child: Column(
             mainAxisSize: MainAxisSize.min,
             mainAxisAlignment: MainAxisAlignment.center,
@@ -1098,9 +1219,17 @@ class _ConversationRow extends StatelessWidget {
                     const SizedBox(width: 8),
                   ],
                   Expanded(child: Text(title, style: theme.textTheme.titleMedium, maxLines: 1, overflow: TextOverflow.ellipsis)),
+                  if (app.mutedChats.contains(conv.id)) ...<Widget>[
+                    const SizedBox(width: 8),
+                    Icon(LucideIcons.bellOff, size: 16, color: scheme.onSurfaceVariant),
+                  ],
                   if (conv.retentionSeconds > 0) ...<Widget>[
                     const SizedBox(width: 8),
                     Icon(LucideIcons.timer, size: 16, color: scheme.onSurfaceVariant),
+                  ],
+                  if (app.pinnedChats.contains(conv.id)) ...<Widget>[
+                    const SizedBox(width: 8),
+                    Icon(LucideIcons.pin, size: 16, color: scheme.primary),
                   ],
                   if (time.isNotEmpty) ...<Widget>[
                     const SizedBox(width: 8),
@@ -1116,6 +1245,79 @@ class _ConversationRow extends StatelessWidget {
                 ],
               ),
             ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// "Pinned" / "All chats" over their part of the list (A22).
+class _SectionLabel extends StatelessWidget {
+  const _SectionLabel({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+      child: Text(
+        label.toUpperCase(),
+        style: theme.textTheme.labelSmall?.copyWith(letterSpacing: .04 * 11, color: theme.colorScheme.onSurfaceVariant),
+      ),
+    );
+  }
+}
+
+/// The caption over a sheet's rows ("@sergey · Direct chat").
+class _SheetCaption extends StatelessWidget {
+  const _SheetCaption(this.label);
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 8, 20, 4),
+      child: Text(label, style: theme.inputDecorationTheme.helperStyle?.copyWith(fontSize: 13)),
+    );
+  }
+}
+
+/// One row of the chat's actions sheet: 56px with its icon (A07).
+class _ChatAction extends StatelessWidget {
+  const _ChatAction({required this.icon, required this.label, required this.onTap, this.danger = false, this.enabled = true});
+
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+  final bool danger;
+  final bool enabled;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final ColorScheme scheme = theme.colorScheme;
+    final Color colour = danger ? scheme.error : scheme.onSurface;
+    return Opacity(
+      opacity: enabled ? 1 : .4,
+      child: InkWell(
+        onTap: enabled ? onTap : null,
+        hoverColor: scheme.surfaceContainerHigh,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 56),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+            child: Row(
+              spacing: 16,
+              children: <Widget>[
+                Icon(icon, size: 20, color: danger ? scheme.error : scheme.primary),
+                Expanded(child: Text(label, style: theme.textTheme.bodyLarge?.copyWith(color: colour))),
+              ],
+            ),
           ),
         ),
       ),

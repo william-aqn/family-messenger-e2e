@@ -162,6 +162,14 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     notifyListeners();
   }
 
+  /// Chats this person keeps at the top of the list, silences, or has taken
+  /// off it. All three are this device's own view of the list (W19/A22): the
+  /// server never hears about them and the other side cannot tell, so they
+  /// live in local storage under a key of this account's own.
+  final Set<String> pinnedChats = {};
+  final Set<String> mutedChats = {};
+  final Set<String> hiddenChats = {};
+
   final Map<String, Contact> contacts = {};
   final Map<String, Conversation> conversations = {};
   final Map<String, List<Message>> messages = {};
@@ -171,6 +179,64 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   bool get signedIn => session != null && keys != null && api != null;
 
   List<Conversation> get sortedConversations => conversations.values.where((c) => !c.removed).toList()..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+
+  /// The list as the chat list draws it: pinned chats first, in their own
+  /// order, and the ones taken off the list left out.
+  List<Conversation> get listedConversations {
+    final all = sortedConversations.where((c) => !hiddenChats.contains(c.id));
+    return [
+      ...all.where((c) => pinnedChats.contains(c.id)),
+      ...all.where((c) => !pinnedChats.contains(c.id)),
+    ];
+  }
+
+  String get _chatPrefsKey => 'chats.${session!.accountId}';
+
+  Future<void> _loadChatPrefs() async {
+    for (final set in [pinnedChats, mutedChats, hiddenChats]) {
+      set.clear();
+    }
+    if (!persist || session == null) return;
+    try {
+      final raw = await _storage.read(key: _chatPrefsKey);
+      if (raw == null) return;
+      final json = jsonDecode(raw) as Map<String, dynamic>;
+      for (final e in {'pinned': pinnedChats, 'muted': mutedChats, 'hidden': hiddenChats}.entries) {
+        e.value.addAll(((json[e.key] as List<dynamic>?) ?? const []).cast<String>());
+      }
+    } catch (e) {
+      debugPrint('chat settings unreadable: $e');
+    }
+    notifyListeners();
+  }
+
+  Future<void> _saveChatPrefs() async {
+    notifyListeners();
+    if (!persist || session == null) return;
+    try {
+      await _storage.write(
+        key: _chatPrefsKey,
+        value: jsonEncode({'pinned': pinnedChats.toList(), 'muted': mutedChats.toList(), 'hidden': hiddenChats.toList()}),
+      );
+    } catch (e) {
+      debugPrint('chat settings not saved: $e');
+    }
+  }
+
+  Future<void> togglePinned(String convId) => _toggle(pinnedChats, convId);
+  Future<void> toggleMuted(String convId) => _toggle(mutedChats, convId);
+
+  /// Takes a direct chat off this list; the next message in it brings it back.
+  Future<void> hideChat(String convId) => _toggle(hiddenChats, convId, on: true);
+
+  Future<void> _toggle(Set<String> set, String convId, {bool? on}) {
+    if (on ?? !set.contains(convId)) {
+      set.add(convId);
+    } else {
+      set.remove(convId);
+    }
+    return _saveChatPrefs();
+  }
 
   // ---------- session ----------
 
@@ -197,6 +263,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
         session = Session.fromJson(jsonDecode(sessionJson) as Map<String, dynamic>);
         keys = await keysFromSecrets(b64decode(signSeed), b64decode(encPriv));
         api = ApiClient(server, token: token);
+        unawaited(_loadChatPrefs());
         _startSync();
         unawaited(refreshMe());
       }
@@ -345,6 +412,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
       await _storage.write(key: 'sign_seed', value: b64encode(k.signSeed));
       await _storage.write(key: 'enc_priv', value: b64encode(k.encPriv));
     }
+    unawaited(_loadChatPrefs());
     _startSync();
     unawaited(refreshMe());
     notifyListeners();
@@ -365,6 +433,9 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     contacts.clear();
     conversations.clear();
     messages.clear();
+    for (final set in [pinnedChats, mutedChats, hiddenChats]) {
+      set.clear();
+    }
     if (persist) {
       for (final k in ['server', 'token', 'session', 'sign_seed', 'enc_priv']) {
         await _storage.delete(key: k);
@@ -713,6 +784,8 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
       if (msg.serverTs > conv.updatedAt) conv.updatedAt = msg.serverTs;
     }
     if (msg.sender == session!.accountId && msg.seq > conv.readSeq) conv.readSeq = msg.seq;
+    // A chat taken off the list comes back with the next message in it (A22).
+    if (preview.isNotEmpty && hiddenChats.remove(msg.convId)) unawaited(_saveChatPrefs());
     notifyListeners();
   }
 
