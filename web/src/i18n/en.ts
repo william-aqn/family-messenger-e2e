@@ -34,7 +34,7 @@ export const en = {
   invite_scanned: 'Invitation recognised',
   from_qr: 'from QR',
   password_min: 'at least {n} characters',
-  password_warning: 'Your password unlocks your encryption keys on every device. It cannot be reset: if you forget it, your messages are lost.',
+  password_warning: 'The password cannot be reset: forget it and your messages are lost.',
   password_too_short: 'Password must be at least {n} characters',
   generating_keys: 'Generating keys…',
   deriving_key: 'Deriving password key (this takes a moment)…',
@@ -186,6 +186,7 @@ export const en = {
 
   // settings
   your_safety_number: 'Your safety number',
+  safety_number_hint: 'Read it out to the person you chat with, in person or on a call. If your codes match, nobody has slipped into the middle of your conversation.',
   devices: 'Devices',
   this_device: 'this device',
   sign_out_device: 'sign out',
@@ -201,7 +202,6 @@ export const en = {
   changing_password: 'Changing the password…',
   password_changed: 'Password changed',
   password_changed_signed_out: 'Password changed; {n} other device(s) signed out',
-  change_password_hint: 'The current password is not needed: this device proves itself with the account keys it already holds.',
   password_changed_elsewhere: 'The password of this account was just changed from another device. If that was not you, change it again here and sign the other devices out.',
   challenge_expired: 'That took too long. Please try again.',
   invalid_signature: 'This device could not prove it holds the account keys',

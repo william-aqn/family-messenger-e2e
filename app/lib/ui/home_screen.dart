@@ -514,6 +514,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     spacing: 6,
                     children: <Widget>[
                       Text(t('safety_number'), style: theme.inputDecorationTheme.labelStyle),
+                      Text(t('safety_number_hint'), style: theme.textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant)),
                       Row(
                         spacing: 12,
                         children: <Widget>[
@@ -1283,7 +1284,6 @@ Future<void> _changePassword(BuildContext context) async {
                         Expanded(child: Text(error!, style: theme.textTheme.bodyMedium?.copyWith(color: scheme.error))),
                       ],
                     ),
-                  Text(t('change_password_hint'), style: theme.textTheme.bodySmall),
                   TextField(
                     controller: next,
                     decoration: field(

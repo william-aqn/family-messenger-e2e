@@ -86,6 +86,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
 
         <div class="section tight">
           <span class="field-label">{t('your_safety_number')}</span>
+          <p class="hint">{t('safety_number_hint')}</p>
           <div class="fp-row">
             <code class="fp">{fp}</code>
             <button type="button" class="icon-btn boxed" title={t('copy')} onClick={() => copyToClipboard(fp)}>
@@ -166,7 +167,6 @@ export function Settings({ onClose }: { onClose: () => void }) {
 
         <form class="section ruled" onSubmit={submitPassword}>
           <span class="block-title">{t('change_password')}</span>
-          <p class="hint">{t('change_password_hint')}</p>
           <label>
             <span>{t('new_password')}</span>
             <input
