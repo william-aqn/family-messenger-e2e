@@ -161,4 +161,39 @@ void main() {
     expect(bytesToHex(await decryptFile(enc.key, enc.nonce, enc.ciphertext)), bytesToHex(data));
     await expectLater(decryptFile(randomBytes(32), enc.nonce, enc.ciphertext), throwsA(anything));
   });
+
+  // The proof a signed-in device gives instead of the old password
+  // (PROTOCOL.md §3.2). The server rebuilds these exact bytes, so a client
+  // that lays them out differently cannot change its password at all.
+  group('password change vectors', () {
+    final cases = load('pwchange.json')['cases'] as List<dynamic>;
+    for (var i = 0; i < cases.length; i++) {
+      final c = cases[i] as Map<String, dynamic>;
+      test('case $i', () async {
+        final signOutOthers = c['sign_out_others'] == true;
+        final msg = passwordChangeMessage(
+          h(c['challenge'] as String),
+          h(c['account_id'] as String),
+          h(c['device_id'] as String),
+          h(c['new_salt'] as String),
+          h(c['new_auth_key'] as String),
+          h(c['new_key_bundle'] as String),
+          signOutOthers: signOutOthers,
+        );
+        expect(bytesToHex(msg), c['message']);
+        final sig = await signPasswordChange(
+          h(c['sign_seed'] as String),
+          h(c['challenge'] as String),
+          h(c['account_id'] as String),
+          h(c['device_id'] as String),
+          h(c['new_salt'] as String),
+          h(c['new_auth_key'] as String),
+          h(c['new_key_bundle'] as String),
+          signOutOthers: signOutOthers,
+        );
+        expect(bytesToHex(sig), c['signature']);
+        expect(await verify(h(c['sign_pub'] as String), msg, sig), isTrue);
+      });
+    }
+  });
 }

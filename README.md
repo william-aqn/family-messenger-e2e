@@ -11,9 +11,10 @@ building from source stay as options).
 - **Voice calls with screen sharing** over WebRTC (DTLS-SRTP), signaling inside
   the encrypted channel, NAT traversal through the bundled coturn.
 - **Multi-device**: sign in on a phone and a PC with the same account; new
-  devices read the full history after login. The password can be changed from
-  any client, signing every other device out at the same time (the remedy
-  for a leaked password).
+  devices read the full history after login. Any signed-in client can change
+  the password without being asked for the old one, and sign every other
+  device out at the same time (the remedy for a leaked password, and the way
+  back in for somebody who forgot it).
 - **Disappearing messages** per conversation (1 hour to 30 days) plus an
   optional server-wide retention limit.
 - **Edit and delete** your own messages on every device (edits are signed and
@@ -183,8 +184,12 @@ the server and are marked as such in the client.
 
 Known limits of v1 (by design, see the protocol document): no forward secrecy
 if the account keys leak, because history must stay readable on new devices;
-the password is the only lock on the key backup and cannot be reset; screen
-sharing from a phone requires the native app.
+the password is the only lock on the key backup and cannot be reset by anyone,
+including an administrator; screen sharing from a phone requires the native
+app. Because a signed-in device can set a new password on its own, whoever
+holds an unlocked device holds the account: the server warns the other
+devices and keeps the previous password material so its owner can undo the
+change, but the real defence is a passcode on the phone.
 
 ## Development
 

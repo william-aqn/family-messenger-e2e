@@ -116,16 +116,58 @@ func (s *Store) AccountsByIDs(ctx context.Context, ids []string) ([]Account, err
 	return out, rows.Err()
 }
 
-// UpdatePassword replaces the password-derived material of an account.
-func (s *Store) UpdatePassword(ctx context.Context, id string, salt, authHash, keyBundle []byte) error {
-	res, err := s.db.ExecContext(ctx, `UPDATE accounts SET salt = ?, auth_hash = ?, key_bundle = ? WHERE id = ?`, salt, authHash, keyBundle, id)
+// UpdatePassword replaces the password-derived material of an account and,
+// in the same transaction, signs out every device except keep (pass an empty
+// keep to leave the sessions alone). It returns the ids of the devices it
+// removed, so the caller can close their sockets after the commit.
+//
+// The generation it replaces is kept in prev_* (migration 004): a password
+// change cannot be undone by the account itself, and since it no longer
+// needs the old password, the server's owner needs a way back.
+func (s *Store) UpdatePassword(ctx context.Context, id string, salt, authHash, keyBundle []byte, keep string) ([]string, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return err
+		return nil, err
+	}
+	defer tx.Rollback()
+	res, err := tx.ExecContext(ctx, `UPDATE accounts SET
+			prev_salt = salt, prev_auth_hash = auth_hash, prev_key_bundle = key_bundle,
+			salt = ?, auth_hash = ?, key_bundle = ?, password_changed_at = ?
+		WHERE id = ? AND deleted_at IS NULL`,
+		salt, authHash, keyBundle, time.Now().Unix(), id)
+	if err != nil {
+		return nil, err
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
-		return ErrNotFound
+		return nil, ErrNotFound
 	}
-	return nil
+	if keep == "" {
+		return nil, tx.Commit()
+	}
+	rows, err := tx.QueryContext(ctx, `SELECT id FROM devices WHERE account_id = ? AND id <> ?`, id, keep)
+	if err != nil {
+		return nil, err
+	}
+	var ids []string
+	for rows.Next() {
+		var d string
+		if err := rows.Scan(&d); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		ids = append(ids, d)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM devices WHERE account_id = ? AND id <> ?`, id, keep); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return ids, nil
 }
 
 // AccountSummary is an account as listed in the admin panel.

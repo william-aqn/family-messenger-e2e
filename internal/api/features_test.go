@@ -72,6 +72,7 @@ func (c *client) raw(method, path string, body []byte, contentType string) (int,
 	if c.token != "" {
 		req.Header.Set("Authorization", "Bearer "+c.token)
 	}
+	req.Header.Set("X-Forwarded-For", c.ip)
 	res, err := c.http.Do(req)
 	if err != nil {
 		c.t.Fatal(err)

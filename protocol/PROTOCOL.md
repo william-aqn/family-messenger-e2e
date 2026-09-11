@@ -68,12 +68,43 @@ bundle = nonce || XChaCha20-Poly1305(key=encKey, nonce, aad="msgr-keybundle-v1",
 `bundle` is exactly 104 bytes and is stored by the server next to the public
 keys. On login the client downloads it, decrypts it with `encKey`, derives the
 public keys from the secrets and **must** check that they equal the public keys
-returned by the server. A password change (`POST /auth/password`) proves the
-current password with its `authKey`, re-encrypts the bundle with the new
-`encKey` and replaces `salt`, `auth_hash` and `bundle` atomically; with
-`sign_out_others` the server also revokes every other device session, so that
-whoever signed in with a leaked password is out. The account keys themselves
-stay the same: a device that already extracted them keeps reading (§10).
+returned by the server.
+
+A password change (`POST /auth/password`) re-encrypts the bundle with the new
+`encKey` and replaces `salt`, `auth_hash` and `bundle`; with `sign_out_others`
+the same transaction revokes every other device session, so that whoever
+signed in with a leaked password is out. The account keys themselves stay the
+same: a device that already extracted them keeps reading (§10).
+
+The new bundle is built from the secrets a signed-in device already holds, so
+the old password is not needed to make one, and it is not asked for. What the
+server requires instead is proof that the caller holds the account's signing
+key, which a stolen device token alone does not give:
+
+```
+challenge = random(32)                    (POST /auth/password/challenge, one per device, single use, 5 min)
+msg       = "msgr-pwchange-v1" (16) || challenge (32) || account_id (16) || device_id (16)
+                                    || new_salt (16) || new_auth_key (32)
+                                    || new_key_bundle (104) || sign_out_others (1)
+sig       = Ed25519.sign(sign_seed, msg)
+```
+
+Every field is fixed length, so the concatenation is unambiguous; the whole
+new generation is inside the signature, so a captured proof cannot be reused
+for a different change, and `sign_out_others` cannot be flipped in transit.
+The tag is distinct from every other Ed25519 context in this protocol and is
+a prefix of none of them (§5). The server rebuilds `msg` from the request and
+the *authenticated* account and device, never from the body. A client too old
+to sign may still send `auth_key` instead, and the server accepts exactly one
+of the two proofs; that fallback goes away once the installed app builds have
+rolled over.
+
+The server keeps the generation it replaced (`prev_salt`, `prev_auth_hash`,
+`prev_key_bundle`, `password_changed_at`) so that a change nobody wanted can
+be undone by the server's owner, and tells every other device of the account
+about the change with an `event` frame (§8). Both exist because dropping the
+old-password prompt trades prevention for detection and reversibility: see
+§10.
 
 ### 3.3 Fingerprint (safety number)
 
@@ -279,10 +310,13 @@ explicitly accepts the new keys.
 ## 8. Transport summary
 
 - HTTPS JSON API under `/api/v1`, bearer device token.
-  `POST /auth/password` `{auth_key, new_salt, new_auth_key, new_key_bundle,
-  sign_out_others}` changes the password (§3.2) and answers
-  `{signed_out_devices}`; a revoked device gets its socket closed with code
-  1008 and `401` on every request, and signs itself out.
+  `POST /auth/password/challenge` answers `{challenge, expires_at}`;
+  `POST /auth/password` `{challenge, sig, new_salt, new_auth_key,
+  new_key_bundle, sign_out_others}` changes the password (§3.2) and answers
+  `{signed_out_devices}`. A revoked device gets its socket closed with code
+  1008 and `401` on every request, and signs itself out. Every other device
+  of the account receives `event` `{kind: "password.changed", device_id, at,
+  proof}`.
   `DELETE /conversations/{id}/messages/{seq}` and `DELETE /blobs/{id}` remove
   a message and an attachment for everyone (§6.3).
 - WebSocket `/api/v1/ws` with JSON frames `{"t": type, "d": data}`:
@@ -317,7 +351,14 @@ described in `docs/BOTS.md`.
   strong password policy (≥ 12 characters), Argon2id with 64 MiB, and planned
   retention limits / recovery keys.
 - Compromise of one device compromises the account keys (all devices share
-  them). Rotating account keys is not supported in v1.
+  them). Rotating account keys is not supported in v1. Since a password
+  change needs only those keys and not the old password (§3.2), such a
+  compromise also lets the attacker set a new password and, with
+  `sign_out_others`, lock the owner out. The controls against that are
+  detection and reversal rather than prevention: every remaining device is
+  told at once, and the server keeps the previous generation of the password
+  material so its owner can put it back. A client cannot be made safe here by
+  cryptography; a device passcode is what stands in the way.
 - Sender authenticity comes from the Ed25519 signature; the server cannot forge
   or re-route messages (`conv_id` and sender are signed) but can drop or delay
   them. Message deletion (§6.3) is built on that ability: an administrator can

@@ -233,3 +233,80 @@ func TestOpenTwiceKeepsData(t *testing.T) {
 		t.Fatalf("invite did not persist across reopen: %v", err)
 	}
 }
+
+// A password change keeps the generation it replaces, and signs the other
+// devices out in the same transaction (PROTOCOL.md §3.2, migration 004).
+func TestUpdatePasswordKeepsPreviousGeneration(t *testing.T) {
+	s, err := Open(filepath.Join(t.TempDir(), "pw.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	ctx := context.Background()
+	now := time.Now().Unix()
+
+	acct := &Account{
+		ID: "acct-1", Username: "alice", Salt: []byte("salt-one"), AuthHash: []byte("hash-one"),
+		SignPub: make([]byte, 32), EncPub: make([]byte, 32), KeyBundle: []byte("bundle-one"), CreatedAt: now,
+	}
+	first := &Device{ID: "dev-1", AccountID: acct.ID, Name: "laptop", TokenHash: []byte("t1"), CreatedAt: now, LastSeen: now}
+	if err := s.CreateAccount(ctx, acct, first, "", false); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"dev-2", "dev-3"} {
+		if err := s.CreateDevice(ctx, &Device{ID: id, AccountID: acct.ID, Name: id, TokenHash: []byte(id), CreatedAt: now, LastSeen: now}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Without a device to keep, the sessions are left alone.
+	gone, err := s.UpdatePassword(ctx, acct.ID, []byte("salt-two"), []byte("hash-two"), []byte("bundle-two"), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(gone) != 0 {
+		t.Fatalf("no eviction was asked for, got %v", gone)
+	}
+	devs, err := s.DevicesByAccount(ctx, acct.ID)
+	if err != nil || len(devs) != 3 {
+		t.Fatalf("devices: %d (%v)", len(devs), err)
+	}
+
+	// The generation that was replaced is still there to put back by hand.
+	var prevSalt, prevHash, prevBundle []byte
+	var changedAt int64
+	row := s.db.QueryRowContext(ctx, `SELECT prev_salt, prev_auth_hash, prev_key_bundle, COALESCE(password_changed_at, 0) FROM accounts WHERE id = ?`, acct.ID)
+	if err := row.Scan(&prevSalt, &prevHash, &prevBundle, &changedAt); err != nil {
+		t.Fatal(err)
+	}
+	if string(prevSalt) != "salt-one" || string(prevHash) != "hash-one" || string(prevBundle) != "bundle-one" {
+		t.Fatalf("previous generation not kept: %q %q %q", prevSalt, prevHash, prevBundle)
+	}
+	if changedAt == 0 {
+		t.Fatal("password_changed_at was not stamped")
+	}
+
+	// With a device to keep, the others go in the same transaction.
+	gone, err = s.UpdatePassword(ctx, acct.ID, []byte("salt-three"), []byte("hash-three"), []byte("bundle-three"), "dev-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(gone) != 2 {
+		t.Fatalf("evicted %v, want dev-2 and dev-3", gone)
+	}
+	devs, err = s.DevicesByAccount(ctx, acct.ID)
+	if err != nil || len(devs) != 1 || devs[0].ID != "dev-1" {
+		t.Fatalf("devices after eviction: %+v (%v)", devs, err)
+	}
+	got, err := s.AccountByID(ctx, acct.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got.Salt) != "salt-three" || string(got.KeyBundle) != "bundle-three" {
+		t.Fatalf("current generation: %q %q", got.Salt, got.KeyBundle)
+	}
+
+	if _, err := s.UpdatePassword(ctx, "nobody", []byte("s"), []byte("h"), []byte("b"), ""); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("unknown account: %v", err)
+	}
+}

@@ -32,6 +32,13 @@ export const syncing = signal(false);
 export const toast = signal<string | null>(null);
 export const serverSettings = signal<ServerSettings | null>(null);
 export const serverVersion = signal<string>('');
+/**
+ * Set when the server reports that this account's password was changed from
+ * another device (PROTOCOL.md §3.2). A change no longer needs the old
+ * password, so finding out at once is the only defence left to the owner of
+ * a device somebody else picked up. Cleared by dismissing the banner.
+ */
+export const passwordChangedElsewhere = signal<number | null>(null);
 
 /** This bundle's build number; the server reports its own, and they match unless the server was updated. */
 export const APP_VERSION = __APP_VERSION__;
@@ -65,6 +72,9 @@ export function resetState(): void {
   pending.value = [];
   selectedId.value = null;
   serverSettings.value = null;
+  // Otherwise the warning from the session that just ended greets whoever
+  // signs in next.
+  passwordChangedElsewhere.value = null;
 }
 
 export const sortedConversations = computed(() =>

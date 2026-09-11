@@ -77,6 +77,10 @@ export function describeError(err: unknown): string {
       return t('account_disabled');
     case 'attachments_disabled':
       return t('attachments_disabled');
+    case 'challenge_expired':
+      return t('challenge_expired');
+    case 'invalid_signature':
+      return t('invalid_signature');
   }
   return err instanceof Error ? err.message : String(err);
 }

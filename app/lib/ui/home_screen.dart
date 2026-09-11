@@ -278,6 +278,17 @@ class _HomeScreenState extends State<HomeScreen> {
     final String announcement = app.settings?.announcement ?? '';
     final ReleaseInfo? update = updater.dismissed ? null : updater.available;
     return <Widget>[
+      // Somebody changed this account's password from another device. Since
+      // a change no longer needs the old password, this banner is the only
+      // warning the owner gets (PROTOCOL.md §3.2).
+      if (app.passwordChangedElsewhereAt != null)
+        _Banner(
+          rail: scheme.error,
+          icon: LucideIcons.alertTriangle,
+          iconColor: scheme.error,
+          text: t('password_changed_elsewhere'),
+          actions: <Widget>[_LinkButton(label: t('dismiss'), onPressed: app.dismissPasswordChanged)],
+        ),
       if (announcement.isNotEmpty)
         _Banner(
           // A neutral banner carries a half-strength rail.
@@ -1186,18 +1197,19 @@ Widget _installedLine(ThemeData theme) {
   );
 }
 
-/// Change-password dialog from the settings sheet (PROTOCOL.md §3.2). The
-/// new password is typed twice because it cannot be reset, and other devices
-/// are signed out by default: that is the remedy for a leaked password.
+/// Change-password dialog from the settings sheet (PROTOCOL.md §3.2). No
+/// current password is asked for: this device proves itself with the account
+/// keys it already holds, which is what lets somebody who forgot the password
+/// set a new one. The new password is typed twice because it cannot be reset,
+/// and other devices are signed out by default: that is the remedy for a
+/// leaked password.
 Future<void> _changePassword(BuildContext context) async {
-  final TextEditingController current = TextEditingController();
   final TextEditingController next = TextEditingController();
   final TextEditingController repeat = TextEditingController();
   var signOutOthers = true;
   var busy = false;
   // Problems with a field are shown under that field, anything else above
   // the fields: with the keyboard up only the top of the dialog is visible.
-  String? currentError;
   String? nextError;
   String? repeatError;
   String? error;
@@ -1210,15 +1222,14 @@ Future<void> _changePassword(BuildContext context) async {
         final ThemeData theme = Theme.of(context);
         Future<void> submit() async {
           setState(() {
-            currentError = null; // an empty or wrong one is the server's verdict
             nextError = next.text.length < AppState.minPasswordLength ? t('password_too_short', <String, Object?>{'n': AppState.minPasswordLength}) : null;
             repeatError = next.text != repeat.text ? t('passwords_differ') : null;
             error = null;
           });
-          if (currentError != null || nextError != null || repeatError != null) return;
+          if (nextError != null || repeatError != null) return;
           setState(() => busy = true);
           try {
-            final int n = await app.changePassword(current.text, next.text, signOutOthers: signOutOthers);
+            final int n = await app.changePassword(next.text, signOutOthers: signOutOthers);
             if (context.mounted) Navigator.pop(context);
             messenger.showSnackBar(SnackBar(
               content: Text(n > 0 ? t('password_changed_signed_out', <String, Object?>{'n': n}) : t('password_changed')),
@@ -1228,11 +1239,12 @@ Future<void> _changePassword(BuildContext context) async {
             if (!context.mounted) return;
             setState(() {
               busy = false;
-              if (e is ApiException && e.code == 'invalid_credentials') {
-                currentError = t('wrong_current_password');
-              } else {
-                error = e is StateError ? e.message : e.toString();
-              }
+              error = switch (e) {
+                ApiException(code: 'challenge_expired') => t('challenge_expired'),
+                ApiException(code: 'invalid_signature') => t('invalid_signature'),
+                StateError() => e.message,
+                _ => e.toString(),
+              };
             });
           }
         }
@@ -1271,13 +1283,7 @@ Future<void> _changePassword(BuildContext context) async {
                         Expanded(child: Text(error!, style: theme.textTheme.bodyMedium?.copyWith(color: scheme.error))),
                       ],
                     ),
-                  TextField(
-                    controller: current,
-                    decoration: field(t('current_password'), currentError),
-                    obscureText: true,
-                    autofocus: true,
-                    enabled: !busy,
-                  ),
+                  Text(t('change_password_hint'), style: theme.textTheme.bodySmall),
                   TextField(
                     controller: next,
                     decoration: field(
@@ -1286,6 +1292,7 @@ Future<void> _changePassword(BuildContext context) async {
                       helperText: t('password_min', <String, Object?>{'n': AppState.minPasswordLength}),
                     ),
                     obscureText: true,
+                    autofocus: true,
                     enabled: !busy,
                   ),
                   TextField(

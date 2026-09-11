@@ -234,33 +234,46 @@ test('messages: edit and delete your own, the administrator deletes anyone’s',
   await expect(bobPage.locator('.bubble', { hasText: 'rude remark' })).toHaveCount(0, { timeout: 10_000 });
 });
 
-test('password change: other devices are signed out, only the new password opens the same keys', async ({ browser }) => {
+test('password change: no old password, other devices warned then signed out', async ({ browser }) => {
   const name = `pw${run}`;
   // Three devices on three addresses: the login limiter counts per client address.
   const page = await register(browser, name, '203.0.113.1');
   const phone = await login(browser, name, '203.0.113.2');
   const newPassword = `${name}-new-password-${run}`;
+  const laterPassword = `${name}-later-password-${run}`;
 
   await page.getByTitle('Settings').click();
   const fpBefore = (await page.locator('code.fp').textContent())?.trim();
   expect(fpBefore).toMatch(/^[0-9a-f]{4}( [0-9a-f]{4}){7}$/);
   await expect(page.locator('.devices li')).toHaveCount(2);
-  await page.getByLabel('current password').fill(password(name));
+  // The old password is never asked for: this device proves itself with the
+  // account keys it already holds.
+  await expect(page.getByLabel('current password')).toHaveCount(0);
   await page.getByLabel('new password', { exact: true }).fill(newPassword);
   await page.getByLabel('repeat the new password').fill(`${newPassword}-typo`);
   await page.getByRole('button', { name: 'Change password' }).click();
   await expect(page.locator('.error', { hasText: 'typed differently' })).toBeVisible();
   await page.getByLabel('repeat the new password').fill(newPassword);
-  await page.getByLabel('current password').fill('not-the-password');
+
+  // Leave the other device signed in first: it must hear about the change.
+  await page.getByLabel('Sign out of every other device').uncheck();
   await page.getByRole('button', { name: 'Change password' }).click();
-  await expect(page.locator('.error', { hasText: 'Wrong username or password' })).toBeVisible({ timeout: 60_000 });
-  await page.getByLabel('current password').fill(password(name));
-  await page.getByRole('button', { name: 'Change password' }).click();
-  await expect(page.locator('.toast', { hasText: 'Password changed; 1 other device(s) signed out' })).toBeVisible({ timeout: 60_000 });
-  await expect(page.locator('.devices li')).toHaveCount(1);
+  await expect(page.locator('.toast', { hasText: 'Password changed' })).toBeVisible({ timeout: 60_000 });
+  await expect(page.locator('.devices li')).toHaveCount(2);
+  await expect(phone.locator('.banner.alert', { hasText: 'changed from another device' })).toBeVisible({ timeout: 20_000 });
+
+  // Now the same again with the eviction, from the device that was warned:
+  // it still holds the keys, so it can take the account back without ever
+  // knowing the password that was just set.
+  await phone.getByTitle('Settings').click();
+  await phone.getByLabel('new password', { exact: true }).fill(laterPassword);
+  await phone.getByLabel('repeat the new password').fill(laterPassword);
+  await phone.getByRole('button', { name: 'Change password' }).click();
+  await expect(phone.locator('.toast', { hasText: 'Password changed; 1 other device(s) signed out' })).toBeVisible({ timeout: 60_000 });
+  await expect(phone.locator('.devices li')).toHaveCount(1);
 
   // The revoked device notices by itself and returns to the login screen.
-  await expect(phone.getByRole('button', { name: 'Sign in' }).last()).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByRole('button', { name: 'Sign in' }).last()).toBeVisible({ timeout: 20_000 });
 
   // The old password is refused; the new one signs in and unlocks the same keys.
   const again = await (await newContext(browser, '203.0.113.3')).newPage();
@@ -269,7 +282,7 @@ test('password change: other devices are signed out, only the new password opens
   await again.getByLabel('Password').fill(password(name));
   await again.getByRole('button', { name: 'Sign in' }).last().click();
   await expect(again.locator('.error', { hasText: 'Wrong username or password' })).toBeVisible({ timeout: 60_000 });
-  await again.getByLabel('Password').fill(newPassword);
+  await again.getByLabel('Password').fill(laterPassword);
   await again.getByRole('button', { name: 'Sign in' }).last().click();
   await expect(again.getByText(`@${name}`)).toBeVisible({ timeout: 60_000 });
   await again.getByTitle('Settings').click();

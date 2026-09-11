@@ -3,8 +3,9 @@ import { signal } from '@preact/signals';
 import { ApiError, http, setToken } from '../api/http';
 import type { ApiSession } from '../api/types';
 import { wsClient } from '../api/ws';
-import { type AccountKeys, deriveKeys, generateKeys, keysFromSecrets, newKeyBundle, openKeyBundle, SALT_SIZE } from '../crypto/account';
+import { type AccountKeys, deriveKeys, generateKeys, keysFromSecrets, newKeyBundle, openKeyBundle, SALT_SIZE, signPasswordChange } from '../crypto/account';
 import { b64decode, b64encode, randomBytes } from '../crypto/bytes';
+import { uuidToBytes } from '../crypto/ids';
 import { t } from '../i18n';
 import { clearAll, getMeta, setMeta } from '../store/db';
 import { resetState, serverSettings, serverVersion, session, type SessionInfo } from './model';
@@ -139,11 +140,13 @@ export async function logout(): Promise<void> {
 }
 
 /**
- * Changes the password (PROTOCOL.md §3.2): proves the current one with its
- * auth key, re-encrypts the key bundle with the new one and, when asked,
- * signs every other device out. Returns how many devices were signed out.
+ * Changes the password (PROTOCOL.md §3.2). The new key bundle is built from
+ * the account keys this device already holds, so the old password is not
+ * needed; the server is satisfied instead by a signature over a challenge it
+ * just issued, which only a device holding the account's signing key can
+ * make. When asked, every other device is signed out. Returns how many were.
  */
-export async function changePassword(current: string, next: string, signOutOthers = true): Promise<number> {
+export async function changePassword(next: string, signOutOthers = true): Promise<number> {
   const problem = validatePassword(next);
   if (problem) throw new Error(problem);
   const s = session.value;
@@ -151,19 +154,44 @@ export async function changePassword(current: string, next: string, signOutOther
   if (!s || !k) throw new Error('not signed in');
   authBusy.value = t('deriving_key');
   try {
-    const params = await http.authParams(s.username);
-    const cur = await deriveKeys(current, b64decode(params.salt), params.kdf);
     const salt = randomBytes(SALT_SIZE);
     const fresh = await deriveKeys(next, salt);
+    const bundle = newKeyBundle(fresh.encKey, k);
+    // Open what we are about to upload. Nothing can unlock the account if
+    // this bundle is wrong, so never send one that does not come back.
+    openKeyBundle(fresh.encKey, bundle, k.signPub, k.encPub);
     authBusy.value = t('changing_password');
-    const res = await http.changePassword({
-      auth_key: b64encode(cur.authKey),
-      new_salt: b64encode(salt),
-      new_auth_key: b64encode(fresh.authKey),
-      new_key_bundle: b64encode(newKeyBundle(fresh.encKey, k)),
-      sign_out_others: signOutOthers,
-    });
-    return res?.signed_out_devices ?? 0;
+    // A fresh challenge per attempt: the server consumes it on use. Another
+    // tab or a server restart can take it first, which is a lost race and
+    // not a failure, so try once more before telling the user.
+    const attempt = async (): Promise<number> => {
+      const { challenge } = await http.passwordChallenge();
+      const sig = signPasswordChange(
+        k.signSeed,
+        b64decode(challenge),
+        uuidToBytes(s.accountId),
+        uuidToBytes(s.deviceId),
+        salt,
+        fresh.authKey,
+        bundle,
+        signOutOthers,
+      );
+      const res = await http.changePassword({
+        challenge,
+        sig: b64encode(sig),
+        new_salt: b64encode(salt),
+        new_auth_key: b64encode(fresh.authKey),
+        new_key_bundle: b64encode(bundle),
+        sign_out_others: signOutOthers,
+      });
+      return res?.signed_out_devices ?? 0;
+    };
+    try {
+      return await attempt();
+    } catch (e) {
+      if (e instanceof ApiError && e.code === 'challenge_expired') return await attempt();
+      throw e;
+    }
   } finally {
     authBusy.value = null;
   }

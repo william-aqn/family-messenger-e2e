@@ -91,6 +91,7 @@ export const http = {
   register: (body: Record<string, unknown>) => api<ApiSession>('POST', '/auth/register', body),
   login: (body: Record<string, unknown>) => api<ApiSession>('POST', '/auth/login', body),
   logout: () => api<void>('POST', '/auth/logout'),
+  passwordChallenge: () => api<{ challenge: string; expires_at: number }>('POST', '/auth/password/challenge'),
   changePassword: (body: Record<string, unknown>) => api<{ signed_out_devices: number } | undefined>('POST', '/auth/password', body),
   me: () => api<MeView>('GET', '/me'),
   deleteDevice: (id: string) => api<void>('DELETE', `/devices/${id}`),

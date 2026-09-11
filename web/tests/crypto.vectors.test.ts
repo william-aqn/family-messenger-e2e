@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { bytesToHex, hexToBytes, utf8Encode } from '../src/crypto/bytes';
-import { deriveKeys, generateKeys, keysFromSecrets, openKeyBundle, sealKeyBundle } from '../src/crypto/account';
+import { deriveKeys, generateKeys, keysFromSecrets, openKeyBundle, passwordChangeMessage, sealKeyBundle, signPasswordChange } from '../src/crypto/account';
 import { decrypt, encrypt, encryptWith, FLAG_EPHEMERAL, parse, verifyEnvelope, type Header } from '../src/crypto/envelope';
 import { fingerprint } from '../src/crypto/fingerprint';
 import { bytesToUuid, newUuid } from '../src/crypto/ids';
@@ -174,5 +174,55 @@ describe('round trips', () => {
     tampered[tampered.length - 1] ^= 1;
     expect(verifyEnvelope(alice.signPub, tampered, sig)).toBe(false);
     expect(() => decrypt(parse(tampered), ids.bob, bob.encPriv)).toThrow();
+  });
+});
+
+interface PwChangeVectors {
+  cases: {
+    sign_seed: string;
+    sign_pub: string;
+    enc_priv: string;
+    challenge: string;
+    account_id: string;
+    device_id: string;
+    new_salt: string;
+    new_auth_key: string;
+    new_key_bundle: string;
+    sign_out_others: boolean;
+    message: string;
+    signature: string;
+  }[];
+}
+
+// The proof a signed-in device gives instead of the old password
+// (PROTOCOL.md §3.2). The server rebuilds these exact bytes, so a client that
+// lays them out differently cannot change its password at all.
+describe('password change vectors', () => {
+  const v = load<PwChangeVectors>('pwchange.json');
+  v.cases.forEach((c, i) => {
+    it(`case ${i}`, () => {
+      const msg = passwordChangeMessage(
+        h(c.challenge),
+        h(c.account_id),
+        h(c.device_id),
+        h(c.new_salt),
+        h(c.new_auth_key),
+        h(c.new_key_bundle),
+        c.sign_out_others,
+      );
+      expect(bytesToHex(msg)).toBe(c.message);
+      const sig = signPasswordChange(
+        h(c.sign_seed),
+        h(c.challenge),
+        h(c.account_id),
+        h(c.device_id),
+        h(c.new_salt),
+        h(c.new_auth_key),
+        h(c.new_key_bundle),
+        c.sign_out_others,
+      );
+      expect(bytesToHex(sig)).toBe(c.signature);
+      expect(verify(h(c.sign_pub), msg, h(c.signature))).toBe(true);
+    });
   });
 });

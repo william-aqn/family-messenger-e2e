@@ -31,11 +31,13 @@ type Server struct {
 	limiter  *auth.Limiter
 	settings *settings.Manager
 	bots     *botBridge
-	log      *slog.Logger
-	web      http.Handler
-	blobDir  string
-	started  time.Time
-	updates  updateChecker
+	// Pending password-change challenges, one per device (PROTOCOL.md §3.2).
+	challenges *challengeStore
+	log        *slog.Logger
+	web        http.Handler
+	blobDir    string
+	started    time.Time
+	updates    updateChecker
 }
 
 // New creates a Server, loading runtime settings and preparing the blob
@@ -50,16 +52,17 @@ func New(cfg *config.Config, st *store.Store, log *slog.Logger) (*Server, error)
 		return nil, fmt.Errorf("create blob dir: %w", err)
 	}
 	s := &Server{
-		cfg:      cfg,
-		store:    st,
-		hub:      ws.NewHub(),
-		auth:     auth.New(st),
-		limiter:  auth.NewLimiter(20, 10.0/60.0),
-		settings: mgr,
-		log:      log,
-		web:      webui.Handler(cfg.WebDir),
-		blobDir:  blobDir,
-		started:  time.Now(),
+		cfg:        cfg,
+		store:      st,
+		hub:        ws.NewHub(),
+		auth:       auth.New(st),
+		limiter:    auth.NewLimiter(20, 10.0/60.0),
+		settings:   mgr,
+		challenges: newChallengeStore(challengeTTL),
+		log:        log,
+		web:        webui.Handler(cfg.WebDir),
+		blobDir:    blobDir,
+		started:    time.Now(),
 	}
 	s.bots = newBotBridge(s)
 	return s, nil
@@ -81,6 +84,9 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /api/v1/auth/logout", authed(s.logout))
 	// Rate limited like login: a stolen device token must not allow guessing the
 	// current password at full speed.
+	// The challenge route is authenticated and costs one map slot per device,
+	// so it stays out of the per-IP bucket a whole household shares with login.
+	mux.Handle("POST /api/v1/auth/password/challenge", human(s.passwordChallenge))
 	mux.Handle("POST /api/v1/auth/password", s.limiter.Middleware(human(s.changePassword)))
 	mux.Handle("GET /api/v1/me", authed(s.me))
 	mux.Handle("GET /api/v1/devices", authed(s.listDevices))

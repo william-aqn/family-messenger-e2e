@@ -12,6 +12,7 @@ import (
 
 	"github.com/william-aqn/family-messenger-e2e/internal/auth"
 	"github.com/william-aqn/family-messenger-e2e/internal/store"
+	"github.com/william-aqn/family-messenger-e2e/internal/ws"
 	"github.com/william-aqn/family-messenger-e2e/pkg/e2e"
 )
 
@@ -198,6 +199,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 	p := principal(r)
+	s.challenges.forget(p.DeviceID)
 	if err := s.store.DeleteDevice(r.Context(), p.AccountID, p.DeviceID); err != nil && !errors.Is(err, store.ErrNotFound) {
 		writeError(w, s.log, err)
 		return
@@ -206,11 +208,28 @@ func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// passwordRequest changes the password (PROTOCOL.md §3.2): the client proves
-// the current password with its auth key and sends the material derived from
-// the new one. With sign_out_others every other device session is revoked,
-// which is the point of changing a leaked password.
+// passwordChallenge hands the calling device the random bytes it must sign to
+// change the password (PROTOCOL.md §3.2).
+func (s *Server) passwordChallenge(w http.ResponseWriter, r *http.Request) {
+	p := principal(r)
+	value, expires, err := s.challenges.issue(p.DeviceID)
+	if err != nil {
+		writeError(w, s.log, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"challenge": value[:], "expires_at": expires.Unix()})
+}
+
+// passwordRequest changes the password (PROTOCOL.md §3.2). The client sends
+// the material derived from the new password plus a proof that it may do so:
+// normally a signature over a fresh challenge made with the account's signing
+// key, which a signed-in device holds without knowing any password. Clients
+// too old to sign still prove the old password with its auth key instead.
+// With sign_out_others every other device session is revoked, which is the
+// point of changing a leaked password.
 type passwordRequest struct {
+	Challenge     []byte `json:"challenge"`
+	Sig           []byte `json:"sig"`
 	AuthKey       []byte `json:"auth_key"`
 	NewSalt       []byte `json:"new_salt"`
 	NewAuthKey    []byte `json:"new_auth_key"`
@@ -225,8 +244,8 @@ func (s *Server) changePassword(w http.ResponseWriter, r *http.Request) {
 		writeError(w, s.log, err)
 		return
 	}
-	if len(req.AuthKey) != 32 || len(req.NewAuthKey) != 32 || len(req.NewSalt) != e2e.SaltSize || len(req.NewKeyBundle) != e2e.KeyBundleSize {
-		writeError(w, s.log, badRequest("invalid_request", "auth_key, new_auth_key, new_salt or new_key_bundle has the wrong size"))
+	if len(req.NewAuthKey) != 32 || len(req.NewSalt) != e2e.SaltSize || len(req.NewKeyBundle) != e2e.KeyBundleSize {
+		writeError(w, s.log, badRequest("invalid_request", "new_auth_key, new_salt or new_key_bundle has the wrong size"))
 		return
 	}
 	acct, err := s.store.AccountByID(r.Context(), p.AccountID)
@@ -234,30 +253,86 @@ func (s *Server) changePassword(w http.ResponseWriter, r *http.Request) {
 		writeError(w, s.log, err)
 		return
 	}
-	if subtle.ConstantTimeCompare(authHash(req.AuthKey), acct.AuthHash) != 1 {
-		s.log.Warn("password change with a wrong current password", "account", p.AccountID, "device", p.DeviceID, "ip", auth.ClientIP(r))
-		writeError(w, s.log, &apiError{http.StatusUnauthorized, "invalid_credentials", "current password is wrong"})
+	proof, apiErr := s.checkPasswordProof(r, acct, &req)
+	if apiErr != nil {
+		s.log.Warn("password change refused", "account", p.AccountID, "device", p.DeviceID, "ip", auth.ClientIP(r), "reason", apiErr.Code)
+		writeError(w, s.log, apiErr)
 		return
 	}
-	if err := s.store.UpdatePassword(r.Context(), p.AccountID, req.NewSalt, authHash(req.NewAuthKey), req.NewKeyBundle); err != nil {
+	// The new material and the eviction land in one transaction, so a
+	// half-applied change (new password, devices still in) cannot happen.
+	keep := ""
+	if req.SignOutOthers {
+		keep = p.DeviceID
+	}
+	gone, err := s.store.UpdatePassword(r.Context(), p.AccountID, req.NewSalt, authHash(req.NewAuthKey), req.NewKeyBundle, keep)
+	if err != nil {
 		writeError(w, s.log, err)
 		return
 	}
-	signedOut := 0
-	if req.SignOutOthers {
-		ids, err := s.store.DeleteOtherDevices(r.Context(), p.AccountID, p.DeviceID)
-		if err != nil {
-			// The password is already changed; report the part that failed.
-			writeError(w, s.log, err)
-			return
-		}
-		for _, id := range ids {
-			s.hub.CloseDevice(id)
-		}
-		signedOut = len(ids)
+	for _, id := range gone {
+		s.challenges.forget(id)
+		s.hub.CloseDevice(id)
 	}
-	s.log.Info("password changed", "account", p.AccountID, "device", p.DeviceID, "other_devices_signed_out", signedOut)
-	writeJSON(w, http.StatusOK, map[string]any{"signed_out_devices": signedOut})
+	// Prevention is gone with the old-password prompt, so detection has to
+	// carry the weight: every device that is still connected hears about the
+	// change at once and shows it. The device that made it gets the frame
+	// too and recognises its own id.
+	s.hub.SendToAccount(p.AccountID, ws.NewFrame("event", map[string]any{
+		"kind": "password.changed", "device_id": p.DeviceID, "at": time.Now().Unix(), "proof": proof,
+	}))
+	s.log.Info("password changed", "account", p.AccountID, "device", p.DeviceID, "proof", proof, "other_devices_signed_out", len(gone))
+	writeJSON(w, http.StatusOK, map[string]any{"signed_out_devices": len(gone)})
+}
+
+// checkPasswordProof decides whether this request may change the password and
+// says which proof carried it. A signature is the current form; an auth key
+// is what app builds from before the signature existed still send.
+func (s *Server) checkPasswordProof(r *http.Request, acct *store.Account, req *passwordRequest) (string, *apiError) {
+	p := principal(r)
+	switch {
+	case len(req.Sig) > 0 && len(req.AuthKey) > 0:
+		// Never let a caller offer two proofs and have the server pick: it
+		// would hide which one actually carried the change.
+		return "", badRequest("invalid_request", "send either a challenge signature or the current auth_key, not both")
+	case len(req.Sig) > 0:
+		// Everything that does not depend on the challenge is checked first,
+		// so a request that could never succeed does not burn one.
+		account, err := e2e.ParseID(p.AccountID)
+		if err != nil {
+			return "", &apiError{http.StatusInternalServerError, "internal", "internal error"}
+		}
+		device, err := e2e.ParseID(p.DeviceID)
+		if err != nil {
+			return "", &apiError{http.StatusInternalServerError, "internal", "internal error"}
+		}
+		// Never pad a short key into the array: an all-zero Ed25519 public
+		// key is a small-order point and would verify crafted signatures.
+		if len(acct.SignPub) != 32 {
+			return "", &apiError{http.StatusForbidden, "no_signing_key", "this account has no signing key"}
+		}
+		if !s.challenges.take(p.DeviceID, req.Challenge) {
+			return "", &apiError{http.StatusUnauthorized, "challenge_expired", "this password-change challenge is unknown or has expired; ask for a new one"}
+		}
+		var signPub [32]byte
+		copy(signPub[:], acct.SignPub)
+		if !e2e.VerifyPasswordChange(signPub, req.Sig, req.Challenge, account, device, req.NewSalt, req.NewAuthKey, req.NewKeyBundle, req.SignOutOthers) {
+			return "", &apiError{http.StatusUnauthorized, "invalid_signature", "the password-change proof does not verify under this account's key"}
+		}
+		return "signature", nil
+	case len(req.AuthKey) == 32:
+		if subtle.ConstantTimeCompare(authHash(req.AuthKey), acct.AuthHash) != 1 {
+			return "", &apiError{http.StatusUnauthorized, "invalid_credentials", "current password is wrong"}
+		}
+		// Current clients never take this path; seeing it means an app build
+		// from before the signature is still in use. It is also the only way
+		// the endpoint can still be asked whether a password is right, so it
+		// is worth noticing in the journal.
+		s.log.Warn("password changed by an old client proving the current password", "account", p.AccountID, "device", p.DeviceID)
+		return "password", nil
+	default:
+		return "", badRequest("invalid_request", "a challenge signature (sig) or the current auth_key is required")
+	}
 }
 
 type deviceView struct {
@@ -331,6 +406,7 @@ func (s *Server) listDevices(w http.ResponseWriter, r *http.Request) {
 func (s *Server) deleteDevice(w http.ResponseWriter, r *http.Request) {
 	p := principal(r)
 	id := r.PathValue("id")
+	s.challenges.forget(id)
 	if err := s.store.DeleteDevice(r.Context(), p.AccountID, id); err != nil {
 		writeError(w, s.log, err)
 		return

@@ -199,8 +199,7 @@ func (l *Limiter) Allow(key string) bool {
 	return true
 }
 
-// Middleware limits by client IP (X-Forwarded-For first hop when present,
-// which is correct behind the bundled reverse proxy).
+// Middleware limits by client IP (see ClientIP for how it is established).
 func (l *Limiter) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !l.Allow(ClientIP(r)) {
@@ -213,16 +212,40 @@ func (l *Limiter) Middleware(next http.Handler) http.Handler {
 }
 
 // ClientIP extracts the client address for logging and rate limiting.
+//
+// X-Forwarded-For is a client-supplied header and is only believed when the
+// connection comes from a reverse proxy on this machine or on a private
+// network, which is how the bundled deployment runs. Even then the LAST hop
+// is taken, not the first: a proxy appends the peer it actually saw, so the
+// first entries are whatever the caller invented. Reading the first entry
+// (as this did) let anyone give themselves a fresh rate-limit bucket per
+// request by sending a header.
 func ClientIP(r *http.Request) string {
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		if first, _, ok := strings.Cut(xff, ","); ok {
-			return strings.TrimSpace(first)
-		}
-		return strings.TrimSpace(xff)
-	}
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
-		return r.RemoteAddr
+		host = r.RemoteAddr
+	}
+	if !trustedProxy(host) {
+		return host
+	}
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		if i := strings.LastIndex(xff, ","); i >= 0 {
+			xff = xff[i+1:]
+		}
+		if last := strings.TrimSpace(xff); last != "" {
+			return last
+		}
 	}
 	return host
+}
+
+// trustedProxy reports whether a request from this address may speak for
+// somebody else. Loopback and private ranges only: a reverse proxy in front
+// of the server reaches it over one of those.
+func trustedProxy(host string) bool {
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return false
+	}
+	return ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast()
 }

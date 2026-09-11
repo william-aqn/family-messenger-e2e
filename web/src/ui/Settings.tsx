@@ -25,12 +25,14 @@ export function Settings({ onClose }: { onClose: () => void }) {
   const me = session.value!;
   const k = keys.value!;
   const [devices, setDevices] = useState<DeviceView[]>([]);
-  const [current, setCurrent] = useState('');
   const [next, setNext] = useState('');
   const [repeat, setRepeat] = useState('');
-  // The password cannot be reset, so a typo in the new one would lock the
-  // account: it has to be typed twice. Other devices are signed out by
-  // default, which is the point of changing a leaked password.
+  // No current password is asked for: this device proves itself with the
+  // account keys it already holds (PROTOCOL.md §3.2), which is what lets
+  // somebody who forgot the password set a new one. The password cannot be
+  // reset, so a typo in the new one would lock the account and it has to be
+  // typed twice. Other devices are signed out by default, which is the point
+  // of changing a leaked password.
   const [signOutOthers, setSignOutOthers] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [sub, setSub] = useState<'bots' | 'admin' | null>(null);
@@ -51,8 +53,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
       return;
     }
     try {
-      const signedOut = await changePassword(current, next, signOutOthers);
-      setCurrent('');
+      const signedOut = await changePassword(next, signOutOthers);
       setNext('');
       setRepeat('');
       showToast(signedOut > 0 ? t('password_changed_signed_out', { n: signedOut }) : t('password_changed'));
@@ -165,16 +166,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
 
         <form class="section ruled" onSubmit={submitPassword}>
           <span class="block-title">{t('change_password')}</span>
-          <label>
-            <span>{t('current_password')}</span>
-            <input
-              type="password"
-              aria-label={t('current_password')}
-              value={current}
-              onInput={(e) => setCurrent((e.target as HTMLInputElement).value)}
-              autocomplete="current-password"
-            />
-          </label>
+          <p class="hint">{t('change_password_hint')}</p>
           <label>
             <span>{t('new_password')}</span>
             <input
@@ -204,7 +196,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
             <Icon name="alert" size={20} />
             <span class="grow">{t('password_warning')}</span>
           </div>
-          <button type="submit" class={authBusy.value ? 'primary busy' : 'primary'} disabled={!current || !next || !repeat || !!authBusy.value}>
+          <button type="submit" class={authBusy.value ? 'primary busy' : 'primary'} disabled={!next || !repeat || !!authBusy.value}>
             {authBusy.value ? (
               <>
                 <span class="spinner" />

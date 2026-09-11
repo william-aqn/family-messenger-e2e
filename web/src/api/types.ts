@@ -128,6 +128,10 @@ export interface EventPayload {
   actor?: string;
   account?: string;
   seq?: number;
+  /** password.changed: which device made the change, and when. */
+  device_id?: string;
+  at?: number;
+  proof?: string;
 }
 
 /** A member as carried inside signed membership events (PROTOCOL.md §6). */

@@ -2,7 +2,7 @@ import { useEffect } from 'preact/hooks';
 import { wsClient } from '../api/ws';
 import { t } from '../i18n';
 import { call } from '../state/calls';
-import { selectedId, serverSettings, serverVersion, session, toast, updateAvailable } from '../state/model';
+import { passwordChangedElsewhere, selectedId, serverSettings, serverVersion, session, toast, updateAvailable } from '../state/model';
 import { booting } from '../state/session';
 import { dbBlocked } from '../store/db';
 import { voice } from '../state/voice';
@@ -78,6 +78,15 @@ export function App() {
             <span class="grow">{t('update_available', { version: serverVersion.value })}</span>
             <button type="button" class="link strong" onClick={() => location.reload()}>
               {t('reload_page')}
+            </button>
+          </div>
+        )}
+        {passwordChangedElsewhere.value !== null && (
+          <div class="banner alert">
+            <Icon name="alert" size={20} />
+            <span class="grow">{t('password_changed_elsewhere')}</span>
+            <button type="button" class="link strong" onClick={() => (passwordChangedElsewhere.value = null)}>
+              {t('dismiss')}
             </button>
           </div>
         )}

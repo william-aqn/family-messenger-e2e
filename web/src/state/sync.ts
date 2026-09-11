@@ -27,6 +27,7 @@ import {
   contacts,
   conversations,
   messages,
+  passwordChangedElsewhere,
   pending,
   selectedId,
   serverSettings,
@@ -234,6 +235,11 @@ async function refreshConversationInline(id: string): Promise<void> {
 }
 
 async function onEvent(ev: EventPayload): Promise<void> {
+  // Account-wide events come without a conversation.
+  if (ev.kind === 'password.changed') {
+    if (ev.device_id !== session.value?.deviceId) passwordChangedElsewhere.value = ev.at ?? 0;
+    return;
+  }
   if (!ev.conv_id) return;
   switch (ev.kind) {
     case 'conv.updated':

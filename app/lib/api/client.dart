@@ -77,6 +77,11 @@ class ApiClient {
 
   Future<void> logout() => _json('POST', '/auth/logout');
 
+  /// Asks for the random bytes this device must sign to change the password
+  /// (PROTOCOL.md §3.2). Returns the challenge, base64.
+  Future<String> passwordChallenge() async =>
+      ((await _json('POST', '/auth/password/challenge')) as Map<String, dynamic>)['challenge'] as String;
+
   /// Changes the password (PROTOCOL.md §3.2); returns how many other devices
   /// the server signed out.
   Future<int> changePassword(Map<String, dynamic> body) async {

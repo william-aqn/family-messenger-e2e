@@ -363,3 +363,84 @@ func vectorRandomness(c envCase) *randomness {
 	}
 	return r
 }
+
+type pwChangeVectors struct {
+	Cases []pwChangeCase `json:"cases"`
+}
+
+type pwChangeCase struct {
+	SignSeed      hexBytes `json:"sign_seed"`
+	SignPub       hexBytes `json:"sign_pub"`
+	EncPriv       hexBytes `json:"enc_priv"`
+	Challenge     hexBytes `json:"challenge"`
+	Account       hexBytes `json:"account_id"`
+	Device        hexBytes `json:"device_id"`
+	NewSalt       hexBytes `json:"new_salt"`
+	NewAuthKey    hexBytes `json:"new_auth_key"`
+	NewKeyBundle  hexBytes `json:"new_key_bundle"`
+	SignOutOthers bool     `json:"sign_out_others"`
+	Message       hexBytes `json:"message"`
+	Signature     hexBytes `json:"signature"`
+}
+
+// TestVectorsPasswordChange pins the bytes a client signs to change its
+// password without the old one (PROTOCOL.md §3.2): all three clients must
+// build the same message, or the server will reject their proof.
+func TestVectorsPasswordChange(t *testing.T) {
+	if *update {
+		d := newDet("pwchange")
+		var v pwChangeVectors
+		for i := 0; i < 3; i++ {
+			c := pwChangeCase{
+				SignSeed: d.bytes(32), EncPriv: d.bytes(32), Challenge: d.bytes(PasswordChangeChallengeSize),
+				Account: d.bytes(16), Device: d.bytes(16), NewSalt: d.bytes(SaltSize), NewAuthKey: d.bytes(32),
+				SignOutOthers: i%2 == 0,
+			}
+			k, err := AccountKeysFromSecrets(to32(c.SignSeed), to32(c.EncPriv))
+			if err != nil {
+				t.Fatal(err)
+			}
+			c.SignPub = k.SignPub[:]
+			c.NewKeyBundle = SealKeyBundle(to32(d.bytes(32)), to24(d.bytes(NonceSize)), k)
+			msg, err := PasswordChangeMessage(c.Challenge, toID(c.Account), toID(c.Device), c.NewSalt, c.NewAuthKey, c.NewKeyBundle, c.SignOutOthers)
+			if err != nil {
+				t.Fatal(err)
+			}
+			c.Message = msg
+			c.Signature = k.Sign(msg)
+			v.Cases = append(v.Cases, c)
+		}
+		writeVectors(t, "pwchange.json", v)
+		return
+	}
+	var v pwChangeVectors
+	readVectors(t, "pwchange.json", &v)
+	for i, c := range v.Cases {
+		k, err := AccountKeysFromSecrets(to32(c.SignSeed), to32(c.EncPriv))
+		if err != nil {
+			t.Fatal(err)
+		}
+		msg, err := PasswordChangeMessage(c.Challenge, toID(c.Account), toID(c.Device), c.NewSalt, c.NewAuthKey, c.NewKeyBundle, c.SignOutOthers)
+		if err != nil {
+			t.Fatalf("pwchange case %d: %v", i, err)
+		}
+		if !bytes.Equal(msg, c.Message) {
+			t.Errorf("pwchange case %d: signed message mismatch", i)
+		}
+		if !bytes.Equal(k.Sign(msg), c.Signature) {
+			t.Errorf("pwchange case %d: signature mismatch", i)
+		}
+		if !VerifyPasswordChange(to32(c.SignPub), c.Signature, c.Challenge, toID(c.Account), toID(c.Device), c.NewSalt, c.NewAuthKey, c.NewKeyBundle, c.SignOutOthers) {
+			t.Errorf("pwchange case %d: does not verify", i)
+		}
+		// Every field is bound: flipping the instruction breaks the proof.
+		if VerifyPasswordChange(to32(c.SignPub), c.Signature, c.Challenge, toID(c.Account), toID(c.Device), c.NewSalt, c.NewAuthKey, c.NewKeyBundle, !c.SignOutOthers) {
+			t.Errorf("pwchange case %d: sign_out_others is not covered by the signature", i)
+		}
+		other := append([]byte(nil), c.Challenge...)
+		other[0] ^= 1
+		if VerifyPasswordChange(to32(c.SignPub), c.Signature, other, toID(c.Account), toID(c.Device), c.NewSalt, c.NewAuthKey, c.NewKeyBundle, c.SignOutOthers) {
+			t.Errorf("pwchange case %d: challenge is not covered by the signature", i)
+		}
+	}
+}

@@ -1,7 +1,7 @@
 // Account keys, password-derived keys and the encrypted key bundle,
 // PROTOCOL.md §3.
 import { concat, equal, randomBytes, utf8Encode } from './bytes';
-import { aeadDecrypt, aeadEncrypt, argon2idHash, ed25519Public, type KdfParams, NONCE_SIZE, TAG_SIZE, x25519Public } from './primitives';
+import { aeadDecrypt, aeadEncrypt, argon2idHash, ed25519Public, type KdfParams, NONCE_SIZE, sign, TAG_SIZE, x25519Public } from './primitives';
 
 export interface AccountKeys {
   signSeed: Uint8Array;
@@ -49,4 +49,54 @@ export function openKeyBundle(encKey: Uint8Array, bundle: Uint8Array, signPub: U
   const keys = keysFromSecrets(secrets.slice(0, 32), secrets.slice(32, 64));
   if (!equal(keys.signPub, signPub) || !equal(keys.encPub, encPub)) throw new Error('key bundle does not match the public keys');
   return keys;
+}
+
+/**
+ * Password change without the old password (PROTOCOL.md §3.2). A signed-in
+ * device re-encrypts the key bundle from the account secrets it already has,
+ * and proves it may do so by signing a server-issued challenge together with
+ * the new material, instead of knowing the old password.
+ */
+export const PW_CHANGE_CHALLENGE_SIZE = 32;
+const PW_CHANGE_PREFIX = utf8Encode('msgr-pwchange-v1');
+
+/**
+ * The bytes to sign:
+ * "msgr-pwchange-v1" || challenge(32) || account_id(16) || device_id(16) ||
+ * new_salt(16) || new_auth_key(32) || new_key_bundle(104) || sign_out_others(1).
+ * Every field is fixed size, so the concatenation is unambiguous.
+ */
+export function passwordChangeMessage(
+  challenge: Uint8Array,
+  accountId: Uint8Array,
+  deviceId: Uint8Array,
+  newSalt: Uint8Array,
+  newAuthKey: Uint8Array,
+  newKeyBundle: Uint8Array,
+  signOutOthers: boolean,
+): Uint8Array {
+  if (
+    challenge.length !== PW_CHANGE_CHALLENGE_SIZE ||
+    accountId.length !== 16 ||
+    deviceId.length !== 16 ||
+    newSalt.length !== SALT_SIZE ||
+    newAuthKey.length !== 32 ||
+    newKeyBundle.length !== KEY_BUNDLE_SIZE
+  ) {
+    throw new Error('invalid password change input');
+  }
+  return concat(PW_CHANGE_PREFIX, challenge, accountId, deviceId, newSalt, newAuthKey, newKeyBundle, new Uint8Array([signOutOthers ? 1 : 0]));
+}
+
+export function signPasswordChange(
+  signSeed: Uint8Array,
+  challenge: Uint8Array,
+  accountId: Uint8Array,
+  deviceId: Uint8Array,
+  newSalt: Uint8Array,
+  newAuthKey: Uint8Array,
+  newKeyBundle: Uint8Array,
+  signOutOthers: boolean,
+): Uint8Array {
+  return sign(signSeed, passwordChangeMessage(challenge, accountId, deviceId, newSalt, newAuthKey, newKeyBundle, signOutOthers));
 }

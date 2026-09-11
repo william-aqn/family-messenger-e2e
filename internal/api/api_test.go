@@ -5,11 +5,13 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -97,10 +99,21 @@ type client struct {
 	accountID string
 	deviceID  string
 	keys      *e2e.AccountKeys
+	ip        string
 }
 
+// clientIPs hands every test client its own address. The server limits
+// registration, login and password changes per client address, and a whole
+// test file otherwise shares 127.0.0.1 and runs into the bucket. The server
+// believes X-Forwarded-For only from a loopback or private peer, which is
+// what httptest is (see auth.ClientIP).
+var clientIPs atomic.Int32
+
 func newClient(t *testing.T, base, username string) *client {
-	return &client{t: t, base: base, http: &http.Client{Timeout: 10 * time.Second}, username: username}
+	return &client{
+		t: t, base: base, http: &http.Client{Timeout: 10 * time.Second}, username: username,
+		ip: fmt.Sprintf("203.0.113.%d", clientIPs.Add(1)%250+1),
+	}
 }
 
 // do performs a JSON request and returns the status code; 2xx bodies are
@@ -125,6 +138,7 @@ func (c *client) do(method, path string, body, out any) int {
 	if c.token != "" {
 		req.Header.Set("Authorization", "Bearer "+c.token)
 	}
+	req.Header.Set("X-Forwarded-For", c.ip)
 	res, err := c.http.Do(req)
 	if err != nil {
 		c.t.Fatal(err)
@@ -661,10 +675,54 @@ func TestRegistrationModes(t *testing.T) {
 	}
 }
 
-// changePassword does what a client does: proves the current password with
-// its auth key and sends the material derived from the new one. Returns the
-// status and the number of other devices the server signed out.
-func changePassword(t *testing.T, c *client, current, next string, signOutOthers bool) (int, int) {
+// passwordChange is what a current client sends: material derived from the
+// new password, and a signature over a fresh challenge instead of the old
+// password (PROTOCOL.md §3.2). mutate may tamper with the body before it
+// goes out. Returns the status and how many devices the server signed out.
+func passwordChange(t *testing.T, c *client, next string, signOutOthers bool, mutate func(map[string]any)) (int, int) {
+	t.Helper()
+	var ch struct {
+		Challenge []byte `json:"challenge"`
+	}
+	c.must("POST", "/api/v1/auth/password/challenge", nil, &ch, http.StatusOK)
+	salt := make([]byte, e2e.SaltSize)
+	if _, err := rand.Read(salt); err != nil {
+		t.Fatal(err)
+	}
+	newKey, newEnc := e2e.DeriveKeys(next, salt, fastKDF)
+	bundle, err := e2e.NewKeyBundle(newEnc, c.keys)
+	if err != nil {
+		t.Fatal(err)
+	}
+	account, err := e2e.ParseID(c.accountID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	device, err := e2e.ParseID(c.deviceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sig, err := c.keys.SignPasswordChange(ch.Challenge, account, device, salt, newKey[:], bundle, signOutOthers)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := map[string]any{
+		"challenge": ch.Challenge, "sig": sig, "new_salt": salt, "new_auth_key": newKey[:],
+		"new_key_bundle": bundle, "sign_out_others": signOutOthers,
+	}
+	if mutate != nil {
+		mutate(body)
+	}
+	var res struct {
+		SignedOut int `json:"signed_out_devices"`
+	}
+	status := c.do("POST", "/api/v1/auth/password", body, &res)
+	return status, res.SignedOut
+}
+
+// passwordChangeOldWay is the pre-signature form app builds still send: the
+// current password's auth key as the proof.
+func passwordChangeOldWay(t *testing.T, c *client, current, next string, signOutOthers bool) (int, int) {
 	t.Helper()
 	var params struct {
 		Salt []byte `json:"salt"`
@@ -687,6 +745,20 @@ func changePassword(t *testing.T, c *client, current, next string, signOutOthers
 		"auth_key": curKey[:], "new_salt": salt, "new_auth_key": newKey[:], "new_key_bundle": bundle, "sign_out_others": signOutOthers,
 	}, &res)
 	return status, res.SignedOut
+}
+
+// expectEvent returns the next event frame of the given kind.
+func (w *wsClient) expectEvent(kind string) map[string]any {
+	w.t.Helper()
+	for {
+		var ev map[string]any
+		if err := json.Unmarshal(w.expect("event"), &ev); err != nil {
+			w.t.Fatal(err)
+		}
+		if ev["kind"] == kind {
+			return ev
+		}
+	}
 }
 
 // expectClosed waits for the server to close the socket.
@@ -714,20 +786,59 @@ func TestPasswordChange(t *testing.T) {
 	}
 	phoneWS := phone.connectWS()
 
-	// A wrong current password changes nothing.
-	if status, _ := changePassword(t, alice, "not-the-password", "alice-password-456", true); status != http.StatusUnauthorized {
-		t.Fatalf("wrong current password status %d", status)
-	}
+	// No proof at all, and both proofs at once, are both refused.
 	if status := alice.do("POST", "/api/v1/auth/password", map[string]any{"auth_key": []byte{1, 2, 3}}, nil); status != http.StatusBadRequest {
 		t.Fatalf("malformed request status %d", status)
 	}
+	if status, _ := passwordChange(t, alice, "alice-password-456", true, func(b map[string]any) { delete(b, "sig") }); status != http.StatusBadRequest {
+		t.Fatalf("no proof status %d", status)
+	}
+	if status, _ := passwordChange(t, alice, "alice-password-456", true, func(b map[string]any) {
+		b["auth_key"] = make([]byte, 32)
+	}); status != http.StatusBadRequest {
+		t.Fatalf("two proofs status %d", status)
+	}
+
+	// Every signed field is bound: changing one after signing breaks the proof.
+	tampered := map[string]func(map[string]any){
+		"sig":             func(b map[string]any) { b["sig"].([]byte)[3] ^= 1 },
+		"challenge":       func(b map[string]any) { b["challenge"].([]byte)[3] ^= 1 },
+		"sign_out_others": func(b map[string]any) { b["sign_out_others"] = false },
+		"new_salt":        func(b map[string]any) { b["new_salt"].([]byte)[0] ^= 1 },
+		"new_auth_key":    func(b map[string]any) { b["new_auth_key"].([]byte)[0] ^= 1 },
+		"new_key_bundle":  func(b map[string]any) { b["new_key_bundle"].([]byte)[0] ^= 1 },
+	}
+	for field, mutate := range tampered {
+		status, _ := passwordChange(t, alice, "alice-password-456", true, mutate)
+		if status != http.StatusUnauthorized {
+			t.Fatalf("tampering with %s: status %d, want 401", field, status)
+		}
+	}
+	// A challenge cannot be replayed, and belongs to the device that asked.
+	var ch struct {
+		Challenge []byte `json:"challenge"`
+	}
+	alice.must("POST", "/api/v1/auth/password/challenge", nil, &ch, http.StatusOK)
+	if status, _ := passwordChange(t, alice, "alice-password-456", true, func(b map[string]any) { b["challenge"] = ch.Challenge }); status != http.StatusUnauthorized {
+		t.Fatalf("stale challenge status %d", status)
+	}
+	var phoneCh struct {
+		Challenge []byte `json:"challenge"`
+	}
+	phone.must("POST", "/api/v1/auth/password/challenge", nil, &phoneCh, http.StatusOK)
+	if status, _ := passwordChange(t, alice, "alice-password-456", true, func(b map[string]any) { b["challenge"] = phoneCh.Challenge }); status != http.StatusUnauthorized {
+		t.Fatalf("another device's challenge status %d", status)
+	}
+
+	// Nothing above changed anything.
 	if _, status := login(t, ts.URL, "alice", "alice-password-123"); status != http.StatusOK {
-		t.Fatalf("old password must still work after a failed change, status %d", status)
+		t.Fatalf("the password must still be the old one, status %d", status)
 	}
 	phone.must("GET", "/api/v1/me", nil, nil, http.StatusOK)
 
-	// Changing the password without signing the others out keeps them signed in.
-	status, signedOut := changePassword(t, alice, "alice-password-123", "alice-password-456", false)
+	// The point of the change: a new password without knowing the old one.
+	// Without sign_out_others the other devices stay signed in.
+	status, signedOut := passwordChange(t, alice, "alice-password-456", false, nil)
 	if status != http.StatusOK || signedOut != 0 {
 		t.Fatalf("change without sign-out: status %d, signed out %d", status, signedOut)
 	}
@@ -743,8 +854,14 @@ func TestPasswordChange(t *testing.T) {
 		t.Fatal("the re-encrypted key bundle lost the account keys")
 	}
 
+	// Every other device hears about a change made elsewhere.
+	ev := phoneWS.expectEvent("password.changed")
+	if ev["device_id"] != alice.deviceID || ev["proof"] != "signature" {
+		t.Fatalf("password.changed event: %+v", ev)
+	}
+
 	// The leaked-password case: change it and revoke every other session.
-	status, signedOut = changePassword(t, alice, "alice-password-456", "alice-password-789", true)
+	status, signedOut = passwordChange(t, alice, "alice-password-789", true, nil)
 	if status != http.StatusOK || signedOut != 3 {
 		t.Fatalf("change with sign-out: status %d, signed out %d (want 3)", status, signedOut)
 	}
@@ -771,4 +888,36 @@ func TestPasswordChange(t *testing.T) {
 	if _, status := login(t, ts.URL, "alice", "alice-password-789"); status != http.StatusOK {
 		t.Fatalf("current password status %d", status)
 	}
+
+	// App builds from before the signature prove the old password instead.
+	if status, _ := passwordChangeOldWay(t, alice, "wrong-password", "alice-password-000", false); status != http.StatusUnauthorized {
+		t.Fatalf("old form with a wrong password status %d", status)
+	}
+	if status, _ := passwordChangeOldWay(t, alice, "alice-password-789", "alice-password-000", false); status != http.StatusOK {
+		t.Fatalf("old form status %d", status)
+	}
+	if _, status := login(t, ts.URL, "alice", "alice-password-000"); status != http.StatusOK {
+		t.Fatalf("password after the old-form change, status %d", status)
+	}
+
+	// Bots hold their keys on the server, so neither route may serve them.
+	botToken := createBotFor(t, alice)
+	bot := newClient(t, ts.URL, "helperbot")
+	bot.token = botToken
+	if status := bot.do("POST", "/api/v1/auth/password/challenge", nil, nil); status != http.StatusForbidden {
+		t.Fatalf("bot challenge status %d", status)
+	}
+	if status := bot.do("POST", "/api/v1/auth/password", map[string]any{"auth_key": make([]byte, 32)}, nil); status != http.StatusForbidden {
+		t.Fatalf("bot password change status %d", status)
+	}
+}
+
+// createBotFor makes a bot owned by c and returns its token.
+func createBotFor(t *testing.T, c *client) string {
+	t.Helper()
+	var made struct {
+		Token string `json:"token"`
+	}
+	c.must("POST", "/api/v1/bots", map[string]any{"username": "helperbot", "display_name": "Helper"}, &made, http.StatusCreated)
+	return made.Token
 }

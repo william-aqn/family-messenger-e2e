@@ -61,3 +61,58 @@ Future<AccountKeys> openKeyBundle(List<int> encKey, List<int> bundle, List<int> 
   }
   return keys;
 }
+
+/// Password change without the old password (PROTOCOL.md §3.2). A signed-in
+/// device re-encrypts the key bundle from the account secrets it already
+/// holds, and proves it may do so by signing a server-issued challenge
+/// together with the new material, instead of knowing the old password.
+const int pwChangeChallengeSize = 32;
+final Uint8List _pwChangePrefix = utf8Encode('msgr-pwchange-v1');
+
+/// The bytes to sign:
+/// "msgr-pwchange-v1" || challenge(32) || account_id(16) || device_id(16) ||
+/// new_salt(16) || new_auth_key(32) || new_key_bundle(104) || sign_out_others(1).
+/// Every field is fixed size, so the concatenation is unambiguous.
+Uint8List passwordChangeMessage(
+  List<int> challenge,
+  List<int> accountId,
+  List<int> deviceId,
+  List<int> newSalt,
+  List<int> newAuthKey,
+  List<int> newKeyBundle, {
+  required bool signOutOthers,
+}) {
+  if (challenge.length != pwChangeChallengeSize ||
+      accountId.length != 16 ||
+      deviceId.length != 16 ||
+      newSalt.length != saltSize ||
+      newAuthKey.length != 32 ||
+      newKeyBundle.length != keyBundleSize) {
+    throw ArgumentError('invalid password change input');
+  }
+  return concat([
+    _pwChangePrefix,
+    challenge,
+    accountId,
+    deviceId,
+    newSalt,
+    newAuthKey,
+    newKeyBundle,
+    [signOutOthers ? 1 : 0],
+  ]);
+}
+
+Future<Uint8List> signPasswordChange(
+  List<int> signSeed,
+  List<int> challenge,
+  List<int> accountId,
+  List<int> deviceId,
+  List<int> newSalt,
+  List<int> newAuthKey,
+  List<int> newKeyBundle, {
+  required bool signOutOthers,
+}) =>
+    sign(
+      signSeed,
+      passwordChangeMessage(challenge, accountId, deviceId, newSalt, newAuthKey, newKeyBundle, signOutOthers: signOutOthers),
+    );

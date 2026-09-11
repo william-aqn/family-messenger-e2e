@@ -123,6 +123,17 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   bool syncing = false;
   String? busyText;
 
+  /// Set when the server reports that this account's password was changed
+  /// from another device (PROTOCOL.md §3.2). A change no longer needs the old
+  /// password, so finding out at once is the only defence left to the owner
+  /// of a device somebody else picked up. Cleared by dismissing the banner.
+  int? passwordChangedElsewhereAt;
+
+  void dismissPasswordChanged() {
+    passwordChangedElsewhereAt = null;
+    notifyListeners();
+  }
+
   final Map<String, Contact> contacts = {};
   final Map<String, Conversation> conversations = {};
   final Map<String, List<Message>> messages = {};
@@ -245,6 +256,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
 
   Future<void> _establish(String base, Session sess, AccountKeys k) async {
     _stopSync();
+    passwordChangedElsewhereAt = null;
     contacts.clear();
     conversations.clear();
     messages.clear();
@@ -286,6 +298,9 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     session = null;
     keys = null;
     api = null;
+    // Otherwise the warning from the session that just ended greets whoever
+    // signs in next.
+    passwordChangedElsewhereAt = null;
     contacts.clear();
     conversations.clear();
     messages.clear();
@@ -310,10 +325,12 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   /// Shortest password accepted at registration and at a password change.
   static const int minPasswordLength = 12;
 
-  /// Changes the password (PROTOCOL.md §3.2): proves the current one with its
-  /// auth key, re-encrypts the key bundle with the new one and, when asked,
-  /// signs every other device out. Returns how many devices were signed out.
-  Future<int> changePassword(String current, String next, {bool signOutOthers = true}) async {
+  /// Changes the password (PROTOCOL.md §3.2). The new key bundle is built from
+  /// the account keys this device already holds, so the old password is not
+  /// needed; the server is satisfied instead by a signature over a challenge
+  /// it just issued, which only a device holding the account's signing key
+  /// can make. When asked, every other device is signed out; returns how many.
+  Future<int> changePassword(String next, {bool signOutOthers = true}) async {
     final client = api;
     final k = keys;
     final sess = session;
@@ -321,20 +338,44 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     if (next.length < minPasswordLength) throw StateError(t('password_too_short', {'n': minPasswordLength}));
     _busy(t('deriving_key'));
     try {
-      final params = await client.authParams(sess.username);
-      final kdf = KdfParams.fromJson(params['kdf'] as Map<String, dynamic>);
-      final cur = await deriveKeys(current, b64decode(params['salt'] as String), kdf);
       final salt = randomBytes(saltSize);
       final fresh = await deriveKeys(next, salt);
       final bundle = await newKeyBundle(fresh.encKey, k);
+      // Open what we are about to upload. Nothing can unlock the account if
+      // this bundle is wrong, so never send one that does not come back.
+      await openKeyBundle(fresh.encKey, bundle, k.signPub, k.encPub);
       _busy(t('changing_password'));
-      return await client.changePassword({
-        'auth_key': b64encode(cur.authKey),
-        'new_salt': b64encode(salt),
-        'new_auth_key': b64encode(fresh.authKey),
-        'new_key_bundle': b64encode(bundle),
-        'sign_out_others': signOutOthers,
-      });
+      // A fresh challenge per attempt: the server consumes it on use.
+      // Another client or a server restart can take it first, which is a
+      // lost race and not a failure, so try once more before giving up.
+      Future<int> attempt() async {
+        final challenge = b64decode(await client.passwordChallenge());
+        final sig = await signPasswordChange(
+          k.signSeed,
+          challenge,
+          uuidToBytes(sess.accountId),
+          uuidToBytes(sess.deviceId),
+          salt,
+          fresh.authKey,
+          bundle,
+          signOutOthers: signOutOthers,
+        );
+        return client.changePassword({
+          'challenge': b64encode(challenge),
+          'sig': b64encode(sig),
+          'new_salt': b64encode(salt),
+          'new_auth_key': b64encode(fresh.authKey),
+          'new_key_bundle': b64encode(bundle),
+          'sign_out_others': signOutOthers,
+        });
+      }
+
+      try {
+        return await attempt();
+      } on ApiException catch (e) {
+        if (e.code != 'challenge_expired') rethrow;
+        return await attempt();
+      }
     } finally {
       _busy(null);
     }
@@ -495,6 +536,14 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
       });
 
   Future<void> _onEvent(Map<String, dynamic> ev) async {
+    // Account-wide events come without a conversation.
+    if (ev['kind'] == 'password.changed') {
+      if (ev['device_id'] != session?.deviceId) {
+        passwordChangedElsewhereAt = (ev['at'] as num?)?.toInt() ?? 0;
+        notifyListeners();
+      }
+      return;
+    }
     final convId = ev['conv_id'] as String?;
     if (convId == null) return;
     switch (ev['kind']) {
