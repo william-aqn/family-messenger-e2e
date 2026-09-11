@@ -6,7 +6,7 @@
 # peer runs elsewhere, for example Playwright on the Windows host:
 #
 #   docker run --rm -p 18082:18082 -v E:\ai\messanger:/src:ro -v <shots>:/out family-messenger-e2e-builder sh /src/scripts/app-video-call-test-linux.sh
-#   (then, on the host)  cd web && TEST_BASE_URL=http://127.0.0.1:18082 TEST_USER=<app user> TEST_PEER=<peer> PW_CHANNEL=msedge npx playwright test --config playwright.peer.config.ts
+#   (then, on the host)  cd web && TEST_BASE_URL=http://127.0.0.1:18082 TEST_USER=<app user> TEST_PEER=<peer> PW_CHANNEL=msedge npx playwright test tests/peer/app-peer.spec.ts --config playwright.peer.config.ts
 #
 # The user names are written to $OUT/peer.env; screenshots of the X screen
 # land in $OUT every few seconds while the test runs.

@@ -68,7 +68,7 @@ $env:TEST_USER = $user
 $env:TEST_PEER = $peer
 $env:TEST_BASE_URL = "http://127.0.0.1:$Port"
 $env:PW_CHANNEL = $Channel
-$peerProc = Start-Process -FilePath 'cmd.exe' -ArgumentList '/c', 'npx playwright test --config playwright.peer.config.ts' -WorkingDirectory (Join-Path $repo 'web') -PassThru -NoNewWindow -RedirectStandardOutput (Join-Path $work 'peer.log') -RedirectStandardError (Join-Path $work 'peer.err')
+$peerProc = Start-Process -FilePath 'cmd.exe' -ArgumentList '/c', 'npx playwright test tests/peer/app-peer.spec.ts --config playwright.peer.config.ts' -WorkingDirectory (Join-Path $repo 'web') -PassThru -NoNewWindow -RedirectStandardOutput (Join-Path $work 'peer.log') -RedirectStandardError (Join-Path $work 'peer.err')
 $null = $peerProc.Handle
 
 Push-Location (Join-Path $repo 'app')

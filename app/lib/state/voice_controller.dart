@@ -106,6 +106,10 @@ class VoiceController extends ChangeNotifier {
   final Set<String> _connecting = {};
   MediaStream? _local;
   MediaStream? _screen;
+  /// The empty streams the two video slots announce, so neither m-line shares
+  /// an id with the other or with the microphone's stream.
+  MediaStream? _cameraSlot;
+  MediaStream? _screenSlot;
   MediaStream? _camera;
   Timer? _heartbeatTimer;
   Timer? _pruneTimer;
@@ -231,6 +235,9 @@ class VoiceController extends ChangeNotifier {
     _heartbeatTimer = null;
     final screen = _screen;
     _screen = null;
+    final slots = [_cameraSlot, _screenSlot];
+    _cameraSlot = null;
+    _screenSlot = null;
     for (final id in List.of(_peers.keys)) {
       _closePeer(id);
     }
@@ -241,6 +248,9 @@ class VoiceController extends ChangeNotifier {
     notifyListeners();
     await _signal(ch.convId, {'t': 'voice.leave', 'session': ch.session});
     await _dispose(screen);
+    for (final slot in slots) {
+      await _dispose(slot);
+    }
     await _dispose(local);
     await disableScreenCaptureService();
   }
@@ -412,28 +422,35 @@ class VoiceController extends ChangeNotifier {
 
   /// The pair's two video slots, negotiated once in the order the web client
   /// uses — camera first, screen second — and fed with whichever track is on.
-  /// The mic stream is announced for each so the m-line carries an msid and
-  /// receivers get the track inside a stream.
+  /// Each slot announces an empty stream of its own, never the microphone's:
+  /// a video sender that carries no track yet but names the audio stream makes
+  /// libwebrtc abort on Windows, and two m-lines sharing one stream id never
+  /// finish setLocalDescription there either. The receiver still gets each
+  /// track inside a stream of its own, which is what the slots are for.
   Future<void> _ensureVideo(_Peer peer) async {
     if (peer.cameraTx == null || peer.screenTx == null) {
+      _cameraSlot ??= await createLocalMediaStream('voice-camera-slot');
+      _screenSlot ??= await createLocalMediaStream('voice-screen-slot');
+      final slots = [_cameraSlot, _screenSlot];
       final List<RTCRtpTransceiver> videos = [
         for (final candidate in await peer.pc.getTransceivers())
           if (candidate.receiver.track?.kind == 'video') candidate,
       ];
-      for (final tx in videos) {
-        await tx.setDirection(TransceiverDirection.SendRecv);
-        // Created from a remote offer: announce the mic stream ("msid:-" otherwise).
-        if (_local != null) {
-          try {
-            await tx.sender.setStreams([_local!]);
-          } catch (_) {}
-        }
-      }
       while (videos.length < 2) {
         videos.add(await peer.pc.addTransceiver(
           kind: RTCRtpMediaType.RTCRtpMediaTypeVideo,
-          init: RTCRtpTransceiverInit(direction: TransceiverDirection.SendRecv, streams: [?_local]),
+          init: RTCRtpTransceiverInit(direction: TransceiverDirection.SendRecv, streams: [?slots[videos.length]]),
         ));
+      }
+      for (var i = 0; i < 2; i++) {
+        await videos[i].setDirection(TransceiverDirection.SendRecv);
+        // Created from a remote offer: announce the slot's stream ("msid:-" otherwise).
+        final stream = slots[i];
+        if (stream != null) {
+          try {
+            await videos[i].sender.setStreams([stream]);
+          } catch (_) {}
+        }
       }
       peer.cameraTx = videos[0];
       peer.screenTx = videos[1];
@@ -450,10 +467,15 @@ class VoiceController extends ChangeNotifier {
     final ch = channel;
     if (ch == null || ch.camera) return null;
     try {
-      final stream = await navigator.mediaDevices.getUserMedia({
-        'audio': false,
-        'video': {'width': 640, 'height': 360, 'facingMode': 'user'},
-      });
+      // The same test mode as a call's camera: `--dart-define=FAKE_CAMERA=screen`
+      // feeds the screen instead, so a machine without a webcam can still put a
+      // camera into the channel.
+      final stream = CallController.fakeCamera == 'screen'
+          ? await navigator.mediaDevices.getDisplayMedia(await displayMediaConstraints())
+          : await navigator.mediaDevices.getUserMedia({
+              'audio': false,
+              'video': {'width': 640, 'height': 360, 'facingMode': 'user'},
+            });
       final track = stream.getVideoTracks().first;
       _camera = stream;
       await _attachRenderer(selfTile, stream);
@@ -520,7 +542,7 @@ class VoiceController extends ChangeNotifier {
       if (ch == null) return;
       final peer = await _createPeer(convId, remote);
       await _ensureVideo(peer);
-      final offer = await peer.pc.createOffer({});
+      final offer = await peer.pc.createOffer();
       await peer.pc.setLocalDescription(offer);
       await _signal(convId, {'t': 'voice.offer', 'session': ch.session, 'to': remote, 'sdp': offer.sdp});
     } catch (e) {
@@ -540,7 +562,7 @@ class VoiceController extends ChangeNotifier {
       await peer.pc.setRemoteDescription(RTCSessionDescription(sdp, 'offer'));
       peer.remoteSet = true;
       await _ensureVideo(peer);
-      final answer = await peer.pc.createAnswer({});
+      final answer = await peer.pc.createAnswer();
       await peer.pc.setLocalDescription(answer);
       await _signal(convId, {'t': 'voice.answer', 'session': ch.session, 'to': remote, 'sdp': answer.sdp});
       await _flushIce(remote);

@@ -36,11 +36,9 @@ class _ChatScreenState extends State<ChatScreen> {
   /// The message the actions sheet is open for; it wears an accent ring (A07).
   Message? selected;
 
-  @override
-  void initState() {
-    super.initState();
-    app.markRead(widget.convId);
-  }
+  // Nothing marks the chat read here: markRead notifies its listeners, and
+  // from initState that lands in the middle of the build ("setState() called
+  // during build"). The build below schedules it after the frame instead.
 
   @override
   void dispose() {

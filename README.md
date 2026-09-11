@@ -35,7 +35,9 @@ building from source stay as options).
   (the user list and name suggestions everyone sees when starting a chat).
 - **Group voice channels**: any member joins the group's channel whenever they
   like, no ringing; audio flows peer-to-peer (mesh), so it stays end-to-end
-  encrypted.
+  encrypted. Everyone can switch on a camera and share a screen at the same
+  time — every pair negotiates both up front, so turning either on shows a
+  tile to the others without renegotiating the connection.
 - **Text size** in the settings of both clients, 100 % to 160 %, remembered on
   that device: the web client redraws the whole interface at that scale, the
   app multiplies the system font size the phone already asks for.
@@ -320,6 +322,15 @@ database yet).
   `adb reverse`, the debug build is installed and granted the camera and
   microphone up front, and the emulator's emulated camera stands in for a
   real one (start it with `emulator -avd <name> -camera-front emulated`).
+- **A voice channel with three participants**:
+  `scriptsapp-voice-channel-test.ps1` puts the Windows app, the Android app
+  and a browser into one group's channel at once, each with a camera and a
+  shared screen, and checks that every side sees both tiles of both others
+  (`app/integration_test/voice_channel_test.dart` and
+  `web/tests/peer/app-voice-peer.spec.ts`). `-Sides web,windows` leaves
+  Android out. If the app freezes the moment a call or a channel starts, look
+  for an antivirus prompt about the microphone: the capture blocks until it is
+  answered, and a Flutter desktop app's main thread waits with it.
 - **An update that installs itself**: `scripts/fake-release.mjs` answers the
   three requests the updater makes — the release metadata, the checksums and
   the asset — so two locally built APKs can play "installed version" and
