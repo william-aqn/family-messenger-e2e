@@ -105,9 +105,17 @@ source or Docker install over to releases. Update detection:
 - **Flutter app**: asks GitHub Releases at start and every six hours (and on
   *Settings → Check for updates*). On Windows and Linux it downloads the
   archive for its platform, verifies the checksum, swaps the files in place
-  once the app has closed and starts the new version; on Android, macOS and
-  iOS it opens the release page. Development builds (version `dev` or a
-  commit hash) are never nagged.
+  once the app has closed and starts the new version. On Android it downloads
+  the release APK, verifies it the same way and hands it to the system package
+  installer, which asks for confirmation and replaces the installed app — no
+  store in the path; the first time, Android also wants this app allowed as a
+  source of installs, and the app opens that settings screen itself. An APK
+  signed with a different key than the installed build cannot replace it in
+  place: the app says so instead of leaving Android's bare "App not
+  installed", and that build has to be uninstalled first (the account and the
+  history are on the server, so nothing is lost). On macOS and iOS the button
+  still opens the release page. Development builds (version `dev` or a commit
+  hash) are never nagged.
 
 ## Manual install (Docker Compose)
 
@@ -239,6 +247,13 @@ GitHub Release. With *run tests* ticked the Go, web unit, browser and Flutter
 tests run in parallel with the builds and a failure blocks the release. That
 release is what the installer's *release* flavour and the app's updater
 download, so the version string is what users see as their build number.
+The APK's signing certificate is pinned in `app/android/signing-key.sha256`
+and the workflow refuses to publish an APK carrying another one: Android
+replaces an installed app only with a build signed by the same key, so a key
+that changes silently would leave every phone unable to update. Until a
+keystore is supplied through the `ANDROID_KEYSTORE_BASE64`,
+`ANDROID_KEY_ALIAS` and `ANDROID_KEY_PASSWORD` secrets, that key is the
+Android debug keystore of the machine that happens to build the release.
 Everything but the Windows app runs on the repository's self-hosted Linux
 runner (label `self-hosted`); the Windows app is built on a GitHub-hosted
 Windows machine. macOS and iOS are not built: they need a Mac. No Docker
@@ -293,6 +308,12 @@ database yet).
   `adb reverse`, the debug build is installed and granted the camera and
   microphone up front, and the emulator's emulated camera stands in for a
   real one (start it with `emulator -avd <name> -camera-front emulated`).
+- **An update that installs itself**: `scripts/fake-release.mjs` answers the
+  three requests the updater makes — the release metadata, the checksums and
+  the asset — so two locally built APKs can play "installed version" and
+  "release" without publishing anything. Its header carries the whole recipe,
+  including how to check the two refusals that matter: a checksum that does
+  not match, and a release signed with another key.
 
 ### Builder container
 

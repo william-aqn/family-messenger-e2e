@@ -202,19 +202,72 @@ jobs:
       # flutter launcher runs inside the SDK) would refuse the SDK directory.
       - name: Trust the SDK checkout as root
         run: git config --global --add safe.directory '*'
-      - name: Build APK and App Bundle (debug-signed; add a keystore for Play)
+      # The app replaces itself on Android by handing the APK to the package
+      # manager, which accepts it only when it is signed with the key the
+      # installed build carries. That key therefore has to outlive the machine
+      # that builds the release: this writes it from the repository secrets
+      # into the key.properties the Gradle build reads. Without the secrets the
+      # build falls back to the Android debug key, which is what every release
+      # so far was signed with — see android/signing-key.sha256.
+      - name: Signing key from the repository secrets
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -z "${ANDROID_KEYSTORE_BASE64:-}" ]; then
+            echo "::warning::no ANDROID_KEYSTORE_BASE64: the APK is signed with the build machine's debug key"
+            exit 0
+          fi
+          umask 077
+          ks="$RUNNER_TEMP/release.jks"
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$ks"
+          cat > "$GITHUB_WORKSPACE/app/android/key.properties" <<EOF
+          storeFile=$ks
+          storePassword=$ANDROID_KEY_PASSWORD
+          keyAlias=$ANDROID_KEY_ALIAS
+          keyPassword=$ANDROID_KEY_PASSWORD
+          EOF
+      - name: Build APK and App Bundle
         working-directory: app
         run: |
           set -o pipefail
+          # The version code has to grow with the tag. Until now every release
+          # carried the 1 from pubspec.yaml, so a phone showed "0.1.0" whatever
+          # the release said and Android could not tell an update from a
+          # downgrade; v0.2.4 becomes 204.
+          name="${APP_VERSION#v}"
+          code="$(printf '%s' "$name" | awk -F'[.-]' '{printf "%d", $1 * 10000 + $2 * 100 + $3}')"
+          [ "${code:-0}" -gt 0 ] || { echo "::error::cannot derive a version code from ${APP_VERSION}"; exit 1; }
           {
             flutter --version
             flutter pub get
-            flutter build apk --release --dart-define=APP_VERSION=${APP_VERSION}
-            flutter build appbundle --release --dart-define=APP_VERSION=${APP_VERSION}
+            flutter build apk --release --build-name="$name" --build-number="$code" --dart-define=APP_VERSION=${APP_VERSION}
+            flutter build appbundle --release --build-name="$name" --build-number="$code" --dart-define=APP_VERSION=${APP_VERSION}
           } 2>&1 | tee "$RUNNER_TEMP/build.log"
           mkdir -p "$GITHUB_WORKSPACE/dist"
           cp build/app/outputs/flutter-apk/app-release.apk "$GITHUB_WORKSPACE/dist/family-messenger-${APP_VERSION}.apk"
           cp build/app/outputs/bundle/release/app-release.aab "$GITHUB_WORKSPACE/dist/family-messenger-${APP_VERSION}.aab"
+      # A signing key that changes orphans every installed app: Android will not
+      # replace a package with one signed differently, and the user's only way
+      # out is to uninstall and lose nothing but their patience. Better to lose
+      # the release than to publish an APK nobody can install over what they
+      # have — the debug keystore this is signed with today lives in the
+      # runner container and does not survive its rebuild.
+      - name: The APK must carry the key installed apps expect
+        run: |
+          want="$(grep -v '^#' "$GITHUB_WORKSPACE/app/android/signing-key.sha256" | tr -d '[:space:]')"
+          apksigner="$(ls -d "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -n1)"
+          got="$("$apksigner" verify --print-certs "$GITHUB_WORKSPACE/dist/family-messenger-${APP_VERSION}.apk" \
+                 | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')"
+          echo "signing certificate: $got"
+          [ "$got" = "$want" ] || {
+            echo "::error title=Signing key changed::the APK is signed with $got, but apps installed from earlier releases expect $want (app/android/signing-key.sha256)"
+            exit 1
+          }
+      - name: Forget the signing key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/release.jks" "$GITHUB_WORKSPACE/app/android/key.properties"
       # The tail of the build output as an annotation: readable through the
       # API without access to the job logs.
       - name: Report the failure

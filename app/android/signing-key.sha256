@@ -1,0 +1,14 @@
+# SHA-256 of the certificate every published Android release is signed with.
+# Android replaces an installed app only with a build carrying the same key, and
+# the in-app updater depends on exactly that, so the release workflow refuses to
+# publish an APK signed with anything else.
+#
+# Changing this line orphans every phone that installed an earlier release: they
+# can only get the new one by uninstalling first. Change it only together with a
+# deliberate key rotation, and say so in the release notes.
+#
+# This is the Android debug key the self-hosted runner generated on 2026-09-10;
+# it signs v0.2.2 and v0.2.3. It lives in the runner container's /root/.android,
+# which does not survive a rebuild of that container — copy it out and hand it
+# to the build through the ANDROID_KEYSTORE_BASE64 secret before that happens.
+cf317021fde08e1e071d548a146f1f71119b2008f99a7dc918526e009f520c82

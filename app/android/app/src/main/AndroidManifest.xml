@@ -14,6 +14,10 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION"/>
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <!-- The in-app updater hands the downloaded release to the package manager
+         itself; Android 8+ additionally asks the user to allow this app as a
+         source of app installs (see ApkInstaller). -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
 
     <application
         android:label="Family Messenger"
@@ -42,6 +46,13 @@
         <service
             android:name=".ScreenShareService"
             android:foregroundServiceType="mediaProjection"
+            android:exported="false" />
+        <!-- Carries the package manager's verdict on an update back into the
+             app. Declared here rather than registered at runtime: exported="false"
+             keeps the broadcast inside this package without the Android 13+
+             RECEIVER_NOT_EXPORTED dance. -->
+        <receiver
+            android:name=".ApkInstallReceiver"
             android:exported="false" />
         <meta-data
             android:name="flutterEmbedding"

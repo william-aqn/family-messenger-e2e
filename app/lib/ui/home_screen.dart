@@ -1051,14 +1051,21 @@ String _rowTime(int ms) {
 }
 
 /// Downloads and installs the pending release, or opens its page where the
-/// app cannot replace itself.
+/// app cannot install one. The desktop swaps its own folder and starts itself
+/// again; Android hands the APK to the system installer, which asks the user
+/// and replaces the package — so the two announce different things up front.
 Future<void> _installUpdate(BuildContext context) async {
   final ScaffoldMessengerState messenger = ScaffoldMessenger.of(context);
   if (Updater.canSelfInstall && updater.latest?.assetUrl != null) {
-    messenger.showSnackBar(SnackBar(content: Text(t('update_restart')), duration: const Duration(seconds: 4)));
+    messenger.showSnackBar(SnackBar(
+      content: Text(Updater.restartsItself ? t('update_restart') : t('update_installer_opening')),
+      duration: const Duration(seconds: 4),
+    ));
   }
+  // The updater hands back a finished line: a missing permission is not a
+  // failure, and a sentence of ours does not want "Update failed:" in front.
   final String? err = await updater.install();
-  if (err != null) messenger.showSnackBar(SnackBar(content: Text(t('update_failed', <String, Object?>{'error': err}))));
+  if (err != null) messenger.showSnackBar(SnackBar(content: Text(err)));
 }
 
 /// Manual check from the settings sheet. The dialog opens at once and follows
@@ -1081,6 +1088,11 @@ Future<void> _checkUpdates(BuildContext context) async {
         Color colour = scheme.onSurface;
         if (updater.checking) {
           text = t('update_checking');
+        } else if (updater.installError != null) {
+          // A refused install is not a failed check, and on Android the first
+          // one is refused until the user allows this app to install packages.
+          text = updater.installError!;
+          colour = scheme.error;
         } else if (updater.error != null) {
           text = t('update_check_failed', <String, Object?>{'error': updater.error});
           colour = scheme.error;
@@ -1139,9 +1151,11 @@ Future<void> _checkUpdates(BuildContext context) async {
                     children: <Widget>[
                       _progressBar(theme, progress),
                       Text(
-                        progress == null
-                            ? t('update_downloading')
-                            : t('update_downloading_percent', <String, Object?>{'percent': (progress * 100).round()}),
+                        updater.handedOver
+                            ? t('update_waiting_installer')
+                            : progress == null
+                                ? t('update_downloading')
+                                : t('update_downloading_percent', <String, Object?>{'percent': (progress * 100).round()}),
                         style: theme.textTheme.bodyMedium?.copyWith(fontSize: 13),
                       ),
                     ],
