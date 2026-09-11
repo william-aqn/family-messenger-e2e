@@ -44,8 +44,10 @@ func (s *Store) DeviceByTokenHash(ctx context.Context, hash []byte) (*Device, *A
 		` FROM devices d JOIN accounts a ON a.id = d.account_id WHERE d.token_hash = ?`, hash)
 	var d Device
 	var a Account
+	// Positional, and the account half has to follow accountColumns exactly.
 	err := row.Scan(&d.ID, &d.AccountID, &d.Name, &d.TokenHash, &d.PushToken, &d.CreatedAt, &d.LastSeen,
-		&a.ID, &a.Username, &a.DisplayName, &a.Salt, &a.AuthHash, &a.SignPub, &a.EncPub, &a.KeyBundle, &a.CreatedAt, &a.IsAdmin, &a.Disabled, &a.IsBot)
+		&a.ID, &a.Username, &a.DisplayName, &a.Salt, &a.AuthHash, &a.SignPub, &a.EncPub, &a.KeyBundle, &a.CreatedAt, &a.IsAdmin, &a.Disabled, &a.IsBot,
+		&a.FindMeInSearch, &a.ShowOnline, &a.AllowGroupAdd)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil, ErrNotFound
 	}

@@ -24,13 +24,32 @@ type Account struct {
 	IsAdmin     bool
 	Disabled    bool
 	IsBot       bool
+	Visibility
 }
 
-const accountColumns = `id, username, display_name, salt, auth_hash, sign_pub, enc_pub, key_bundle, created_at, is_admin, disabled, is_bot`
+// Visibility is what the owner of an account decides other members may see,
+// and what they may do with it. Server-enforced policy, not protocol: the
+// values are in plaintext in the database, so a modified server or its
+// administrator can ignore all three (PROTOCOL.md §10).
+type Visibility struct {
+	// FindMeInSearch keeps the account in the directory listing. An exact
+	// lookup by username answers either way — that is key discovery.
+	FindMeInSearch bool
+	// ShowOnline lets other members see the presence dot and the last-seen time.
+	ShowOnline bool
+	// AllowGroupAdd lets anybody add the account to a group; with it off only
+	// somebody the account has already talked to may.
+	AllowGroupAdd bool
+}
+
+const accountInsertColumns = `id, username, display_name, salt, auth_hash, sign_pub, enc_pub, key_bundle, created_at, is_admin, disabled, is_bot`
+
+const accountColumns = accountInsertColumns + `, find_me_in_search, show_online, allow_group_add`
 
 func scanAccount(row interface{ Scan(...any) error }) (*Account, error) {
 	var a Account
-	if err := row.Scan(&a.ID, &a.Username, &a.DisplayName, &a.Salt, &a.AuthHash, &a.SignPub, &a.EncPub, &a.KeyBundle, &a.CreatedAt, &a.IsAdmin, &a.Disabled, &a.IsBot); err != nil {
+	if err := row.Scan(&a.ID, &a.Username, &a.DisplayName, &a.Salt, &a.AuthHash, &a.SignPub, &a.EncPub, &a.KeyBundle, &a.CreatedAt, &a.IsAdmin, &a.Disabled, &a.IsBot,
+		&a.FindMeInSearch, &a.ShowOnline, &a.AllowGroupAdd); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
 		}
@@ -40,7 +59,10 @@ func scanAccount(row interface{ Scan(...any) error }) (*Account, error) {
 }
 
 func insertAccount(ctx context.Context, x execer, a *Account) error {
-	_, err := x.ExecContext(ctx, `INSERT INTO accounts (`+accountColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+	// The visibility columns are deliberately absent: they take the schema's
+	// defaults, so a zero-value Account cannot silently register somebody as
+	// hidden from the directory.
+	_, err := x.ExecContext(ctx, `INSERT INTO accounts (`+accountInsertColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		a.ID, a.Username, a.DisplayName, a.Salt, a.AuthHash, a.SignPub, a.EncPub, a.KeyBundle, a.CreatedAt, a.IsAdmin, a.Disabled, a.IsBot)
 	if isUniqueViolation(err) {
 		return ErrConflict
@@ -208,7 +230,11 @@ func (s *Store) ListAccounts(ctx context.Context, query string, limit, offset in
 	var out []AccountSummary
 	for rows.Next() {
 		var a AccountSummary
+		// Hand-written and positional: it has to follow accountColumns exactly,
+		// and two bools in the wrong order here would be wrong flags in the
+		// admin panel rather than an error.
 		if err := rows.Scan(&a.ID, &a.Username, &a.DisplayName, &a.Salt, &a.AuthHash, &a.SignPub, &a.EncPub, &a.KeyBundle, &a.CreatedAt, &a.IsAdmin, &a.Disabled, &a.IsBot,
+			&a.FindMeInSearch, &a.ShowOnline, &a.AllowGroupAdd,
 			&a.LastSeen, &a.Devices, &a.OwnerUsername); err != nil {
 			return nil, err
 		}
@@ -237,17 +263,29 @@ type DirectoryEntry struct {
 	Username    string `json:"username"`
 	DisplayName string `json:"display_name"`
 	IsBot       bool   `json:"is_bot"`
+	// When the account was last on a device, or 0 when it hides its presence
+	// or has never signed in. `Online` is filled in by the API from the socket
+	// hub, under the same permission.
+	LastSeen int64 `json:"last_seen,omitempty"`
+	Online   bool  `json:"online,omitempty"`
+	// Whether the two fields above may be filled in at all. Not serialised:
+	// the answer is the absence of the fields, not a flag to argue with.
+	ShowOnline bool `json:"-"`
 }
 
 // Directory lists active accounts whose username starts with prefix (all
-// accounts for an empty prefix), sorted by username.
+// accounts for an empty prefix), sorted by username. Accounts that asked not
+// to be found are left out — an exact lookup by username still answers, since
+// that is where keys come from (PROTOCOL.md §7).
 func (s *Store) Directory(ctx context.Context, prefix string, limit int) ([]DirectoryEntry, error) {
 	if limit <= 0 || limit > 500 {
 		limit = 500
 	}
 	pattern := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(strings.ToLower(prefix)) + "%"
-	rows, err := s.db.QueryContext(ctx, `SELECT id, username, display_name, is_bot FROM accounts
-		WHERE deleted_at IS NULL AND disabled = 0 AND lower(username) LIKE ? ESCAPE '\'
+	rows, err := s.db.QueryContext(ctx, `SELECT id, username, display_name, is_bot, show_online,
+			COALESCE((SELECT MAX(last_seen) FROM devices d WHERE d.account_id = accounts.id), 0)
+		FROM accounts
+		WHERE deleted_at IS NULL AND disabled = 0 AND find_me_in_search = 1 AND lower(username) LIKE ? ESCAPE '\'
 		ORDER BY username LIMIT ?`, pattern, limit)
 	if err != nil {
 		return nil, err
@@ -256,12 +294,41 @@ func (s *Store) Directory(ctx context.Context, prefix string, limit int) ([]Dire
 	out := []DirectoryEntry{}
 	for rows.Next() {
 		var e DirectoryEntry
-		if err := rows.Scan(&e.ID, &e.Username, &e.DisplayName, &e.IsBot); err != nil {
+		if err := rows.Scan(&e.ID, &e.Username, &e.DisplayName, &e.IsBot, &e.ShowOnline, &e.LastSeen); err != nil {
 			return nil, err
+		}
+		if !e.ShowOnline {
+			e.LastSeen = 0
 		}
 		out = append(out, e)
 	}
 	return out, rows.Err()
+}
+
+// SharesConversation reports whether the two accounts are both in a
+// conversation that has carried at least one message. "At least one" matters:
+// a direct conversation can be created with anybody in a single request, so
+// an empty one proves nothing about having talked.
+func (s *Store) SharesConversation(ctx context.Context, a, b string) (bool, error) {
+	var n int
+	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM members m
+		JOIN members other ON other.conv_id = m.conv_id AND other.account_id = ?
+		JOIN conversations c ON c.id = m.conv_id
+		WHERE m.account_id = ? AND c.last_seq > 0`, b, a).Scan(&n)
+	return n > 0, err
+}
+
+// SetVisibility stores what the owner of an account lets others see and do.
+func (s *Store) SetVisibility(ctx context.Context, id string, v Visibility) error {
+	res, err := s.db.ExecContext(ctx, `UPDATE accounts SET find_me_in_search = ?, show_online = ?, allow_group_add = ? WHERE id = ?`,
+		v.FindMeInSearch, v.ShowOnline, v.AllowGroupAdd, id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 func (s *Store) SetAccountFlags(ctx context.Context, id string, disabled, isAdmin bool) error {

@@ -314,6 +314,11 @@ fingerprint comparison. If the server or an event ever presents different keys
 for a known account, the client blocks sending to that account until the user
 explicitly accepts the new keys.
 
+An account may ask not to appear in the directory listing (`GET /users`). That
+never touches `GET /users/{username}`: an exact lookup is where a client fetches
+the keys it is about to encrypt to, so hiding from the list must not be able to
+break key discovery or hide a key change.
+
 ## 8. Transport summary
 
 - HTTPS JSON API under `/api/v1`, bearer device token.
@@ -373,6 +378,14 @@ described in `docs/BOTS.md`.
   the author like any other message.
 - Trust on first use: verify fingerprints to rule out key substitution by the
   server.
+- The visibility settings of an account — whether it is listed in the
+  directory, whether its presence is shown, and who may add it to a group —
+  are server-enforced policy, not protocol. They are stored and read in
+  plaintext (`PATCH /me`), nothing about them is signed, and a modified server
+  or its administrator can ignore all three. "Only people I have talked to may
+  add me to a group" means a shared conversation that has carried at least one
+  message; a conversation on its own proves nothing, since a direct one can be
+  opened with anybody in a single request.
 - Conversations that include a bot are readable by the server by design (§9).
 - Disappearing messages and server-side retention limit how long ciphertext
   is stored; they cannot prevent a recipient from keeping a copy.

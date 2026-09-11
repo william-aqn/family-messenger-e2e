@@ -24,5 +24,12 @@ func (s *Server) listUsers(w http.ResponseWriter, r *http.Request) {
 		writeError(w, s.log, err)
 		return
 	}
+	// Presence comes from the socket hub, and only for accounts that allow it —
+	// the store has already blanked the last-seen time of the others.
+	for i := range users {
+		if users[i].ShowOnline {
+			users[i].Online = s.hub.Online(users[i].ID)
+		}
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"users": users})
 }

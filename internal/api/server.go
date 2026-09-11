@@ -89,6 +89,9 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /api/v1/auth/password/challenge", human(s.passwordChallenge))
 	mux.Handle("POST /api/v1/auth/password", s.limiter.Middleware(human(s.changePassword)))
 	mux.Handle("GET /api/v1/me", authed(s.me))
+	// Human-only: a bot has no settings screen and no opinion about who may
+	// find it.
+	mux.Handle("PATCH /api/v1/me", human(s.patchMe))
 	mux.Handle("GET /api/v1/devices", authed(s.listDevices))
 	mux.Handle("DELETE /api/v1/devices/{id}", authed(s.deleteDevice))
 	mux.Handle("GET /api/v1/users", authed(s.listUsers))

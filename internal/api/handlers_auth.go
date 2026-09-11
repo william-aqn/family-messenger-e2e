@@ -389,11 +389,54 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 		"account": map[string]any{
 			"id": acct.ID, "username": acct.Username, "display_name": acct.DisplayName, "sign_pub": acct.SignPub, "enc_pub": acct.EncPub,
 			"created_at": acct.CreatedAt, "is_admin": acct.IsAdmin, "is_bot": acct.IsBot,
+			"find_me_in_search": acct.FindMeInSearch, "show_online": acct.ShowOnline, "allow_group_add": acct.AllowGroupAdd,
 		},
 		"device_id": p.DeviceID,
 		"devices":   devs,
 		"settings":  s.publicSettings(),
 		"version":   Version,
+	})
+}
+
+// patchMeRequest carries the account's own visibility. A pointer per field so
+// that an omitted key leaves the setting alone, as adminPatchUser does.
+type patchMeRequest struct {
+	FindMeInSearch *bool `json:"find_me_in_search"`
+	ShowOnline     *bool `json:"show_online"`
+	AllowGroupAdd  *bool `json:"allow_group_add"`
+}
+
+// patchMe stores what the owner of an account lets other members see and do.
+// These are server-enforced preferences, not protocol: nothing about them is
+// signed, and the server could ignore them (PROTOCOL.md §10).
+func (s *Server) patchMe(w http.ResponseWriter, r *http.Request) {
+	p := principal(r)
+	var req patchMeRequest
+	if err := decodeJSON(w, r, &req); err != nil {
+		writeError(w, s.log, err)
+		return
+	}
+	acct, err := s.store.AccountByID(r.Context(), p.AccountID)
+	if err != nil {
+		writeError(w, s.log, err)
+		return
+	}
+	v := acct.Visibility
+	if req.FindMeInSearch != nil {
+		v.FindMeInSearch = *req.FindMeInSearch
+	}
+	if req.ShowOnline != nil {
+		v.ShowOnline = *req.ShowOnline
+	}
+	if req.AllowGroupAdd != nil {
+		v.AllowGroupAdd = *req.AllowGroupAdd
+	}
+	if err := s.store.SetVisibility(r.Context(), p.AccountID, v); err != nil {
+		writeError(w, s.log, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"find_me_in_search": v.FindMeInSearch, "show_online": v.ShowOnline, "allow_group_add": v.AllowGroupAdd,
 	})
 }
 

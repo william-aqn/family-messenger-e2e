@@ -730,7 +730,7 @@ func TestUserDirectory(t *testing.T) {
 	base := env.ts.URL
 	alice := register(t, base, "alice", "alice-password-123")
 	bob := register(t, base, "bob", "bob-password-123")
-	register(t, base, "bobby", "bobby-password-123")
+	bobby := register(t, base, "bobby", "bobby-password-123")
 
 	var dir struct {
 		Users []struct {
@@ -754,6 +754,52 @@ func TestUserDirectory(t *testing.T) {
 		t.Fatal("the directory must be enabled by default")
 	}
 
+	// Bobby hides: gone from both listings, still reachable by exact name,
+	// because that is where a client fetches keys (PROTOCOL.md §7).
+	bobby.must("PATCH", "/api/v1/me", map[string]any{"find_me_in_search": false}, nil, http.StatusOK)
+	bob.must("GET", "/api/v1/users?q=bo", nil, &dir, http.StatusOK)
+	if len(dir.Users) != 1 || dir.Users[0].Username != "bob" {
+		t.Fatalf("a hidden account is still listed: %+v", dir.Users)
+	}
+	bob.must("GET", "/api/v1/users", nil, &dir, http.StatusOK)
+	if len(dir.Users) != 2 {
+		t.Fatalf("full directory with one account hidden: %+v", dir.Users)
+	}
+	bob.must("GET", "/api/v1/users/bobby", nil, nil, http.StatusOK)
+	var me struct {
+		Account struct {
+			FindMeInSearch bool `json:"find_me_in_search"`
+			ShowOnline     bool `json:"show_online"`
+			AllowGroupAdd  bool `json:"allow_group_add"`
+		} `json:"account"`
+	}
+	bobby.must("GET", "/api/v1/me", nil, &me, http.StatusOK)
+	if me.Account.FindMeInSearch || !me.Account.ShowOnline || !me.Account.AllowGroupAdd {
+		t.Fatalf("me() must report the visibility as stored: %+v", me.Account)
+	}
+	bobby.must("PATCH", "/api/v1/me", map[string]any{"find_me_in_search": true}, nil, http.StatusOK)
+
+	// Presence follows show_online, and the listing carries it for everyone else.
+	var presence struct {
+		Users []struct {
+			Username string `json:"username"`
+			LastSeen int64  `json:"last_seen"`
+			Online   bool   `json:"online"`
+		} `json:"users"`
+	}
+	bob.must("GET", "/api/v1/users?q=bobby", nil, &presence, http.StatusOK)
+	if len(presence.Users) != 1 || presence.Users[0].LastSeen == 0 {
+		t.Fatalf("a visible account must carry its last-seen time: %+v", presence.Users)
+	}
+	bobby.must("PATCH", "/api/v1/me", map[string]any{"show_online": false}, nil, http.StatusOK)
+	// A fresh target: the fields are omitted when empty, and decoding into the
+	// old slice would leave the previous values standing.
+	presence.Users = nil
+	bob.must("GET", "/api/v1/users?q=bobby", nil, &presence, http.StatusOK)
+	if len(presence.Users) != 1 || presence.Users[0].LastSeen != 0 || presence.Users[0].Online {
+		t.Fatalf("a hidden presence must not leak: %+v", presence.Users)
+	}
+
 	// The administrator switches it off: listing stops, exact lookups still work.
 	alice.must("PUT", "/api/v1/admin/settings", map[string]any{"user_directory": false}, nil, http.StatusOK)
 	if status := bob.do("GET", "/api/v1/users", nil, nil); status != http.StatusForbidden {
@@ -764,4 +810,44 @@ func TestUserDirectory(t *testing.T) {
 		t.Fatal("info must report the directory as disabled")
 	}
 	bob.must("GET", "/api/v1/users/alice", nil, nil, http.StatusOK)
+}
+
+// A member who only accepts group invitations from people they have talked to
+// is refused twice over: on a plain add, and on a new group that names them in
+// member_ids — the branch that never calls addMember.
+func TestGroupAddPermission(t *testing.T) {
+	env := newTestEnv(t, "open")
+	base := env.ts.URL
+	alice := register(t, base, "alice", "alice-password-123")
+	bob := register(t, base, "bob", "bob-password-123")
+	dana := register(t, base, "dana", "dana-password-123")
+	dana.must("PATCH", "/api/v1/me", map[string]any{"allow_group_add": false}, nil, http.StatusOK)
+
+	var g convView
+	alice.must("POST", "/api/v1/conversations", map[string]any{"kind": "group", "member_ids": []string{bob.accountID}}, &g, http.StatusCreated)
+	if status := alice.do("POST", "/api/v1/conversations/"+g.ID+"/members", map[string]any{"account_id": dana.accountID}, nil); status != http.StatusForbidden {
+		t.Fatalf("add of an unwilling stranger: status %d", status)
+	}
+	if status := alice.do("POST", "/api/v1/conversations", map[string]any{"kind": "group", "member_ids": []string{dana.accountID}}, nil); status != http.StatusForbidden {
+		t.Fatalf("a new group is the same refusal: status %d", status)
+	}
+
+	// An empty direct conversation proves nothing — anybody can open one.
+	var d convView
+	alice.must("POST", "/api/v1/conversations", map[string]any{"kind": "direct", "account_id": dana.accountID}, &d, http.StatusCreated)
+	if status := alice.do("POST", "/api/v1/conversations/"+g.ID+"/members", map[string]any{"account_id": dana.accountID}, nil); status != http.StatusForbidden {
+		t.Fatalf("an empty direct conversation must not count: status %d", status)
+	}
+
+	// One message in it does: they have talked.
+	alice.must("POST", "/api/v1/conversations/"+d.ID+"/messages", alice.envelope(d.ID, 0, d.Members, `{"t":"text","body":"hello"}`), nil, http.StatusCreated)
+	alice.must("POST", "/api/v1/conversations/"+g.ID+"/members", map[string]any{"account_id": dana.accountID}, nil, http.StatusOK)
+
+	// Bob, who never talked to dana, still cannot start a group with her.
+	if status := bob.do("POST", "/api/v1/conversations", map[string]any{"kind": "group", "member_ids": []string{dana.accountID}}, nil); status != http.StatusForbidden {
+		t.Fatalf("a different stranger: status %d", status)
+	}
+	// With the setting back on, anybody may.
+	dana.must("PATCH", "/api/v1/me", map[string]any{"allow_group_add": true}, nil, http.StatusOK)
+	bob.must("POST", "/api/v1/conversations", map[string]any{"kind": "group", "member_ids": []string{dana.accountID}}, nil, http.StatusCreated)
 }

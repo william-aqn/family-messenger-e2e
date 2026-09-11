@@ -170,6 +170,13 @@ func (s *Server) createConversation(w http.ResponseWriter, r *http.Request) {
 				if a.IsBot {
 					bots = append(bots, a.ID)
 				}
+				// The same rule as addMember: this branch never calls it, and
+				// without the check here the refusal is one request away from
+				// being bypassed by starting a new group instead.
+				if err := s.mayAddToGroup(r, p.AccountID, &a); err != nil {
+					writeError(w, s.log, err)
+					return
+				}
 			}
 		}
 		id := newID()
@@ -211,6 +218,28 @@ type memberRequest struct {
 	AccountID string `json:"account_id"`
 }
 
+// mayAddToGroup enforces the target's own "anybody may add me to a group"
+// setting: with it off, only somebody it has already talked to may, and
+// "talked to" means a shared conversation that carried at least one message —
+// an empty direct conversation can be created with anyone in one request and
+// so proves nothing.
+//
+// Bots have no such setting: they exist to be put in conversations. The
+// account adding itself (a group it creates) is never refused.
+func (s *Server) mayAddToGroup(r *http.Request, actor string, target *store.Account) error {
+	if target.AllowGroupAdd || target.IsBot || target.ID == actor {
+		return nil
+	}
+	known, err := s.store.SharesConversation(r.Context(), actor, target.ID)
+	if err != nil {
+		return err
+	}
+	if !known {
+		return forbidden("group_add_refused", "this user only accepts group invitations from people they have talked to")
+	}
+	return nil
+}
+
 func (s *Server) addMember(w http.ResponseWriter, r *http.Request) {
 	p := principal(r)
 	id, err := convIDParam(r)
@@ -247,6 +276,10 @@ func (s *Server) addMember(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(conv.Members)+1 > s.settings.Get().MaxGroupMembers {
 		writeError(w, s.log, badRequest("too_many_members", "the group would exceed the member limit"))
+		return
+	}
+	if err := s.mayAddToGroup(r, p.AccountID, acct); err != nil {
+		writeError(w, s.log, err)
 		return
 	}
 	if err := s.store.AddMember(r.Context(), id, acct.ID); err != nil {
