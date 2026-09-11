@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { bytesToHex, hexToBytes, utf8Encode } from '../src/crypto/bytes';
-import { deriveKeys, generateKeys, keysFromSecrets, openKeyBundle, passwordChangeMessage, sealKeyBundle, signPasswordChange } from '../src/crypto/account';
+import { checkKdfParams, deriveKeys, generateKeys, keysFromSecrets, openKeyBundle, passwordChangeMessage, sealKeyBundle, signPasswordChange } from '../src/crypto/account';
 import { decrypt, encrypt, encryptWith, FLAG_EPHEMERAL, parse, verifyEnvelope, type Header } from '../src/crypto/envelope';
 import { fingerprint } from '../src/crypto/fingerprint';
 import { bytesToUuid, newUuid } from '../src/crypto/ids';
@@ -224,5 +224,28 @@ describe('password change vectors', () => {
       expect(bytesToHex(sig)).toBe(c.signature);
       expect(verify(h(c.sign_pub), msg, h(c.signature))).toBe(true);
     });
+  });
+});
+
+// The server chooses the KDF parameters at login (PROTOCOL.md §3.1), so a
+// hostile one could ask for a cheap derivation and then guess the password
+// against the auth key it receives. Nothing weaker than the protocol's set
+// may be accepted, by any caller.
+describe('kdf parameter floor', () => {
+  const weak = [
+    { name: 'fewer passes', p: { t: 1, m: 64 * 1024, p: 1 } },
+    { name: 'less memory', p: { t: 3, m: 8, p: 1 } },
+    { name: 'both', p: { t: 1, m: 1024, p: 1 } },
+    { name: 'other parallelism', p: { t: 3, m: 64 * 1024, p: 4 } },
+  ];
+  weak.forEach((c) => {
+    it(`refuses ${c.name}`, async () => {
+      expect(() => checkKdfParams(c.p)).toThrow();
+      await expect(deriveKeys('correct horse battery staple', new Uint8Array(16), c.p)).rejects.toThrow();
+    });
+  });
+  it('accepts the protocol set and anything costlier', () => {
+    expect(() => checkKdfParams({ t: 3, m: 64 * 1024, p: 1 })).not.toThrow();
+    expect(() => checkKdfParams({ t: 4, m: 128 * 1024, p: 1 })).not.toThrow();
   });
 });

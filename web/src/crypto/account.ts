@@ -24,12 +24,27 @@ export function generateKeys(): AccountKeys {
   return keysFromSecrets(randomBytes(32), randomBytes(32));
 }
 
+/**
+ * The KDF parameters come from the server (PROTOCOL.md §3.1), so a hostile
+ * one could ask for a cheap derivation and then recover the password by
+ * guessing against the auth key it receives, thousands of times faster than
+ * against the real parameters. Anything weaker than the protocol's set is
+ * refused; a later version may raise the cost, never lower it.
+ */
+export function checkKdfParams(params: KdfParams): void {
+  if (params.t < DEFAULT_KDF.t || params.m < DEFAULT_KDF.m || params.p !== DEFAULT_KDF.p) {
+    throw new Error('weak_kdf');
+  }
+}
+
 /** Argon2id over the password: authKey goes to the server, encKey stays local. */
 export async function deriveKeys(
   password: string,
   salt: Uint8Array,
   params: KdfParams = DEFAULT_KDF,
 ): Promise<{ authKey: Uint8Array; encKey: Uint8Array }> {
+  checkKdfParams(params);
+  if (salt.length !== SALT_SIZE) throw new Error('invalid salt');
   const out = await argon2idHash(password, salt, params, 64);
   return { authKey: out.slice(0, 32), encKey: out.slice(32, 64) };
 }

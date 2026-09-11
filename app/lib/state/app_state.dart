@@ -241,6 +241,13 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
       final client = ApiClient(base);
       final params = await client.authParams(username.trim());
       final kdf = KdfParams.fromJson(params['kdf'] as Map<String, dynamic>);
+      // Refuse to sign in against a server that asks for a cheap derivation:
+      // it would be asking for the password, not for the login secret.
+      try {
+        checkKdfParams(kdf);
+      } on FormatException {
+        throw StateError(t('weak_kdf'));
+      }
       final derived = await deriveKeys(password, b64decode(params['salt'] as String), kdf);
       final sess = await client.login({
         'username': username.trim(),

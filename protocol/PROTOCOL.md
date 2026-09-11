@@ -53,6 +53,13 @@ The password is used exactly as typed (no normalisation, no trimming). The
 server stores `auth_hash = SHA-256(authKey)` and compares in constant time. The
 server never learns `password` or `encKey`.
 
+The parameters travel with the salt, so a hostile server could otherwise name
+a cheap set, receive an `authKey` derived with it and guess the password
+against that thousands of times faster than against the real cost. Clients
+**must** refuse any set weaker than the one above: `t` and `m` may only be
+higher, `p` must be 1. A later protocol version may raise the cost; it may
+never lower it.
+
 For an unknown username `GET /auth/params` returns a deterministic fake salt
 `HMAC-SHA256(server_secret, username)[0:16]` so that account existence is not
 revealed.

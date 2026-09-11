@@ -42,6 +42,7 @@ export const en = {
   fetching_params: 'Fetching account parameters…',
   signing_in: 'Signing in…',
   key_unlock_failed: 'The account keys could not be unlocked with this password',
+  weak_kdf: 'This server asked for weaker password settings than the protocol allows. Refusing to sign in: it could be trying to learn your password.',
   invite_required: 'This server requires an invite code',
   registration_closed: 'Registration is closed on this server',
   invalid_credentials: 'Wrong username or password',

@@ -90,7 +90,9 @@ class _LoginScreenState extends State<LoginScreen> {
         await app.login(server.text, username.text, password.text);
       }
     } catch (e) {
-      setState(() => error = e.toString());
+      // StateError carries a message already written for the user; its
+      // toString prefixes "Bad state:", which does not belong on screen.
+      setState(() => error = e is StateError ? e.message : e.toString());
     } finally {
       if (mounted) setState(() => busy = false);
     }

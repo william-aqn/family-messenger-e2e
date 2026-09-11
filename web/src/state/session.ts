@@ -3,7 +3,7 @@ import { signal } from '@preact/signals';
 import { ApiError, http, setToken } from '../api/http';
 import type { ApiSession } from '../api/types';
 import { wsClient } from '../api/ws';
-import { type AccountKeys, deriveKeys, generateKeys, keysFromSecrets, newKeyBundle, openKeyBundle, SALT_SIZE, signPasswordChange } from '../crypto/account';
+import { type AccountKeys, checkKdfParams, deriveKeys, generateKeys, keysFromSecrets, newKeyBundle, openKeyBundle, SALT_SIZE, signPasswordChange } from '../crypto/account';
 import { b64decode, b64encode, randomBytes } from '../crypto/bytes';
 import { uuidToBytes } from '../crypto/ids';
 import { t } from '../i18n';
@@ -110,6 +110,13 @@ export async function login(username: string, password: string): Promise<void> {
   authBusy.value = t('fetching_params');
   try {
     const params = await http.authParams(username);
+    // Refuse to sign in against a server that asks for a cheap derivation:
+    // it would be asking for the password, not for the login secret.
+    try {
+      checkKdfParams(params.kdf);
+    } catch {
+      throw new Error(t('weak_kdf'));
+    }
     authBusy.value = t('deriving_key');
     const { authKey, encKey } = await deriveKeys(password, b64decode(params.salt), params.kdf);
     authBusy.value = t('signing_in');

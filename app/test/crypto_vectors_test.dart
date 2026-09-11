@@ -196,4 +196,27 @@ void main() {
       });
     }
   });
+
+  // The server chooses the KDF parameters at login (PROTOCOL.md §3.1), so a
+  // hostile one could ask for a cheap derivation and then guess the password
+  // against the auth key it receives. Nothing weaker than the protocol's set
+  // may be accepted, by any caller.
+  group('kdf parameter floor', () {
+    const weak = <String, KdfParams>{
+      'fewer passes': KdfParams(t: 1, m: 64 * 1024, p: 1),
+      'less memory': KdfParams(t: 3, m: 8, p: 1),
+      'both': KdfParams(t: 1, m: 1024, p: 1),
+      'other parallelism': KdfParams(t: 3, m: 64 * 1024, p: 4),
+    };
+    weak.forEach((name, params) {
+      test('refuses $name', () async {
+        expect(() => checkKdfParams(params), throwsA(isA<FormatException>()));
+        await expectLater(deriveKeys('correct horse battery staple', List<int>.filled(16, 0), params), throwsA(isA<FormatException>()));
+      });
+    });
+    test('accepts the protocol set and anything costlier', () {
+      expect(() => checkKdfParams(defaultKdf), returnsNormally);
+      expect(() => checkKdfParams(const KdfParams(t: 4, m: 128 * 1024, p: 1)), returnsNormally);
+    });
+  });
 }

@@ -41,7 +41,20 @@ Future<AccountKeys> keysFromSecrets(List<int> signSeed, List<int> encPriv) async
 
 Future<AccountKeys> generateKeys() => keysFromSecrets(randomBytes(32), randomBytes(32));
 
+/// The KDF parameters come from the server (PROTOCOL.md §3.1), so a hostile
+/// one could ask for a cheap derivation and then recover the password by
+/// guessing against the auth key it receives, thousands of times faster than
+/// against the real parameters. Anything weaker than the protocol's set is
+/// refused; a later version may raise the cost, never lower it.
+void checkKdfParams(KdfParams params) {
+  if (params.t < defaultKdf.t || params.m < defaultKdf.m || params.p != defaultKdf.p) {
+    throw const FormatException('weak_kdf');
+  }
+}
+
 Future<DerivedKeys> deriveKeys(String password, List<int> salt, [KdfParams params = defaultKdf]) async {
+  checkKdfParams(params);
+  if (salt.length != saltSize) throw const FormatException('invalid salt');
   final out = await argon2idHash(password, salt, params, 64);
   return DerivedKeys(authKey: out.sublist(0, 32), encKey: out.sublist(32, 64));
 }
