@@ -19,6 +19,7 @@ export const en = {
   connecting: 'Connecting…',
   offline: 'Offline. Reconnecting…',
   error_network: 'Cannot reach the server',
+  db_blocked: 'Another tab of the messenger is still open with an older version. Close it and this page will carry on.',
   e2e_hint: 'End-to-end encrypted',
 
   // login

@@ -3838,3 +3838,11 @@ textarea.tall {
     max-width: 100%;
   }
 }
+
+/* A banner inside the loading placeholder (the database is blocked by an older
+   tab) keeps to the text column instead of stretching across the window. */
+.placeholder > .banner,
+.placeholder > .notice {
+  max-width: min(480px, 100%);
+  text-align: left;
+}

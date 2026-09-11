@@ -4,6 +4,7 @@ import { t } from '../i18n';
 import { call } from '../state/calls';
 import { selectedId, serverSettings, serverVersion, session, toast, updateAvailable } from '../state/model';
 import { booting } from '../state/session';
+import { dbBlocked } from '../store/db';
 import { voice } from '../state/voice';
 import { CallOverlay } from './CallOverlay';
 import { VoiceOverlay } from './VoiceOverlay';
@@ -31,6 +32,12 @@ export function App() {
           <div class="placeholder">
             <Icon name="lock" size={24} />
             <span class="muted">{t('loading')}</span>
+            {dbBlocked.value && (
+              <div class="banner alert">
+                <Icon name="alert" size={20} />
+                <span class="grow">{t('db_blocked')}</span>
+              </div>
+            )}
           </div>
         </div>
       </>

@@ -1,5 +1,6 @@
 // Local persistence in IndexedDB. Everything here is already decrypted;
 // the browser profile is the trust boundary.
+import { signal } from '@preact/signals';
 import { type DBSchema, type IDBPDatabase, openDB } from 'idb';
 import type { Payload } from '../api/types';
 
@@ -64,6 +65,19 @@ interface MsgrDB extends DBSchema {
 
 let dbp: Promise<IDBPDatabase<MsgrDB>> | null = null;
 
+/**
+ * True while the database will not open, which in practice means another tab
+ * still holds an older version of it: a version upgrade waits for that tab
+ * forever. The `blocked` event is not enough on its own — a request queued
+ * behind another pending upgrade never fires it — so the flag is also raised
+ * on a timeout, and the loading screen says what to do rather than spinning
+ * for ever.
+ */
+export const dbBlocked = signal(false);
+
+/** How long an open may take before the screen explains itself. */
+const openPatience = 3000;
+
 function getDB(): Promise<IDBPDatabase<MsgrDB>> {
   dbp ??= openDB<MsgrDB>('family-messenger', 2, {
     upgrade(db, oldVersion, _newVersion, tx) {
@@ -79,7 +93,33 @@ function getDB(): Promise<IDBPDatabase<MsgrDB>> {
         tx.objectStore('messages').createIndex('byClient', 'clientMsgId');
       }
     },
+    // Our upgrade is waiting for an older tab to let go of the database.
+    blocked() {
+      dbBlocked.value = true;
+    },
+    // A newer build in another tab wants to upgrade: close this connection so
+    // it can, rather than making that tab wait for this one.
+    async blocking() {
+      const open = dbp;
+      dbp = null;
+      try {
+        (await open)?.close();
+      } catch {
+        // Already gone: nothing to let go of.
+      }
+    },
+    terminated() {
+      dbp = null;
+    },
   });
+  const patience = setTimeout(() => (dbBlocked.value = true), openPatience);
+  void dbp.then(
+    () => {
+      clearTimeout(patience);
+      dbBlocked.value = false;
+    },
+    () => clearTimeout(patience),
+  );
   return dbp;
 }
 
