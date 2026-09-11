@@ -57,6 +57,9 @@ export function MemberPanel({ conv, onClose }: { conv: Conversation; onClose: ()
       </div>
       {/* The phone sheet has no head of its own — the chat header serves as one. */}
       <div class="panel-title">{title}</div>
+      {/* Only the roster scrolls: the timer and the group actions below — "Leave
+          group" among them — stay where they can be reached. */}
+      <div class="panel-scroll">
       <p class="panel-hint">{t('safety_hint')}</p>
       <div class="member">
         <div class="member-name">
@@ -114,6 +117,7 @@ export function MemberPanel({ conv, onClose }: { conv: Conversation; onClose: ()
             </div>
           );
         })}
+      </div>
       <div class="section">
         <span class="muted">
           <Icon name="timer" size={16} />

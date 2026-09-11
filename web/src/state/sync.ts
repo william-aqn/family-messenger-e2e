@@ -1,5 +1,6 @@
 // Sync engine: keeps local state equal to the server's view and turns
 // envelopes into decrypted messages (PROTOCOL.md §5.2, §7).
+import { signal } from '@preact/signals';
 import { http } from '../api/http';
 import type { ConversationView, EventPayload, MemberInfo, MessageView, Payload } from '../api/types';
 import { wsClient } from '../api/ws';
@@ -111,6 +112,37 @@ export async function fullSync(): Promise<void> {
     console.error('sync failed', e);
   } finally {
     syncing.value = false;
+  }
+}
+
+/** How far the "load the whole history" pass has got, or null when idle. */
+export const historyLoad = signal<{ done: number; total: number } | null>(null);
+
+/**
+ * Fetches and decrypts everything the server still holds, conversation by
+ * conversation. A sync does this already, so for a device that has been
+ * running it finishes at once; a freshly added one, or a long list that has
+ * not finished syncing, is where it earns its place. The message search can
+ * only find what has been decrypted here, which is why the button exists.
+ *
+ * Nothing from before you joined a conversation is reachable at all: the
+ * server clamps the window to your `joined_seq` (PROTOCOL.md §5.1).
+ */
+export async function loadAllHistory(): Promise<void> {
+  if (historyLoad.value) return;
+  const list = [...conversations.value.values()].filter((c) => !c.removed);
+  historyLoad.value = { done: 0, total: list.length };
+  try {
+    for (let i = 0; i < list.length; i++) {
+      try {
+        await withLock(list[i].id, () => backfill(list[i].id));
+      } catch (e) {
+        console.error('history load failed', list[i].id, e);
+      }
+      historyLoad.value = { done: i + 1, total: list.length };
+    }
+  } finally {
+    historyLoad.value = null;
   }
 }
 

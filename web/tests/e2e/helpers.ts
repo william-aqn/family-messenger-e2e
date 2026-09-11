@@ -38,9 +38,20 @@ export async function login(browser: Browser, name: string, ip?: string): Promis
   return page;
 }
 
+/**
+ * A direct chat now starts from the search: find the person, press "Message".
+ * The new-chat dialog is group-only.
+ */
 export async function openDirect(page: Page, peer: string): Promise<void> {
-  await page.getByTitle('New chat').click();
-  await page.getByPlaceholder('bob').fill(peer);
+  await page.getByPlaceholder('Search chats, people, messages').fill(peer);
+  await page.locator('.hit-row.person', { hasText: peer }).getByRole('button', { name: 'Message' }).click();
+  await expect(page.getByPlaceholder('Write a message…')).toBeVisible();
+}
+
+export async function createGroup(page: Page, name: string, members: string[]): Promise<void> {
+  await page.getByTitle('New group').click();
+  await page.getByPlaceholder('Weekend plans').fill(name);
+  await page.getByPlaceholder('bob, carol').fill(members.join(', '));
   await page.getByRole('button', { name: 'Create' }).click();
   await expect(page.getByPlaceholder('Write a message…')).toBeVisible();
 }

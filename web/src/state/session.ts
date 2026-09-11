@@ -8,7 +8,7 @@ import { b64decode, b64encode, randomBytes } from '../crypto/bytes';
 import { uuidToBytes } from '../crypto/ids';
 import { t } from '../i18n';
 import { clearAll, getMeta, setMeta } from '../store/db';
-import { resetState, serverSettings, serverVersion, session, type SessionInfo } from './model';
+import { resetState, serverSettings, serverVersion, session, type SessionInfo, visibility } from './model';
 import { loadLocalState, startSync, stopSync } from './sync';
 
 export const keys = signal<AccountKeys | null>(null);
@@ -31,6 +31,7 @@ export async function refreshMe(): Promise<void> {
     const me = await http.me();
     serverSettings.value = me.settings;
     serverVersion.value = me.version;
+    visibility.value = { find_me_in_search: me.account.find_me_in_search, show_online: me.account.show_online, allow_group_add: me.account.allow_group_add };
     const s = session.value;
     if (s && s.isAdmin !== me.account.is_admin) {
       const next = { ...s, isAdmin: me.account.is_admin };

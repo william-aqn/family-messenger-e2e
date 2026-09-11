@@ -45,9 +45,9 @@ try {
   if (await conv.count()) {
     await conv.click();
   } else {
-    await page.getByTitle('New chat').click();
-    await page.getByPlaceholder('bob').fill(other);
-    await page.getByRole('button', { name: 'Create' }).click();
+    // A direct chat starts from the search now: find the person, press Message.
+    await page.getByPlaceholder('Search chats, people, messages').fill(other);
+    await page.locator('.hit-row.person', { hasText: other }).getByRole('button', { name: 'Message' }).click();
   }
   await page.getByPlaceholder('Write a message…').waitFor();
 

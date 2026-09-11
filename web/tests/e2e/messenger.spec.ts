@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { openDirect, register, run, selectConversation, send } from './helpers';
+import { createGroup, openDirect, register, run, selectConversation, send } from './helpers';
 
 test('direct chat: messages flow both ways and survive a reload', async ({ browser }) => {
   const alice = `alice${run}`;
@@ -35,11 +35,7 @@ test('group chat with a signed roster', async ({ browser }) => {
   const bobPage = await register(browser, bob);
   const carolPage = await register(browser, carol);
 
-  await alicePage.getByTitle('New chat').click();
-  await alicePage.getByRole('button', { name: 'Group' }).click();
-  await alicePage.getByPlaceholder('Weekend plans').fill('Team');
-  await alicePage.getByPlaceholder('bob, carol').fill(`${bob}, ${carol}`);
-  await alicePage.getByRole('button', { name: 'Create' }).click();
+  await createGroup(alicePage, 'Team', [bob, carol]);
   await send(alicePage, 'Hello team');
 
   for (const page of [bobPage, carolPage]) {
@@ -68,11 +64,7 @@ test('group voice channel: join, mesh connection, presence and leave', async ({ 
   const bobPage = await register(browser, bob);
   const carolPage = await register(browser, carol);
 
-  await alicePage.getByTitle('New chat').click();
-  await alicePage.getByRole('button', { name: 'Group' }).click();
-  await alicePage.getByPlaceholder('Weekend plans').fill('Voice');
-  await alicePage.getByPlaceholder('bob, carol').fill(`${bob}, ${carol}`);
-  await alicePage.getByRole('button', { name: 'Create' }).click();
+  await createGroup(alicePage, 'Voice', [bob, carol]);
   await send(alicePage, 'voice test');
   for (const page of [bobPage, carolPage]) {
     await selectConversation(page, 'Voice');
@@ -123,8 +115,10 @@ const videoWidth = (v: Element) => (v as HTMLVideoElement).videoWidth;
 test('voice call: screen sharing and a camera switched on mid-call', async ({ browser }) => {
   const alice = `calice${run}`;
   const bob = `cbob${run}`;
-  const alicePage = await register(browser, alice);
-  const bobPage = await register(browser, bob);
+  // Its own address: by this point in the file the shared 127.0.0.1 has spent
+  // the auth limiter’s burst.
+  const alicePage = await register(browser, alice, '203.0.113.20');
+  const bobPage = await register(browser, bob, '203.0.113.21');
   await openDirect(alicePage, bob);
   await selectConversation(bobPage, alice);
 

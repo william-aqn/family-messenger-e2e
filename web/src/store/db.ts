@@ -170,6 +170,16 @@ export async function messagesFor(convId: string): Promise<StoredMessage[]> {
   return list.sort((a, b) => a.seq - b.seq);
 }
 
+/**
+ * Every decrypted message this device holds. The message search reads it and
+ * filters in memory: a family's history is thousands of rows, not millions,
+ * and there is no index to search text with — the server never sees the
+ * plaintext, so it cannot help.
+ */
+export async function allMessages(): Promise<StoredMessage[]> {
+  return (await getDB()).getAll('messages');
+}
+
 /** Deletes messages of a conversation older than the given server time. */
 export async function deleteMessagesBefore(convId: string, serverTs: number): Promise<number> {
   const db = await getDB();

@@ -44,23 +44,30 @@ test('admin panel: invites, registration mode and announcement', async ({ browse
     await page.getByRole('button', { name: 'Create account' }).last().click();
     await expect(page.getByText(`@${invited}`)).toBeVisible({ timeout: 60_000 });
 
-    // The user directory suggests names in the new-chat dialog, until the
-    // administrator switches it off.
-    await page.getByTitle('New chat').click();
+    // The user directory finds people in the search and suggests names in the
+    // new-group dialog, until the administrator switches it off.
+    await page.getByPlaceholder('Search chats, people, messages').fill(admin.slice(0, 5));
+    await expect(page.locator('.hit-row.person', { hasText: admin })).toBeVisible();
+    await page.getByTitle('New group').click();
     await expect(page.locator('.suggestions button', { hasText: admin })).toBeVisible();
-    await page.getByLabel('Username').fill(admin.slice(0, 5));
+    await page.getByPlaceholder('bob, carol').fill(admin.slice(0, 5));
     await page.locator('.suggestions button', { hasText: admin }).click();
-    await expect(page.getByLabel('Username')).toHaveValue(admin);
+    await expect(page.getByPlaceholder('bob, carol')).toHaveValue(`${admin}, `);
     await page.getByRole('button', { name: 'Cancel' }).click();
 
     await adminPage.getByRole('button', { name: 'Settings', exact: true }).last().click();
     await adminPage.getByLabel('Show the user list', { exact: false }).uncheck();
     await adminPage.getByRole('button', { name: 'Save' }).click();
     await expect(adminPage.locator('.toast', { hasText: 'Settings saved' })).toBeVisible();
-    await page.getByTitle('New chat').click();
-    await page.getByLabel('Username').fill(admin.slice(0, 5));
+    await page.getByTitle('New group').click();
+    await page.getByPlaceholder('bob, carol').fill(admin.slice(0, 5));
     await expect(page.locator('.suggestions')).toHaveCount(0);
     await page.getByRole('button', { name: 'Cancel' }).click();
+    // Cleared first: the same query would not re-run the search.
+    await page.getByPlaceholder('Search chats, people, messages').fill('');
+    await page.getByPlaceholder('Search chats, people, messages').fill(admin.slice(0, 5));
+    await expect(page.locator('.hit-note', { hasText: 'type the whole name' })).toBeVisible();
+    await page.getByPlaceholder('Search chats, people, messages').fill('');
     await adminPage.getByLabel('Show the user list', { exact: false }).check();
     await adminPage.getByRole('button', { name: 'Save' }).click();
     await expect(adminPage.locator('.toast', { hasText: 'Settings saved' })).toBeVisible();
@@ -178,6 +185,68 @@ test('text size: the whole interface grows and the choice survives a reload', as
   await page.locator('.modal').getByRole('button', { name: 'Close' }).last().click();
   await page.setViewportSize({ width: 1280, height: 720 });
   expect(await headerHeight()).toBeCloseTo(before, 0);
+});
+
+test('search finds chats, people and messages, and starts a chat from a person', async ({ browser }) => {
+  const alice = `salice${run}`;
+  const bob = `sbob${run}`;
+  const alicePage = await register(browser, alice, '203.0.113.30');
+  const bobPage = await register(browser, bob, '203.0.113.31');
+  const search = alicePage.getByPlaceholder('Search chats, people, messages');
+
+  // A person nobody has talked to yet, found in the directory.
+  await search.fill(bob);
+  await expect(alicePage.locator('.hit-group', { hasText: 'People · 1' })).toBeVisible();
+  await expect(alicePage.locator('.hit-row.person', { hasText: 'no chats in common' })).toBeVisible();
+  await alicePage.locator('.hit-row.person').getByRole('button', { name: 'Message' }).click();
+  await expect(alicePage.getByPlaceholder('Write a message…')).toBeVisible();
+  // Starting the chat clears the search and leaves the list behind it.
+  await expect(search).toHaveValue('');
+  await send(alicePage, 'the barrel is in the barn');
+
+  await selectConversation(bobPage, alice);
+  await expect(bobPage.locator('.bubble', { hasText: 'barrel' })).toBeVisible();
+
+  // A word from the message: the chat by its title, the message by its text.
+  await search.fill('barn');
+  await expect(alicePage.locator('.hit-group', { hasText: 'Messages · 1' })).toBeVisible();
+  await expect(alicePage.locator('.hit-row.message .hit')).toHaveText('barn');
+  await expect(alicePage.locator('.results-foot', { hasText: 'runs on your device' })).toBeVisible();
+  await search.fill(bob.slice(0, 4));
+  await expect(alicePage.locator('.hit-group', { hasText: 'Chats · 1' })).toBeVisible();
+
+  // The chips narrow it to one group.
+  await alicePage.getByRole('button', { name: 'People', exact: true }).click();
+  await expect(alicePage.locator('.hit-group')).toHaveCount(1);
+  await expect(alicePage.locator('.hit-group')).toContainText('People');
+
+  // Escape clears the search and the conversation list comes back.
+  await search.press('Escape');
+  await expect(alicePage.locator('.conv-list li', { hasText: bob })).toBeVisible();
+});
+
+test('visibility: hiding from search leaves the exact name working', async ({ browser }) => {
+  const alice = `hidealice${run}`;
+  const hidden = `vhidden${run}`;
+  const alicePage = await register(browser, alice, '203.0.113.40');
+  const hiddenPage = await register(browser, hidden, '203.0.113.41');
+
+  await hiddenPage.getByTitle('Settings').click();
+  await hiddenPage.getByLabel('Let people find me in search').uncheck();
+  await expect(hiddenPage.locator('.hint', { hasText: 'exact name' })).toBeVisible();
+  await hiddenPage.locator('.modal').getByRole('button', { name: 'Close' }).last().click();
+
+  const search = alicePage.getByPlaceholder('Search chats, people, messages');
+  await search.fill(hidden.slice(0, 4));
+  await expect(alicePage.locator('.hit-row.person')).toHaveCount(0);
+  // The whole name still answers: that is where key discovery looks.
+  await search.fill(hidden);
+  await expect(alicePage.locator('.hit-row.person', { hasText: hidden })).toBeVisible();
+
+  // And the setting survives a reload of the settings modal.
+  await hiddenPage.reload();
+  await hiddenPage.getByTitle('Settings').click();
+  await expect(hiddenPage.getByLabel('Let people find me in search')).not.toBeChecked();
 });
 
 test('bots: a webhook echo bot answers in a direct chat', async ({ browser }) => {

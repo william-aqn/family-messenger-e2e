@@ -82,10 +82,10 @@
   --text: #EAEAEA;  --text-2: #E4C49F;  --muted: #917E68;  --faint: #685B4C;
   --accent: #E4C49F;  --on-accent: #151515;  --accent-2: #E4C49F;  --accent-hover: #D2B18C;
   --accent-soft: rgba(var(--sand), .15);  --accent-soft-2: rgba(var(--sand), .25);
-  --border: rgba(var(--sand), .4);  --border-focus: #E4C49F;  --divider: rgba(var(--sand), .15);
+  --border: rgba(var(--sand), .4);  --border-focus: #E4C49F;  --divider: rgba(var(--sand), .15);  --border-soft: rgba(var(--sand), .3);
   --bubble-own: rgba(var(--sand), .15);  --bubble-own-text: #EAEAEA;  --bubble-own-meta: #E4C49F;
   --bubble-other: #1F1E1C;  --sender: #E4C49F;
-  --danger: #e74c3c;  --danger-bg: rgba(231, 76, 60, .15);
+  --danger: #e74c3c;  --danger-bg: rgba(231, 76, 60, .15);  --danger-bg-solid: #32201E;
   --ok: #6fcf6f;  --ok-bg: rgba(111, 207, 111, .15);  --busy: #d6a84a;  --warn: #e0a458;  --offline: #e0795f;
   --tag-bot: rgba(var(--sand), .2);  --unread: #E4C49F;  --on-unread: #151515;
   --shadow-card: 0 0 0 1px rgba(var(--sand), .25);   /* a 1px ring instead of a shadow */
@@ -108,9 +108,9 @@
   color-scheme: light;
   --bg: #F8F8F8;  --bg-2: #FFFFFF;  --bg-3: #F4F4F4;  --bg-4: #E8E8E8;
   --text: #000000;  --text-2: #313640;  --muted: #7E8489;  --faint: #969696;
-  --border: #C4C4C4;  --border-focus: #EE5E20;  --divider: #F4F4F4;  --accent-2: #EE5E20;
+  --border: #C4C4C4;  --border-focus: #EE5E20;  --divider: #F4F4F4;  --border-soft: #D8D8D8;  --accent-2: #EE5E20;
   --bubble-own: #FFE0D3;  --bubble-own-text: #000000;  --bubble-own-meta: #313640;
-  --bubble-other: #FFFFFF;  --sender: #EE5E20;  --danger-bg: #FFDFDF;
+  --bubble-other: #FFFFFF;  --sender: #EE5E20;  --danger-bg: #FFDFDF;  --danger-bg-solid: #FFDFDF;
   --shadow-card: 0 1px 4px rgba(0,0,0,.15);  --shadow-pop: 0 4px 12px rgba(0,0,0,.1);
 }
 
@@ -118,9 +118,9 @@
   color-scheme: dark;
   --bg: #313640;  --bg-2: #3E4249;  --bg-3: #242A35;  --bg-4: #3E4249;
   --text: #FFFFFF;  --text-2: #FFFFFF;  --muted: #969696;  --faint: #7E8489;
-  --border: #3E4249;  --border-focus: #F46C32;  --divider: #242A35;  --accent-2: #FDBCA1;
+  --border: #3E4249;  --border-focus: #F46C32;  --divider: #242A35;  --border-soft: #353941;  --accent-2: #FDBCA1;
   --bubble-own: #F46C32;  --bubble-own-text: #242A35;  --bubble-own-meta: #242A35;
-  --bubble-other: #3E4249;  --sender: #FDBCA1;  --danger-bg: #3E4249;
+  --bubble-other: #3E4249;  --sender: #FDBCA1;  --danger-bg: #3E4249;  --danger-bg-solid: #3E4249;
   --shadow-card: 0 1px 4px rgba(0,0,0,.4);  --shadow-pop: 0 4px 12px rgba(0,0,0,.4);
 }
 
@@ -894,6 +894,19 @@ input[type='file'].hidden-input {
   z-index: 40;
 }
 
+/* A floating banner has the list header and the chat under it, so its ground
+   has to be opaque; the translucent --danger-bg is for the banners that sit
+   inside a surface (the password warning, the bot notice). */
+.banner.floating.alert {
+  background: var(--danger-bg-solid);
+}
+
+.banner.floating.busy,
+.banner.floating.neutral,
+.banner.floating.update {
+  background: var(--bg-2);
+}
+
 .banner.floating.bottom {
   top: auto;
   bottom: 12px;
@@ -1328,6 +1341,38 @@ input[type='file'].hidden-input {
   padding: 0 12px 0 20px;
 }
 
+/* Two lines on the left of the list header: who you are, and whether the
+   socket is up. The design dropped the product name and the lock from here
+   — the account row under the header went with them. */
+.sidebar-header .brand-lock {
+  display: none;
+  flex: none;
+  color: var(--accent);
+}
+
+.sidebar-header .who {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.sidebar-header .who strong {
+  font-weight: 500;
+  font-size: 18px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar-header .presence {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--on-chrome-muted);
+}
 .sidebar-header .icon {
   color: var(--accent);
 }
@@ -1990,9 +2035,21 @@ input[type='file'].hidden-input {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  overflow-y: auto;
+  /* The panel itself no longer scrolls: the roster inside it does, so the
+     timer and the group actions cannot be pushed off the bottom. */
+  overflow: hidden;
   background: var(--bg-2);
   box-shadow: -1px 0 0 var(--divider);
+}
+
+.panel-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.panel > .section {
+  flex: none;
 }
 
 .panel-head {
@@ -2732,6 +2789,237 @@ input[type='file'].hidden-input {
   font-size: 16px;
 }
 
+
+/* -----------------------------------------------------------------------------
+   28b. Search — W02 block and W02b results
+   The block sits between the list header and the list; while something is
+   typed the results take the list's place in the same column.
+   -------------------------------------------------------------------------- */
+
+.search {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0 20px 10px;
+  box-shadow: inset 0 -1px 0 var(--divider);
+}
+
+.search-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 10px;
+  border: 2px solid var(--border-soft);
+  border-radius: var(--radius);
+  color: var(--on-chrome-muted);
+  cursor: text;
+}
+
+.search-field.active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.search-field input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  padding: 0;
+  background: none;
+  color: inherit;
+  font-family: var(--font-form);
+  font-size: 14px;
+}
+
+.search-field input:focus {
+  outline: none;
+}
+
+/* The browser's own clear button would sit beside ours. */
+.search-field input::-webkit-search-cancel-button {
+  display: none;
+}
+
+.search-field .clear {
+  flex: none;
+  display: flex;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+}
+
+.chips {
+  display: flex;
+  gap: 6px;
+}
+
+.chip {
+  height: 24px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--radius);
+  background: none;
+  color: var(--on-chrome-muted);
+  font-family: var(--font-ui);
+  font-weight: 500;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.chip.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+/* The results replace the list, and keep the note at the bottom of the column. */
+.results {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.hits {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.hit-group {
+  padding: 12px 20px 6px;
+  font-family: var(--font-form);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--on-chrome-muted);
+}
+
+.hit-group.ruled {
+  box-shadow: inset 0 1px 0 var(--divider);
+}
+
+.hit-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 56px;
+  padding: 10px 20px;
+  cursor: pointer;
+}
+
+.hit-row.message {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  min-height: 64px;
+}
+
+.hit-row.person {
+  cursor: default;
+}
+
+.hit-row:hover {
+  background: var(--chrome-2);
+}
+
+.hit-row .lines {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.hit-row .line-1 {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-weight: 500;
+  font-size: 16px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hit-row .line-2 {
+  font-size: 13px;
+  color: var(--on-chrome-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hit-row.message .line-1 {
+  font-size: 14px;
+}
+
+.hit-row.message .where {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hit-row.message .when {
+  flex: none;
+  font-weight: 400;
+  font-size: 12px;
+  color: var(--on-chrome-muted);
+  white-space: nowrap;
+}
+
+.hit-row.message .snippet {
+  font-size: 14px;
+  line-height: 1.4;
+  color: var(--on-chrome-muted);
+}
+
+/* A match is a colour, never a background: the rows are dense enough. */
+.hit {
+  color: var(--accent);
+}
+
+.hit-empty {
+  padding: 24px 20px;
+  font-size: 16px;
+  color: var(--on-chrome-muted);
+  text-align: center;
+}
+
+.hit-note {
+  padding: 0 20px 12px;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--faint);
+}
+
+.results-foot {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 20px;
+  box-shadow: inset 0 1px 0 var(--divider);
+}
+
+.results-foot .note {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--faint);
+}
+
+.results-foot .link {
+  align-self: flex-start;
+}
+
 /* -----------------------------------------------------------------------------
    29. One column — the mobile artboards M01-M06
    The list and the chat swap places, headers drop to 56 and the composer to 64,
@@ -2777,6 +3065,28 @@ input[type='file'].hidden-input {
   input.small,
   select.lang {
     height: 40px;
+  }
+
+  /* Search: touch sizes. */
+  .search-field {
+    height: 44px;
+    padding: 0 12px;
+  }
+
+  .search-field input {
+    font-size: 16px;
+  }
+
+  .chip {
+    height: 28px;
+    padding: 0 10px;
+    font-size: 13px;
+  }
+
+  /* The lock stays in the mobile header (M02), where the window title bar
+     that carries the product name on the desktop does not exist. */
+  .sidebar-header .brand-lock {
+    display: block;
   }
 
   /* Sidebar */
@@ -3329,6 +3639,17 @@ label.check.large {
   border-color: var(--accent);
   background: var(--accent-soft);
   color: var(--accent);
+}
+
+/* The preview is a real chat bubble, so it needs the chat's own left
+   alignment back inside a modal that stretches everything it holds. */
+.size-preview {
+  display: flex;
+  margin-top: 4px;
+}
+
+.size-preview .bubble {
+  max-width: 100%;
 }
 
 /* The safety number and its copy button. */

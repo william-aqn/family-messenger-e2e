@@ -2,7 +2,7 @@ import { useEffect, useState } from 'preact/hooks';
 import { http } from '../api/http';
 import type { DirectoryUser } from '../api/types';
 import { describeError, t } from '../i18n';
-import { createDirect, createGroup } from '../state/messaging';
+import { createGroup } from '../state/messaging';
 import { serverSettings, session } from '../state/model';
 import { Icon } from './Icons';
 
@@ -33,8 +33,6 @@ function Suggestions({ users, query, exclude, onPick }: { users: DirectoryUser[]
 const SEPARATOR = /[\s,]+/;
 
 export function NewConversation({ onClose }: { onClose: () => void }) {
-  const [kind, setKind] = useState<'direct' | 'group'>('direct');
-  const [username, setUsername] = useState('');
   const [name, setName] = useState('');
   const [members, setMembers] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -65,8 +63,7 @@ export function NewConversation({ onClose }: { onClose: () => void }) {
     setError(null);
     setBusy(true);
     try {
-      if (kind === 'direct') await createDirect(username);
-      else await createGroup(name, members.split(SEPARATOR).filter(Boolean));
+      await createGroup(name, members.split(SEPARATOR).filter(Boolean));
       onClose();
     } catch (err) {
       setError(describeError(err));
@@ -88,40 +85,26 @@ export function NewConversation({ onClose }: { onClose: () => void }) {
     <div class="modal-backdrop" onClick={onClose}>
       <form class="card modal" onClick={(e) => e.stopPropagation()} onSubmit={submit}>
         <div class="modal-head">
-          <h2>{t('new_conversation')}</h2>
+          <h2>{t('new_group')}</h2>
           <button type="button" class="icon-btn" title={t('close')} onClick={onClose}>
             <Icon name="x" size={20} />
           </button>
         </div>
-        <div class="tabs">
-          <button type="button" class={kind === 'direct' ? 'active' : ''} onClick={() => setKind('direct')}>
-            {t('direct')}
-          </button>
-          <button type="button" class={kind === 'group' ? 'active' : ''} onClick={() => setKind('group')}>
-            {t('group')}
-          </button>
+        {/* The Direct tab is gone: a one-to-one chat starts from the search,
+            where you can see the person before writing to them. */}
+        <div class="notice small neutral">
+          <Icon name="search" size={16} />
+          {t('dm_from_search_hint')}
         </div>
-        {kind === 'direct' ? (
-          <>
-            <label>
-              {t('username')}
-              <input value={username} onInput={(e) => setUsername((e.target as HTMLInputElement).value)} placeholder="bob" required autofocus autocomplete="off" />
-            </label>
-            <Suggestions users={directory} query={username} exclude={new Set()} onPick={(u) => setUsername(u.username)} />
-          </>
-        ) : (
-          <>
-            <label>
-              {t('group_name')}
-              <input value={name} onInput={(e) => setName((e.target as HTMLInputElement).value)} placeholder={t('group_name_placeholder')} required autofocus />
-            </label>
-            <label>
-              {t('members')} <span class="muted">{t('members_hint')}</span>
-              <input value={members} onInput={(e) => setMembers((e.target as HTMLInputElement).value)} placeholder="bob, carol" autocomplete="off" />
-            </label>
-            <Suggestions users={directory} query={typing} exclude={chosen} onPick={pickMember} />
-          </>
-        )}
+        <label>
+          {t('group_name')}
+          <input value={name} onInput={(e) => setName((e.target as HTMLInputElement).value)} placeholder={t('group_name_placeholder')} required autofocus />
+        </label>
+        <label>
+          {t('members')} <span class="muted">{t('members_hint')}</span>
+          <input value={members} onInput={(e) => setMembers((e.target as HTMLInputElement).value)} placeholder="bob, carol" autocomplete="off" />
+        </label>
+        <Suggestions users={directory} query={typing} exclude={chosen} onPick={pickMember} />
         {error && (
           <div class="error">
             <Icon name="alert" size={16} />

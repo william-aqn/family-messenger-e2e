@@ -50,6 +50,15 @@ export function t(key: Key, params?: Record<string, string | number>): string {
   return s;
 }
 
+/** "HH:MM" for today, "9 Sep" otherwise — the format the chat list and the
+ *  search results share. */
+export function formatWhen(ts: number): string {
+  const d = new Date(ts);
+  const now = new Date();
+  if (d.toDateString() === now.toDateString()) return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+}
+
 /** Human-readable duration for retention timers. */
 export function formatDuration(seconds: number): string {
   if (seconds === 3600) return t('duration_1h');

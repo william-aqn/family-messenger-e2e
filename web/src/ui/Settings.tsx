@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'preact/hooks';
 import { http } from '../api/http';
-import type { DeviceView } from '../api/types';
+import type { DeviceView, Visibility as VisibilityFlags } from '../api/types';
 import { wsClient } from '../api/ws';
 import { fingerprint } from '../crypto/fingerprint';
 import { describeError, lang, languages, setLang, t } from '../i18n';
 import { setUiScale, uiScale, uiScales } from '../state/appearance';
-import { serverSettings, serverVersion, session, showToast } from '../state/model';
+import { serverSettings, serverVersion, session, showToast, visibility } from '../state/model';
 import { authBusy, changePassword, keys, logout, MIN_PASSWORD_LENGTH } from '../state/session';
 import { AdminPanel } from './AdminPanel';
 import { BotsDialog } from './BotsDialog';
@@ -38,6 +38,23 @@ export function Settings({ onClose }: { onClose: () => void }) {
   const [error, setError] = useState<string | null>(null);
   const [sub, setSub] = useState<'bots' | 'admin' | null>(null);
   const [notifications, setNotifications] = useState(typeof Notification !== 'undefined' ? Notification.permission : 'denied');
+
+  const vis = visibility.value;
+  /**
+   * Optimistic: the checkbox moves at once and the server's answer replaces
+   * it. A refusal puts the old value back — it is one flag, not a form.
+   */
+  const setVisibility = (patch: Partial<VisibilityFlags>) => {
+    const before = visibility.value;
+    if (before) visibility.value = { ...before, ...patch };
+    http
+      .patchMe(patch)
+      .then((v) => (visibility.value = v))
+      .catch((e) => {
+        visibility.value = before;
+        showToast(describeError(e));
+      });
+  };
 
   const loadDevices = () =>
     http
@@ -112,7 +129,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
             language above, and a letter at each size says more than a list. */}
         <div class="section tight">
           <div class="row">
-            <span class="field-label grow">{t('text_size')}</span>
+            <span class="field-label grow">{t('ui_scale')}</span>
             <span class="note">{Math.round(uiScale.value * 100)}%</span>
           </div>
           <div class="size-steps">
@@ -124,12 +141,42 @@ export function Settings({ onClose }: { onClose: () => void }) {
                 style={{ fontSize: `${12 * scale}px` }}
                 aria-pressed={scale === uiScale.value}
                 aria-label={`${Math.round(scale * 100)}%`}
+                title={`${Math.round(scale * 100)}%`}
                 onClick={() => setUiScale(scale)}
               >
-                {t('text_size_sample')}
+                {t('ui_scale_sample')}
               </button>
             ))}
           </div>
+          {/* The page is already drawn at the chosen scale, so a real bubble
+              is the preview — no copy of the sizes to keep in step. */}
+          <div class="size-preview">
+            <div class="bubble">
+              <div class="body">{t('ui_scale_preview')}</div>
+              <div class="meta">
+                <span>{new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Server-enforced policy, not protocol: the server reads these in
+            plaintext and could ignore them (PROTOCOL.md §10). */}
+        <div class="section">
+          <span class="field-label">{t('visibility')}</span>
+          <label class="check">
+            <input type="checkbox" checked={vis?.find_me_in_search ?? true} disabled={!vis} onChange={(e) => setVisibility({ find_me_in_search: (e.target as HTMLInputElement).checked })} />
+            {t('find_me_in_search')}
+          </label>
+          <p class="hint">{t('find_me_in_search_hint')}</p>
+          <label class="check">
+            <input type="checkbox" checked={vis?.show_online ?? true} disabled={!vis} onChange={(e) => setVisibility({ show_online: (e.target as HTMLInputElement).checked })} />
+            {t('show_online')}
+          </label>
+          <label class="check">
+            <input type="checkbox" checked={vis?.allow_group_add ?? true} disabled={!vis} onChange={(e) => setVisibility({ allow_group_add: (e.target as HTMLInputElement).checked })} />
+            {t('allow_group_add')}
+          </label>
         </div>
 
         <div class="section">

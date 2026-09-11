@@ -105,10 +105,28 @@ export interface DirectoryUser {
   username: string;
   display_name: string;
   is_bot: boolean;
+  /** Absent when the account hides its presence, or has never signed in. */
+  online?: boolean;
+  last_seen?: number;
+}
+
+export interface Visibility {
+  find_me_in_search: boolean;
+  show_online: boolean;
+  allow_group_add: boolean;
 }
 
 export interface MeView {
-  account: { id: string; username: string; display_name: string; sign_pub: string; enc_pub: string; created_at: number; is_admin: boolean; is_bot: boolean };
+  account: {
+    id: string;
+    username: string;
+    display_name: string;
+    sign_pub: string;
+    enc_pub: string;
+    created_at: number;
+    is_admin: boolean;
+    is_bot: boolean;
+  } & Visibility;
   device_id: string;
   devices: DeviceView[];
   settings: ServerSettings;

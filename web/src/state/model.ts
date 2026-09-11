@@ -1,6 +1,6 @@
 // Reactive application state (Preact signals). Persistence lives in store/db.
 import { computed, signal } from '@preact/signals';
-import type { Payload, ServerSettings } from '../api/types';
+import type { Payload, ServerSettings, Visibility } from '../api/types';
 import type { Contact, Conversation, StoredMessage } from '../store/db';
 import { t } from '../i18n';
 
@@ -31,6 +31,11 @@ export const selectedId = signal<string | null>(null);
 export const syncing = signal(false);
 export const toast = signal<string | null>(null);
 export const serverSettings = signal<ServerSettings | null>(null);
+/**
+ * What this account lets other members see and do, as the server last
+ * reported it. Server-enforced policy, not protocol (PROTOCOL.md §10).
+ */
+export const visibility = signal<Visibility | null>(null);
 export const serverVersion = signal<string>('');
 /**
  * Set when the server reports that this account's password was changed from

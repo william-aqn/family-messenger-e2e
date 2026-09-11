@@ -15,6 +15,7 @@ import type {
   SendResult,
   ServerInfo,
   UserView,
+  Visibility,
 } from './types';
 
 export class ApiError extends Error {
@@ -95,6 +96,7 @@ export const http = {
   changePassword: (body: Record<string, unknown>) => api<{ signed_out_devices: number } | undefined>('POST', '/auth/password', body),
   me: () => api<MeView>('GET', '/me'),
   deleteDevice: (id: string) => api<void>('DELETE', `/devices/${id}`),
+  patchMe: (body: Partial<Visibility>) => api<Visibility>('PATCH', '/me', body),
   user: (username: string) => api<UserView>('GET', `/users/${encodeURIComponent(username)}`),
   users: (prefix: string) => api<{ users: DirectoryUser[] }>('GET', `/users?q=${encodeURIComponent(prefix)}&limit=200`),
   conversations: () => api<{ conversations: ConversationView[] }>('GET', '/conversations'),
