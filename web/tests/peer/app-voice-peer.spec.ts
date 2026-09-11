@@ -14,8 +14,6 @@ const group = process.env.TEST_GROUP ?? 'Channel';
 const peers = Number(process.env.TEST_PEERS ?? '2');
 const shot = process.env.TEST_SHOT;
 
-const size = (v: Element) => `${(v as HTMLVideoElement).videoWidth}x${(v as HTMLVideoElement).videoHeight}`;
-
 /** Waits until `count` videos matching `selector` are carrying frames. */
 async function expectFrames(page: Page, selector: string, what: string, count: number): Promise<void> {
   await expect
@@ -30,7 +28,8 @@ async function expectFrames(page: Page, selector: string, what: string, count: n
       { timeout: 180_000, message: `frames in ${count} ${what} tiles` },
     )
     .toBeGreaterThanOrEqual(count);
-  const sizes = await page.locator(selector).evaluateAll((vs) => vs.map(size as (v: Element) => string));
+  // The callback runs in the page, so it cannot reach anything defined here.
+  const sizes = await page.locator(selector).evaluateAll((vs) => vs.map((v) => `${(v as HTMLVideoElement).videoWidth}x${(v as HTMLVideoElement).videoHeight}`));
   console.log(`PEER ${what}: ${sizes.join(' | ')}`);
 }
 

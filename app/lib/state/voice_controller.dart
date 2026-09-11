@@ -664,7 +664,12 @@ class VoiceController extends ChangeNotifier {
         _removeParticipant(convId, session);
         _closePeer(session);
       case 'voice.offer':
-        if (here && payload['to'] == ch.session) unawaited(_acceptOffer(convId, session, (payload['sdp'] as String?) ?? ''));
+        // A second offer while the first is still being answered would close
+        // the half-built connection and start over; the peer re-offers on its
+        // own heartbeat if this one comes to nothing.
+        if (here && payload['to'] == ch.session && !_connecting.contains(session)) {
+          unawaited(_acceptOffer(convId, session, (payload['sdp'] as String?) ?? ''));
+        }
       case 'voice.answer':
         if (here && payload['to'] == ch.session) unawaited(_acceptAnswer(session, (payload['sdp'] as String?) ?? ''));
       case 'voice.ice':
