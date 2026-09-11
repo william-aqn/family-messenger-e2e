@@ -163,19 +163,51 @@ class UserView {
 
 /// An entry of the user directory (GET /users), when the administrator allows it.
 class DirectoryEntry {
-  const DirectoryEntry({required this.id, required this.username, required this.displayName, required this.isBot});
+  const DirectoryEntry({required this.id, required this.username, required this.displayName, required this.isBot, this.online = false, this.lastSeen = 0});
 
   factory DirectoryEntry.fromJson(Map<String, dynamic> j) => DirectoryEntry(
         id: j['id'] as String,
         username: j['username'] as String,
         displayName: (j['display_name'] as String?) ?? '',
         isBot: j['is_bot'] == true,
+        online: j['online'] == true,
+        lastSeen: ((j['last_seen'] as num?) ?? 0).toInt(),
       );
 
   final String id;
   final String username;
   final String displayName;
   final bool isBot;
+
+  /// Absent — false and 0 — when the account hides its presence, or has never
+  /// signed in.
+  final bool online;
+  final int lastSeen;
+}
+
+/// What the owner of this account lets other members see and do. Server
+/// policy, not protocol: the server reads it in plaintext and could ignore it
+/// (PROTOCOL.md §10).
+class AccountVisibility {
+  const AccountVisibility({this.findMeInSearch = true, this.showOnline = true, this.allowGroupAdd = true});
+
+  factory AccountVisibility.fromJson(Map<String, dynamic> j) => AccountVisibility(
+        findMeInSearch: j['find_me_in_search'] != false,
+        showOnline: j['show_online'] != false,
+        allowGroupAdd: j['allow_group_add'] != false,
+      );
+
+  final bool findMeInSearch;
+  final bool showOnline;
+  final bool allowGroupAdd;
+
+  AccountVisibility copyWith({bool? findMeInSearch, bool? showOnline, bool? allowGroupAdd}) => AccountVisibility(
+        findMeInSearch: findMeInSearch ?? this.findMeInSearch,
+        showOnline: showOnline ?? this.showOnline,
+        allowGroupAdd: allowGroupAdd ?? this.allowGroupAdd,
+      );
+
+  Map<String, dynamic> toJson() => {'find_me_in_search': findMeInSearch, 'show_online': showOnline, 'allow_group_add': allowGroupAdd};
 }
 
 class ServerSettings {

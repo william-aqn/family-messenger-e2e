@@ -91,6 +91,9 @@ class ApiClient {
 
   Future<Map<String, dynamic>> me() async => (await _json('GET', '/me')) as Map<String, dynamic>;
 
+  /// Stores the account's own visibility; only the named keys are changed.
+  Future<AccountVisibility> patchMe(Map<String, dynamic> body) async => AccountVisibility.fromJson((await _json('PATCH', '/me', body: body)) as Map<String, dynamic>);
+
   Future<UserView> user(String username) async => UserView.fromJson((await _json('GET', '/users/${Uri.encodeComponent(username)}')) as Map<String, dynamic>);
 
   /// Active accounts whose username starts with [prefix]; 403 when the

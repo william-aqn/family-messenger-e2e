@@ -266,7 +266,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
           </label>
           <div class="banner alert">
             <Icon name="alert" size={20} />
-            <span class="grow">{t('password_warning')}</span>
+            <span class="grow">{t('password_change_warning')}</span>
           </div>
           <button type="submit" class={authBusy.value ? 'primary busy' : 'primary'} disabled={!next || !repeat || !!authBusy.value}>
             {authBusy.value ? (

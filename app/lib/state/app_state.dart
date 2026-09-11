@@ -19,6 +19,7 @@ import '../crypto/ids.dart';
 import '../crypto/primitives.dart';
 import '../i18n/strings.dart';
 import 'call_controller.dart';
+import 'chat_search.dart';
 import 'voice_controller.dart';
 
 class Contact {
@@ -90,6 +91,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   AppState({this.persist = true}) {
     calls = CallController(this);
     voice = VoiceController(this);
+    search = ChatSearch(this);
     WidgetsBinding.instance.addObserver(this);
   }
 
@@ -108,6 +110,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
 
   late final CallController calls;
   late final VoiceController voice;
+  late final ChatSearch search;
   ApiClient? api;
   WsClient? _ws;
   StreamSubscription<Frame>? _frameSub;
@@ -122,6 +125,10 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   bool booting = true;
   bool syncing = false;
   String? busyText;
+
+  /// What this account lets other members see and do, as the server last
+  /// reported it. Server policy, not protocol (PROTOCOL.md §10).
+  AccountVisibility visibility = const AccountVisibility();
 
   /// How much bigger than the system default the interface text is drawn, on
   /// top of whatever the device's own font-size setting already says. One of
@@ -204,6 +211,22 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> setLanguage(String code) async {
     L10n.set(code);
     if (persist) await _storage.write(key: 'lang', value: code);
+    notifyListeners();
+  }
+
+  /// Stores one visibility flag. The switch moves at once and the server's
+  /// answer replaces it; a refusal puts the old value back.
+  Future<void> setVisibility(Map<String, dynamic> patch) async {
+    final AccountVisibility before = visibility;
+    visibility = AccountVisibility.fromJson({...before.toJson(), ...patch});
+    notifyListeners();
+    try {
+      visibility = await api!.patchMe(patch);
+    } catch (e) {
+      visibility = before;
+      busyText = null;
+      debugPrint('visibility change failed: $e');
+    }
     notifyListeners();
   }
 
@@ -354,6 +377,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     try {
       final me = await api!.me();
       settings = ServerSettings.fromJson(me['settings'] as Map<String, dynamic>);
+      visibility = AccountVisibility.fromJson(me['account'] as Map<String, dynamic>);
       notifyListeners();
     } on ApiException catch (e) {
       if (e.status == 401 || e.status == 403) await logout();
@@ -544,6 +568,11 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     if (isBot != null) existing.isBot = isBot;
     if (displayName != null) existing.displayName = displayName;
   }
+
+  /// Fetches everything the server still holds for one conversation. Nothing
+  /// from before you joined is reachable: the server clamps the window to the
+  /// sequence you joined at (PROTOCOL.md §5.1).
+  Future<void> loadHistory(String convId) => _withLock(convId, () => _backfill(convId));
 
   Future<void> _backfill(String convId) async {
     final conv = conversations[convId];

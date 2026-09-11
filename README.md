@@ -15,6 +15,15 @@ building from source stay as options).
   the password without being asked for the old one, and sign every other
   device out at the same time (the remedy for a leaked password, and the way
   back in for somebody who forgot it).
+- **Search** under the chat list on both clients: chats, people and messages,
+  with filters. Messages are matched on the device — the server holds only
+  ciphertext and could not search it — so the results cover what that device
+  has decrypted, with a button to fetch the rest. A one-to-one chat is started
+  from a person in the results; the new-chat dialog is groups only.
+- **Visibility** per account: whether you are listed in the user directory,
+  whether other members see your presence, and whether a stranger may add you
+  to a group. Server-enforced policy, not protocol — an exact lookup by
+  username always answers, because that is where a client fetches your keys.
 - **Disappearing messages** per conversation (1 hour to 30 days) plus an
   optional server-wide retention limit.
 - **Edit and delete** your own messages on every device (edits are signed and

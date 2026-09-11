@@ -24,6 +24,7 @@ import '../state/app_state.dart';
 import '../state/updater.dart';
 import '../theme.dart';
 import 'chat_screen.dart';
+import 'search_panel.dart';
 import 'voice_panel.dart';
 
 /// Width at which the phone layout gives way to the two-pane desktop one.
@@ -51,7 +52,9 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     final bool twoPane = MediaQuery.sizeOf(context).width >= _twoPaneWidth;
     return ListenableBuilder(
-      listenable: Listenable.merge(<Listenable>[app, updater]),
+      // The search controller is in the list because its results take the place
+      // of the conversation list in both layouts.
+      listenable: Listenable.merge(<Listenable>[app, app.search, updater]),
       builder: (BuildContext context, _) {
         final List<Conversation> list = app.sortedConversations;
         // A conversation that was left or removed must not stay in the pane.
@@ -79,7 +82,9 @@ class _HomeScreenState extends State<HomeScreen> {
           children: <Widget>[
             Text('@${app.session!.username}', style: text.titleLarge),
             const SizedBox(height: 2),
-            Text('${t('app_name')} $appVersion', style: text.labelSmall),
+            // The product name and the version have gone: the version lives in
+            // the settings sheet, and this line is worth the connection status.
+            _presence(context),
           ],
         ),
         actions: <Widget>[
@@ -92,13 +97,22 @@ class _HomeScreenState extends State<HomeScreen> {
           const SizedBox(width: 4),
         ],
       ),
-      body: Column(children: <Widget>[..._banners(context), Expanded(child: _list(context, list, twoPane: false))]),
+      body: Column(
+        children: <Widget>[
+          const SearchBlock(),
+          ..._banners(context),
+          if (app.search.active)
+            SearchResults(onOpen: (String id) => _open(context, id, twoPane: false), reserveFab: true)
+          else
+            Expanded(child: _list(context, list, twoPane: false)),
+        ],
+      ),
       // 56 square on the canvas, 16 from the right and 24 from the bottom;
       // when a voice channel is joined the Scaffold lifts it above the panel.
       floatingActionButton: Padding(
         padding: const EdgeInsets.only(bottom: 8),
         child: FloatingActionButton(
-          tooltip: t('new_chat'),
+          tooltip: t('new_group'),
           onPressed: () => _newConversation(context, twoPane: false),
           child: const Icon(LucideIcons.plus),
         ),
@@ -126,8 +140,12 @@ class _HomeScreenState extends State<HomeScreen> {
                 children: <Widget>[
                   _desktopHeader(context),
                   Divider(height: 1, thickness: 1, color: scheme.outlineVariant),
+                  const SearchBlock(compact: true),
                   ..._banners(context),
-                  Expanded(child: _list(context, list, twoPane: true, selectedId: selectedId)),
+                  if (app.search.active)
+                    SearchResults(onOpen: (String id) => _open(context, id, twoPane: true))
+                  else
+                    Expanded(child: _list(context, list, twoPane: true, selectedId: selectedId)),
                 ],
               ),
             ),
@@ -144,16 +162,30 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  /// The connection status with its dot, under the account name on both
+  /// layouts.
+  Widget _presence(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final (String label, Color colour) = switch (app.wsStatus) {
+      WsStatus.online => (t('status_online'), context.fm.ok),
+      WsStatus.connecting => (t('status_connecting'), context.fm.busy),
+      WsStatus.offline => (t('status_offline'), context.fm.offline),
+    };
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      spacing: 6,
+      children: <Widget>[
+        Container(width: 8, height: 8, decoration: BoxDecoration(color: colour, shape: BoxShape.circle)),
+        Flexible(child: Text(label, overflow: TextOverflow.ellipsis, style: theme.textTheme.labelSmall)),
+      ],
+    );
+  }
+
   /// The 56px list header of X01: the account over its presence, then the
-  /// "new chat" and "settings" buttons.
+  /// "new group" and "settings" buttons.
   Widget _desktopHeader(BuildContext context) {
     final ColorScheme scheme = Theme.of(context).colorScheme;
     final TextTheme text = Theme.of(context).textTheme;
-    final String presence = switch (app.wsStatus) {
-      WsStatus.online => t('online'),
-      WsStatus.connecting => t('connecting'),
-      WsStatus.offline => t('offline'),
-    };
     return ConstrainedBox(
       // A minimum, not the 56 X01 draws: the account over its presence needs
       // more than that once the text-size setting is turned up.
@@ -170,7 +202,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 children: <Widget>[
                   Text('@${app.session!.username}', style: text.titleMedium, overflow: TextOverflow.ellipsis),
                   const SizedBox(height: 2),
-                  Text(presence, style: text.labelSmall, overflow: TextOverflow.ellipsis),
+                  _presence(context),
                 ],
               ),
             ),
@@ -178,7 +210,7 @@ class _HomeScreenState extends State<HomeScreen> {
             IconButton(
               style: IconButton.styleFrom(minimumSize: const Size(40, 40), padding: EdgeInsets.zero),
               icon: Icon(LucideIcons.plus, color: scheme.onSurface),
-              tooltip: t('new_chat'),
+              tooltip: t('new_group'),
               onPressed: () => _newConversation(context, twoPane: true),
             ),
             IconButton(
@@ -321,8 +353,6 @@ class _HomeScreenState extends State<HomeScreen> {
   // ───── new chat (A04) ────────────────────────────────────────────────────
 
   Future<void> _newConversation(BuildContext context, {required bool twoPane}) async {
-    var group = false;
-    final TextEditingController username = TextEditingController();
     final TextEditingController name = TextEditingController();
     final TextEditingController members = TextEditingController();
     String? error;
@@ -340,11 +370,12 @@ class _HomeScreenState extends State<HomeScreen> {
         builder: (BuildContext context, StateSetter setState) {
           final ThemeData theme = Theme.of(context);
           final ColorScheme scheme = theme.colorScheme;
-          // Suggestions for the name being typed (the last comma-separated token of a group).
-          final String raw = group ? members.text : username.text;
+          // Suggestions for the name being typed — the last comma-separated
+          // token of the member list.
+          final String raw = members.text;
           final List<String> tokens = raw.split(RegExp(r'[\s,]+')).where((String s) => s.isNotEmpty).toList();
-          final String typing = group ? (raw.isNotEmpty && !RegExp(r'[\s,]$').hasMatch(raw) ? (tokens.lastOrNull ?? '') : '') : raw;
-          final List<String> done = group && typing.isNotEmpty ? tokens.sublist(0, tokens.length - 1) : (group ? tokens : const <String>[]);
+          final String typing = raw.isNotEmpty && !RegExp(r'[\s,]$').hasMatch(raw) ? (tokens.lastOrNull ?? '') : '';
+          final List<String> done = typing.isNotEmpty ? tokens.sublist(0, tokens.length - 1) : tokens;
           final Set<String> chosen = done.map((String s) => s.replaceFirst('@', '').toLowerCase()).toSet();
           final String q = typing.trim().replaceFirst('@', '').toLowerCase();
           final List<DirectoryEntry> matches = directory.where((DirectoryEntry u) {
@@ -352,26 +383,11 @@ class _HomeScreenState extends State<HomeScreen> {
             return n.startsWith(q) && n != q && !chosen.contains(n);
           }).take(12).toList();
           void pick(DirectoryEntry u) {
-            final TextEditingController field = group ? members : username;
-            field.text = group ? '${<String>[...done, u.username].join(', ')}, ' : u.username;
+            final TextEditingController field = members;
+            field.text = '${<String>[...done, u.username].join(', ')}, ';
             field.selection = TextSelection.collapsed(offset: field.text.length);
             setState(() {});
           }
-
-          Widget tab(String label, bool active, VoidCallback onTap) => InkWell(
-                onTap: onTap,
-                hoverColor: Colors.transparent,
-                child: Container(
-                  padding: const EdgeInsets.only(bottom: 10),
-                  decoration: BoxDecoration(
-                    border: Border(bottom: BorderSide(color: active ? scheme.primary : Colors.transparent, width: 2)),
-                  ),
-                  child: Text(
-                    label,
-                    style: theme.textTheme.titleMedium?.copyWith(color: active ? scheme.onSurface : scheme.onSurfaceVariant),
-                  ),
-                ),
-              );
 
           return Dialog(
             child: ConstrainedBox(
@@ -382,31 +398,20 @@ class _HomeScreenState extends State<HomeScreen> {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   mainAxisSize: MainAxisSize.min,
                   children: <Widget>[
-                    Text(t('new_chat'), style: theme.textTheme.headlineSmall),
+                    Text(t('new_group'), style: theme.textTheme.headlineSmall),
                     const SizedBox(height: 18),
-                    Container(
-                      decoration: BoxDecoration(border: Border(bottom: BorderSide(color: scheme.outlineVariant))),
-                      child: Row(
-                        children: <Widget>[
-                          tab(t('direct'), !group, () => setState(() => group = false)),
-                          const SizedBox(width: 24),
-                          tab(t('group'), group, () => setState(() => group = true)),
-                        ],
-                      ),
+                    // A one-to-one chat starts from the search now, where you
+                    // see the person before writing to them.
+                    _Banner(
+                      rail: sandA(.5),
+                      icon: LucideIcons.search,
+                      iconColor: scheme.primary,
+                      text: t('dm_from_search_hint'),
                     ),
                     const SizedBox(height: 18),
-                    if (!group)
-                      _LabelledField(
-                        label: t('username'),
-                        controller: username,
-                        autofocus: true,
-                        onChanged: (_) => setState(() {}),
-                      ),
-                    if (group) ...<Widget>[
-                      _LabelledField(label: t('group_name'), controller: name, autofocus: true),
-                      const SizedBox(height: 18),
-                      _LabelledField(label: t('members_hint'), controller: members, onChanged: (_) => setState(() {})),
-                    ],
+                    _LabelledField(label: t('group_name'), controller: name, autofocus: true),
+                    const SizedBox(height: 18),
+                    _LabelledField(label: t('members_hint'), controller: members, onChanged: (_) => setState(() {})),
                     if (matches.isNotEmpty) ...<Widget>[
                       const SizedBox(height: 18),
                       Wrap(
@@ -445,9 +450,10 @@ class _HomeScreenState extends State<HomeScreen> {
                         FilledButton(
                           onPressed: () async {
                             try {
-                              final String id = group
-                                  ? await app.createGroup(name.text, members.text.split(RegExp(r'[\s,]+')).where((String s) => s.isNotEmpty).toList())
-                                  : await app.createDirect(username.text);
+                              final String id = await app.createGroup(
+                                name.text,
+                                members.text.split(RegExp(r'[\s,]+')).where((String s) => s.isNotEmpty).toList(),
+                              );
                               if (context.mounted) {
                                 Navigator.pop(context);
                                 _open(context, id, twoPane: twoPane);
@@ -601,7 +607,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         children: <Widget>[
                           Row(
                             children: <Widget>[
-                              Expanded(child: Text(t('text_size'), style: theme.inputDecorationTheme.labelStyle)),
+                              Expanded(child: Text(t('ui_scale'), style: theme.inputDecorationTheme.labelStyle)),
                               Text('${(app.textScale * 100).round()}%', style: theme.textTheme.bodySmall?.copyWith(color: scheme.primary)),
                             ],
                           ),
@@ -611,21 +617,82 @@ class _HomeScreenState extends State<HomeScreen> {
                           // the ring would stay on whichever step was current
                           // when the sheet opened.
                           _TextSizePicker(current: app.textScale),
+                          // The sheet is already drawn at the chosen size, so
+                          // a real bubble is the preview and there is no copy
+                          // of the sizes to keep in step.
+                          Padding(
+                            padding: const EdgeInsets.only(top: 4),
+                            child: Align(
+                              alignment: Alignment.centerLeft,
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                                decoration: BoxDecoration(
+                                  color: scheme.surfaceContainerHighest,
+                                  borderRadius: BorderRadius.circular(fmRadius),
+                                  border: Border.all(color: FmColors.of(context).ring),
+                                ),
+                                child: Text(t('ui_scale_preview'), style: theme.textTheme.bodyLarge),
+                              ),
+                            ),
+                          ),
                         ],
                       ),
                     ),
-                    // "<server> · @user" behind a lock.
+                    // Server policy, not protocol: the server reads these in
+                    // plaintext and could ignore them (PROTOCOL.md §10).
                     _SheetSection(
-                      child: Row(
-                        spacing: 8,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        spacing: 4,
                         children: <Widget>[
-                          Icon(LucideIcons.lock, size: 16, color: scheme.outline),
-                          Expanded(
-                            child: Text(
-                              '${app.serverUrl} · @${app.session!.username}',
-                              style: theme.inputDecorationTheme.labelStyle,
-                              overflow: TextOverflow.ellipsis,
-                            ),
+                          Text(t('visibility'), style: theme.inputDecorationTheme.labelStyle),
+                          _VisibilityCheck(
+                            label: t('find_me_in_search'),
+                            value: app.visibility.findMeInSearch,
+                            onChanged: (bool v) => app.setVisibility(<String, dynamic>{'find_me_in_search': v}),
+                          ),
+                          Padding(
+                            padding: const EdgeInsets.only(left: 32),
+                            child: Text(t('find_me_in_search_hint'), style: theme.textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant)),
+                          ),
+                          _VisibilityCheck(
+                            label: t('show_online'),
+                            value: app.visibility.showOnline,
+                            onChanged: (bool v) => app.setVisibility(<String, dynamic>{'show_online': v}),
+                          ),
+                          _VisibilityCheck(
+                            label: t('allow_group_add'),
+                            value: app.visibility.allowGroupAdd,
+                            onChanged: (bool v) => app.setVisibility(<String, dynamic>{'allow_group_add': v}),
+                          ),
+                        ],
+                      ),
+                    ),
+                    // "<server> · @user" behind a lock, with the build under it
+                    // — the app bar used to carry the version and no longer does.
+                    _SheetSection(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        spacing: 4,
+                        children: <Widget>[
+                          Row(
+                            spacing: 8,
+                            children: <Widget>[
+                              Icon(LucideIcons.lock, size: 16, color: scheme.outline),
+                              Expanded(
+                                child: Text(
+                                  '${app.serverUrl} · @${app.session!.username}',
+                                  style: theme.inputDecorationTheme.labelStyle,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            ],
+                          ),
+                          Padding(
+                            padding: const EdgeInsets.only(left: 24),
+                            child: Text('${t('app_name')} $appVersion', style: theme.textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant)),
                           ),
                         ],
                       ),
@@ -689,6 +756,35 @@ class _HomeScreenState extends State<HomeScreen> {
 
 // ───── components ──────────────────────────────────────────────────────────
 
+/// One line of the "Visibility" block: a checkbox and its label, tappable
+/// across the whole row.
+class _VisibilityCheck extends StatelessWidget {
+  const _VisibilityCheck({required this.label, required this.value, required this.onChanged});
+
+  final String label;
+  final bool value;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    return InkWell(
+      onTap: () => onChanged(!value),
+      child: Row(
+        spacing: 8,
+        children: <Widget>[
+          SizedBox(
+            width: 24,
+            height: 24,
+            child: Checkbox(value: value, onChanged: (bool? v) => onChanged(v ?? false)),
+          ),
+          Expanded(child: Text(label, style: theme.textTheme.bodyLarge)),
+        ],
+      ),
+    );
+  }
+}
+
 /// The five text sizes of the settings sheet, each drawn as a letter of the
 /// size it sets.
 ///
@@ -742,7 +838,7 @@ class _TextSizeStep extends StatelessWidget {
           border: Border.all(color: selected ? scheme.primary : scheme.outline, width: 2),
         ),
         child: Text(
-          t('text_size_sample'),
+          t('ui_scale_sample'),
           semanticsLabel: '${(scale * 100).round()}%',
           style: TextStyle(fontSize: 12 * scale, color: selected ? scheme.primary : scheme.onSurfaceVariant),
         ),
@@ -1444,7 +1540,7 @@ Future<void> _changePassword(BuildContext context) async {
                       ),
                     ),
                   ),
-                  _alertBanner(theme, t('password_warning')),
+                  _alertBanner(theme, t('password_change_warning')),
                   if (busy)
                     ListenableBuilder(
                       listenable: app,
