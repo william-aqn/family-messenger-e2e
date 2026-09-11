@@ -112,6 +112,14 @@ class WsClient {
     _pingSent = null;
     _keepalive?.cancel();
     _keepalive = Timer.periodic(checkEvery, (_) => _checkLiveness());
+    // The connection is opened lazily, and a failure to open it is delivered
+    // three times: on `ready`, on the sink's `done`, and on the stream. Only
+    // the stream was being listened to, so every attempt against an
+    // unreachable server also logged an unhandled exception, once per retry
+    // for as long as the app stayed offline. The reconnect is driven from
+    // the stream below; these two only need to be seen, not acted on.
+    unawaited(channel.ready.catchError((Object _) {}));
+    unawaited(channel.sink.done.catchError((Object _) {}));
     channel.sink.add(jsonEncode({
       't': 'auth',
       'd': {'token': token},

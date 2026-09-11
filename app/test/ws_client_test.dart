@@ -73,6 +73,32 @@ void main() {
     client.close();
   });
 
+  test('a server that cannot be reached is retried without an unhandled error', () async {
+    // WebSocketChannel.connect is lazy, and a refused connection is reported
+    // three times: on `ready`, on the sink's `done` and on the stream. Only
+    // the stream was listened to, so every attempt against an unreachable
+    // server also logged an unhandled exception, once per retry for as long
+    // as the app stayed offline. package:test fails a test on an uncaught
+    // async error, which is what holds this; the expectation below only
+    // keeps the client from reporting a connection it never made.
+    final dead = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+    final port = dead.port;
+    await dead.close();
+    final client = WsClient(
+      baseUrl: 'http://127.0.0.1:$port',
+      token: 'token',
+      pingAfter: const Duration(milliseconds: 200),
+      deadAfter: const Duration(milliseconds: 400),
+      pokeDeadline: const Duration(milliseconds: 150),
+      checkEvery: const Duration(milliseconds: 50),
+    );
+    client.connect();
+    // Long enough for the liveness check to give up and reopen twice.
+    await Future<void>.delayed(const Duration(milliseconds: 1500));
+    expect(client.status, isNot(WsStatus.online));
+    client.close();
+  });
+
   test('a quiet socket is pinged and stays connected while pongs come back', () async {
     final client = newClient();
     client.connect();
