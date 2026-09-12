@@ -18,6 +18,11 @@
          itself; Android 8+ additionally asks the user to allow this app as a
          source of app installs (see ApkInstaller). -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
+    <!-- The settings screen offers the system dialog that takes this app out of
+         battery optimisation: without it Android suspends the socket that
+         carries messages and calls, and there is no push service behind it to
+         wake the app instead (see BackgroundAccess). -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"/>
 
     <application
         android:label="Family Messenger"

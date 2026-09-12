@@ -38,6 +38,12 @@ building from source stay as options).
   encrypted. Everyone can switch on a camera and share a screen at the same
   time — every pair negotiates both up front, so turning either on shows a
   tile to the others without renegotiating the connection.
+- **Running in the background** (Android): the settings screen says whether
+  the phone lets the app keep its socket while it is off the screen — there is
+  no push service behind it, so a suspended app does not ring — and offers the
+  system's own switches for battery optimisation and the "Restricted" setting.
+  The vendor autostart lists (Xiaomi, Huawei, Oppo) have no public API and are
+  not claimed either way.
 - **Text size** in the settings of both clients, 100 % to 160 %, remembered on
   that device: the web client redraws the whole interface at that scale, the
   app multiplies the system font size the phone already asks for.

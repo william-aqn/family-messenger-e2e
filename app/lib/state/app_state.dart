@@ -18,6 +18,7 @@ import '../crypto/files.dart';
 import '../crypto/ids.dart';
 import '../crypto/primitives.dart';
 import '../i18n/strings.dart';
+import 'background.dart';
 import 'call_controller.dart';
 import 'chat_search.dart';
 import 'voice_controller.dart';
@@ -92,6 +93,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     calls = CallController(this);
     voice = VoiceController(this);
     search = ChatSearch(this);
+    unawaited(background.refresh());
     WidgetsBinding.instance.addObserver(this);
   }
 
@@ -99,7 +101,11 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     // Back in the foreground: a socket that died meanwhile would still look
     // open, so check it before the user sends anything or makes a call.
-    if (state == AppLifecycleState.resumed) _ws?.poke();
+    if (state != AppLifecycleState.resumed) return;
+    _ws?.poke();
+    // The settings screen sends people to the system's own switches; this is
+    // where the app learns how they answered.
+    unawaited(background.refresh());
   }
 
   /// Keep the session in secure storage (off in integration tests, which
@@ -111,6 +117,9 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   late final CallController calls;
   late final VoiceController voice;
   late final ChatSearch search;
+
+  /// What Android allows the app in the background, for the settings screen.
+  final BackgroundAccess background = BackgroundAccess();
   ApiClient? api;
   WsClient? _ws;
   StreamSubscription<Frame>? _frameSub;

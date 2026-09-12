@@ -21,6 +21,7 @@ import '../crypto/fingerprint.dart';
 import '../i18n/strings.dart';
 import '../main.dart';
 import '../state/app_state.dart';
+import '../state/background.dart';
 import '../state/updater.dart';
 import '../theme.dart';
 import 'chat_screen.dart';
@@ -635,7 +636,10 @@ class _HomeScreenState extends State<HomeScreen> {
       // a short screen) the sections no longer fit between the grip and the
       // sign-out button.
       builder: (BuildContext context) => ListenableBuilder(
-        listenable: app,
+        // Also the background state: the user leaves for the system's own
+        // switch and comes back to this sheet, which then has to say what
+        // they answered.
+        listenable: Listenable.merge(<Listenable>[app, app.background]),
         builder: (BuildContext context, Widget? _) {
           final ThemeData theme = Theme.of(context);
           final ColorScheme scheme = theme.colorScheme;
@@ -801,6 +805,11 @@ class _HomeScreenState extends State<HomeScreen> {
                         ],
                       ),
                     ),
+                    // A21: whether the phone lets the app keep its socket while
+                    // it is off the screen. Quiet when there is nothing to do
+                    // about it — a line and no button — because this is a place
+                    // people come for something else.
+                    if (BackgroundAccess.onThisPlatform && app.background.known) _BackgroundSection(state: app.background),
                     // "<server> · @user" behind a lock, with the build under it
                     // — the app bar used to carry the version and no longer does.
                     _SheetSection(
@@ -1283,6 +1292,62 @@ class _ConversationRow extends StatelessWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// A21: what the phone allows the app once it is off the screen. The socket
+/// that carries messages and calls has no push behind it, so this is the
+/// difference between a call that rings and one that does not — but it is
+/// also somebody else's setting, so the section states the case in one line
+/// and offers the switch only when there is one to offer.
+class _BackgroundSection extends StatelessWidget {
+  const _BackgroundSection({required this.state});
+
+  final BackgroundAccess state;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final ColorScheme scheme = theme.colorScheme;
+    final bool fine = state.fine;
+    final String text = state.restricted
+        ? t('background_restricted')
+        : state.unrestricted
+            ? t('background_ok')
+            : t('background_doze');
+    return _SheetSection(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        spacing: 6,
+        children: <Widget>[
+          Text(t('background'), style: theme.inputDecorationTheme.labelStyle),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            spacing: 8,
+            children: <Widget>[
+              Icon(
+                fine ? LucideIcons.check : LucideIcons.alertTriangle,
+                size: 16,
+                // Nothing to do about it: the line reads as a fact, not a
+                // warning, and wears the same muted colour as the text.
+                color: fine ? scheme.onSurfaceVariant : scheme.primary,
+              ),
+              Expanded(child: Text(text, style: theme.textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant))),
+            ],
+          ),
+          if (!fine)
+            Align(
+              alignment: Alignment.centerLeft,
+              child: _LinkButton(
+                label: t(state.restricted ? 'background_open_settings' : 'background_allow'),
+                strong: true,
+                onPressed: () => unawaited(state.restricted ? state.openAppSettings() : state.requestUnrestricted()),
+              ),
+            ),
+        ],
       ),
     );
   }

@@ -13,6 +13,9 @@ class MainActivity : FlutterActivity() {
     /** Owns an update install; the activity feeds it the lifecycle it needs. */
     private val updates by lazy { ApkInstaller(this) }
 
+    /** Reads what Android allows the app once it leaves the screen. */
+    private val background by lazy { BackgroundAccess(this) }
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         // Starts and stops the foreground service that screen sharing needs
@@ -23,6 +26,24 @@ class MainActivity : FlutterActivity() {
                 "stop" -> {
                     ScreenShareService.onReady = null
                     stopService(Intent(this, ScreenShareService::class.java))
+                    result.success(null)
+                }
+                else -> result.notImplemented()
+            }
+        }
+        // What the system lets the app do in the background. The messenger
+        // keeps a socket open for messages and calls with no push behind it,
+        // so a phone that suspends it simply does not ring; the settings
+        // screen says so and offers the switches (see BackgroundAccess).
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "family_messenger/background").setMethodCallHandler { call, result ->
+            when (call.method) {
+                "state" -> result.success(background.state())
+                "requestUnrestricted" -> {
+                    background.requestUnrestricted()
+                    result.success(null)
+                }
+                "openAppSettings" -> {
+                    background.openAppSettings()
                     result.success(null)
                 }
                 else -> result.notImplemented()
