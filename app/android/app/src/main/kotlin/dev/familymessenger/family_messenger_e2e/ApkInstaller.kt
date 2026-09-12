@@ -45,6 +45,19 @@ class ApkInstaller(private val activity: Activity) {
     private var resumed = false
 
     /**
+     * The session this install is waiting on, and the ones an earlier attempt
+     * left behind. Both are needed because a status broadcast says which
+     * session it is about, and more than one of ours can speak: abandoning a
+     * stale session makes the package manager report it as aborted, and that
+     * verdict would otherwise land on the install running now and end it
+     * halfway through its own copy. Written on the worker thread, read on the
+     * main one.
+     */
+    @Volatile private var awaited = -1
+
+    @Volatile private var abandoned: Set<Int> = emptySet()
+
+    /**
      * Android 8+ asks per app instead of through one global switch, and the
      * answer can change while the app runs, so it is read afresh every time.
      */
@@ -87,9 +100,14 @@ class ApkInstaller(private val activity: Activity) {
      * returns as the happy path rather than wait for it.
      */
     fun install(path: String, answer: (String?, String?) -> Unit) {
+        // A hand-over whose verdict never arrived — the broadcast can go
+        // missing when the process is restarted under the confirmation screen —
+        // used to refuse every later attempt for the life of the process, which
+        // is the one state the user cannot get out of. Somebody asking again is
+        // the answer: let the old wait go and start over.
         if (done != null) {
-            answer(ERR_FAILED, "an update is already being installed")
-            return
+            Log.w(TAG, "a previous hand-over never reported; starting over")
+            finish(ERR_ABORTED, "superseded by another attempt")
         }
         done = answer
         onStatus = { status -> handle(status) }
@@ -155,11 +173,16 @@ class ApkInstaller(private val activity: Activity) {
         // A crash between createSession and commit parks a copy of the APK on
         // disk for good. Nothing else in this app opens sessions, so every one
         // of ours still around is dead.
-        for (old in installer.mySessions) {
+        val stale = installer.mySessions.map { it.sessionId }
+        // Noted before they are abandoned, not after: abandoning a committed
+        // one reports it aborted straight away, and that answer must already be
+        // recognisable as somebody else's when it arrives.
+        abandoned = stale.toSet()
+        for (old in stale) {
             try {
-                installer.abandonSession(old.sessionId)
+                installer.abandonSession(old)
             } catch (e: Exception) {
-                Log.w(TAG, "stale session ${old.sessionId} survives: $e")
+                Log.w(TAG, "stale session $old survives: $e")
             }
         }
 
@@ -170,6 +193,8 @@ class ApkInstaller(private val activity: Activity) {
         params.setSize(apk.length())
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) params.setInstallReason(PackageManager.INSTALL_REASON_USER)
         val id = installer.createSession(params)
+        awaited = id
+        abandoned = abandoned - id
         try {
             installer.openSession(id).use { session ->
                 session.openWrite(ENTRY, 0, apk.length()).use { out ->
@@ -217,7 +242,12 @@ class ApkInstaller(private val activity: Activity) {
     private fun handle(status: Intent) {
         val message = status.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE)
         val code = status.getIntExtra(PackageInstaller.EXTRA_STATUS, PackageInstaller.STATUS_FAILURE)
-        Log.i(TAG, "install status $code: $message")
+        val id = status.getIntExtra(PackageInstaller.EXTRA_SESSION_ID, -1)
+        Log.i(TAG, "install status $code for session $id: $message")
+        if (id != -1 && (id in abandoned || (awaited != -1 && id != awaited))) {
+            Log.i(TAG, "status for session $id ignored, waiting on $awaited")
+            return
+        }
         when {
             code == PackageInstaller.STATUS_PENDING_USER_ACTION -> confirm(status)
             code == PackageInstaller.STATUS_SUCCESS -> finish(null, null)
@@ -270,6 +300,7 @@ class ApkInstaller(private val activity: Activity) {
         val answer = done ?: return
         done = null
         confirmation = null
+        awaited = -1
         onStatus = null
         answer(code, message)
     }

@@ -278,7 +278,20 @@ class Updater extends ChangeNotifier {
         // Answers only once the package manager has a verdict, which is after
         // the user has read its confirmation screen. On a yes it kills this
         // process first, so the happy path never answers at all.
-        await _installer.invokeMethod<void>('installApk', <String, Object?>{'path': file.path});
+        //
+        // That verdict travels as a broadcast, and a broadcast can go missing:
+        // the activity is recreated under the confirmation screen, or the
+        // process is restarted, and nobody is left listening. Waiting for it
+        // for ever would leave the banner on "waiting for the system
+        // installer" with every control hidden behind it. Giving up costs
+        // nothing — the APK is with the system either way, and an install that
+        // does go through kills this process regardless of what the app
+        // believes.
+        try {
+          await _installer.invokeMethod<void>('installApk', <String, Object?>{'path': file.path}).timeout(_verdictWait);
+        } on TimeoutException {
+          debugPrint('the package manager never answered; the update is its business now');
+        }
         return null;
       }
       await _handOver(file);
@@ -355,6 +368,11 @@ class Updater extends ChangeNotifier {
   /// chunks is what the timeout is on, not the download as a whole: a slow
   /// connection is allowed to take as long as it needs.
   static const Duration _stall = Duration(seconds: 60);
+
+  /// How long the app waits for the package manager's verdict before it stops
+  /// waiting. Long enough for somebody to read the confirmation screen and
+  /// think about it, short enough not to be a state the app never leaves.
+  static const Duration _verdictWait = Duration(minutes: 10);
 
   Future<void> _download(Uri url, File file, int? expectedSize) async {
     final client = http.Client();
