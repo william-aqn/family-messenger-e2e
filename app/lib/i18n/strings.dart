@@ -155,9 +155,9 @@ const Map<String, String> _en = {
   // Android cannot swap its own files: the downloaded APK goes to the system
   // package installer, which needs a permission of its own, asks the user and
   // answers with its own verdict.
-  'update_installer_opening': 'The system installer will open; confirm the installation there',
   'update_waiting_installer': 'Waiting for the system installer…',
   'update_install_not_allowed': 'Android does not allow this app to install packages. Allow it in settings and start the update again.',
+  'update_allow_install': 'Settings',
   'update_signature_mismatch': 'This release is signed with a different key and cannot replace the installed app. Uninstall the app and install the release by hand; the account and the history stay on the server.',
   'update_checksum_mismatch': 'the download does not match the checksum published with the release',
   'update_failed': 'Update failed: {error}',
@@ -367,9 +367,9 @@ const Map<String, String> _ru = {
   'update_downloading': 'Скачиваем обновление…',
   'update_downloading_percent': 'Загрузка обновления… {percent} %',
   'update_restart': 'Приложение закроется и запустится снова с новой версией',
-  'update_installer_opening': 'Откроется системный установщик; подтвердите установку в нём',
   'update_waiting_installer': 'Ждём системный установщик…',
   'update_install_not_allowed': 'Android не разрешает этому приложению устанавливать пакеты. Разрешите это в настройках и запустите обновление снова.',
+  'update_allow_install': 'Настройки',
   'update_signature_mismatch': 'Этот релиз подписан другим ключом и не может заменить установленное приложение. Удалите приложение и установите релиз вручную; аккаунт и переписка останутся на сервере.',
   'update_checksum_mismatch': 'загрузка не совпала с контрольной суммой, опубликованной с релизом',
   'update_failed': 'Не удалось обновить: {error}',

@@ -24,6 +24,12 @@
 // refusal.
 //
 //   TAG=v0.0.2 PORT=18099 node scripts/fake-release.mjs
+//
+// Over loopback a release arrives in a second, which is too fast to see what
+// the app shows while it downloads. RATE caps the asset in bytes per second,
+// so the progress the UI reports can be watched:
+//
+//   RATE=2000000 node scripts/fake-release.mjs   # 2 MB/s
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -33,6 +39,7 @@ const TAG = process.env.TAG ?? 'v0.0.2';
 const PORT = Number(process.env.PORT ?? 18099);
 const NAME = `family-messenger-${TAG}.apk`;
 const BASE = `http://127.0.0.1:${PORT}`;
+const RATE = Number(process.env.RATE ?? 0);
 const APK = path.join(DIR, NAME);
 const SUMS = path.join(DIR, `sums-${TAG}.txt`);
 
@@ -60,7 +67,16 @@ http
     if (url.endsWith(`/${NAME}`)) {
       const size = fs.statSync(APK).size;
       res.writeHead(200, { 'content-type': 'application/vnd.android.package-archive', 'content-length': String(size) });
-      return fs.createReadStream(APK).pipe(res);
+      // A tenth of a second's worth per chunk when RATE asks for a slow one.
+      const stream = RATE > 0 ? fs.createReadStream(APK, { highWaterMark: Math.max(1, Math.round(RATE / 10)) }) : fs.createReadStream(APK);
+      if (RATE <= 0) return stream.pipe(res);
+      stream.on('data', (chunk) => {
+        stream.pause();
+        if (!res.write(chunk)) res.once('drain', () => setTimeout(() => stream.resume(), 100));
+        else setTimeout(() => stream.resume(), 100);
+      });
+      stream.on('end', () => res.end());
+      return;
     }
     res.writeHead(404);
     res.end('not found');

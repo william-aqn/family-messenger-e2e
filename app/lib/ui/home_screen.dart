@@ -417,9 +417,15 @@ class _HomeScreenState extends State<HomeScreen> {
   // ───── banners ───────────────────────────────────────────────────────────
 
   List<Widget> _banners(BuildContext context) {
-    final ColorScheme scheme = Theme.of(context).colorScheme;
+    final ThemeData theme = Theme.of(context);
+    final ColorScheme scheme = theme.colorScheme;
     final String announcement = app.settings?.announcement ?? '';
     final ReleaseInfo? update = updater.dismissed ? null : updater.available;
+    // A release is tens of megabytes. While it comes down the banner carries
+    // the percentage instead of its two links: otherwise nothing on this
+    // screen says the tap did anything until the system installer appears,
+    // minutes later on a slow connection.
+    final double? progress = updater.progress;
     return <Widget>[
       // Somebody changed this account's password from another device. Since
       // a change no longer needs the old password, this banner is the only
@@ -440,7 +446,34 @@ class _HomeScreenState extends State<HomeScreen> {
           iconColor: scheme.onSurfaceVariant,
           text: announcement,
         ),
-      if (update != null)
+      if (updater.installing)
+        _Banner(
+          rail: scheme.primary,
+          icon: LucideIcons.refreshCw,
+          iconColor: scheme.primary,
+          text: updater.handedOver
+              ? t('update_waiting_installer')
+              : progress == null
+                  ? t('update_downloading')
+                  : t('update_downloading_percent', <String, Object?>{'percent': (progress * 100).round()}),
+          below: _progressBar(theme, updater.handedOver ? null : progress),
+        )
+      // An update that would not install said so in a snack bar that is long
+      // gone by the time the user looks. Android refusing to install packages
+      // is the common one, and the way out is one tap away.
+      else if (updater.installError != null)
+        _Banner(
+          rail: scheme.error,
+          icon: LucideIcons.alertTriangle,
+          iconColor: scheme.error,
+          text: updater.installError!,
+          actions: <Widget>[
+            if (updater.installErrorCode == Updater.errNotAllowed)
+              _LinkButton(label: t('update_allow_install'), onPressed: () => unawaited(updater.openInstallSettings())),
+            _LinkButton(label: t('update_install'), strong: true, onPressed: () => _installUpdate(context)),
+          ],
+        )
+      else if (update != null)
         _Banner(
           rail: scheme.primary,
           icon: LucideIcons.refreshCw,
@@ -507,15 +540,6 @@ class _HomeScreenState extends State<HomeScreen> {
                   mainAxisSize: MainAxisSize.min,
                   children: <Widget>[
                     Text(t('new_group'), style: theme.textTheme.headlineSmall),
-                    const SizedBox(height: 18),
-                    // A one-to-one chat starts from the search now, where you
-                    // see the person before writing to them.
-                    _Banner(
-                      rail: sandA(.5),
-                      icon: LucideIcons.search,
-                      iconColor: scheme.primary,
-                      text: t('dm_from_search_hint'),
-                    ),
                     const SizedBox(height: 18),
                     _LabelledField(label: t('group_name'), controller: name, autofocus: true),
                     const SizedBox(height: 18),
@@ -1076,6 +1100,7 @@ class _Banner extends StatelessWidget {
     required this.iconColor,
     required this.text,
     this.actions = const <Widget>[],
+    this.below,
   });
 
   final Color rail;
@@ -1083,6 +1108,9 @@ class _Banner extends StatelessWidget {
   final Color iconColor;
   final String text;
   final List<Widget> actions;
+
+  /// Drawn across the banner under its line, for a progress bar.
+  final Widget? below;
 
   @override
   Widget build(BuildContext context) {
@@ -1101,18 +1129,26 @@ class _Banner extends StatelessWidget {
                   borderRadius: const BorderRadius.only(topRight: Radius.circular(fmRadius), bottomRight: Radius.circular(fmRadius)),
                 ),
                 padding: EdgeInsets.fromLTRB(16, 12, actions.isEmpty ? 16 : 8, 12),
-                child: Row(
-                  crossAxisAlignment: actions.isEmpty ? CrossAxisAlignment.start : CrossAxisAlignment.center,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  spacing: 10,
                   children: <Widget>[
-                    Icon(icon, size: 20, color: iconColor),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Text(
-                        text,
-                        style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurface, height: 1.4),
-                      ),
+                    Row(
+                      crossAxisAlignment: actions.isEmpty ? CrossAxisAlignment.start : CrossAxisAlignment.center,
+                      children: <Widget>[
+                        Icon(icon, size: 20, color: iconColor),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            text,
+                            style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurface, height: 1.4),
+                          ),
+                        ),
+                        ...actions,
+                      ],
                     ),
-                    ...actions,
+                    ?below,
                   ],
                 ),
               ),
@@ -1453,11 +1489,11 @@ String _rowTime(int ms) {
 /// and replaces the package — so the two announce different things up front.
 Future<void> _installUpdate(BuildContext context) async {
   final ScaffoldMessengerState messenger = ScaffoldMessenger.of(context);
-  if (Updater.canSelfInstall && updater.latest?.assetUrl != null) {
-    messenger.showSnackBar(SnackBar(
-      content: Text(Updater.restartsItself ? t('update_restart') : t('update_installer_opening')),
-      duration: const Duration(seconds: 4),
-    ));
+  // Only where the app will disappear from under the user without warning.
+  // Android now says what it is doing in the banner itself, for the whole
+  // download rather than for four seconds.
+  if (Updater.restartsItself && updater.latest?.assetUrl != null) {
+    messenger.showSnackBar(SnackBar(content: Text(t('update_restart')), duration: const Duration(seconds: 4)));
   }
   // The updater hands back a finished line: a missing permission is not a
   // failure, and a sentence of ours does not want "Update failed:" in front.

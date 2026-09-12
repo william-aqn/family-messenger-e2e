@@ -349,17 +349,26 @@ class Updater extends ChangeNotifier {
     return File('${dir.path}${Platform.pathSeparator}${rel.assetName}');
   }
 
+  /// A release that stops arriving must not leave the user in front of a bar
+  /// that never moves again. A phone leaving Wi-Fi mid-download gives no error
+  /// and no end of stream — the socket simply goes quiet — so the gap between
+  /// chunks is what the timeout is on, not the download as a whole: a slow
+  /// connection is allowed to take as long as it needs.
+  static const Duration _stall = Duration(seconds: 60);
+
   Future<void> _download(Uri url, File file, int? expectedSize) async {
     final client = http.Client();
     try {
-      final res = await client.send(http.Request('GET', url)..headers['User-Agent'] = 'family-messenger-app/$currentVersion');
+      final res = await client
+          .send(http.Request('GET', url)..headers['User-Agent'] = 'family-messenger-app/$currentVersion')
+          .timeout(_stall);
       if (res.statusCode != 200) throw HttpException('download failed: ${res.statusCode}');
       final total = res.contentLength ?? expectedSize;
       final sink = file.openWrite();
       var got = 0;
       var shown = -1;
       try {
-        await for (final chunk in res.stream) {
+        await for (final chunk in res.stream.timeout(_stall)) {
           sink.add(chunk);
           got += chunk.length;
           if (total != null && total > 0) {
