@@ -137,6 +137,48 @@ source or Docker install over to releases. Update detection:
   still opens the release page. Development builds (version `dev` or a commit
   hash) are never nagged.
 
+## Proxmox VE (LXC)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/william-aqn/family-messenger-e2e/main/deploy/proxmox.sh | sh
+```
+
+Run this on the Proxmox host, not inside a container. It creates an
+unprivileged Debian 13 LXC (downloading the template if the host does not
+have one), runs `deploy/install.sh` inside it in the *release* flavour and
+prints the address and the first invite code. Nothing is compiled, so the
+defaults of 1 vCPU, 1 GB and 8 GB of disk are ample: a running container sits
+at about 45 MB of memory and 800 MB of disk.
+
+Every question has a default and can also be answered from the environment,
+which makes the whole run unattended:
+
+```bash
+CTID=120 DOMAIN=chat.example.com EXTERNAL_IP=203.0.113.7 \
+  curl -fsSL https://raw.githubusercontent.com/william-aqn/family-messenger-e2e/main/deploy/proxmox.sh | sh
+```
+
+Container settings: `CTID`, `HOSTNAME`, `STORAGE`, `TEMPLATE_STORAGE`,
+`CORES`, `MEMORY`, `DISK`, `BRIDGE`, `NET` (`dhcp` or a CIDR such as
+`192.168.1.50/24`), `GATEWAY`, `UNPRIVILEGED`, `START_ON_BOOT`, `TEMPLATE`.
+The messenger's own settings are passed through to the installer: `DOMAIN`
+(`auto`, the default, uses the container's address and therefore a local-CA
+certificate — a real name gets Let's Encrypt and is what the Flutter app
+needs), `EXTERNAL_IP`, `TURN_SECRET`, `MSGR_REGISTRATION`, `RELEASE`.
+
+Afterwards everything is managed through the usual wrapper, spelled out in
+full because `pct exec` does not put `/usr/local/bin` on `PATH`:
+
+```bash
+pct exec 120 -- /usr/local/bin/family-messenger invite -n 3
+pct exec 120 -- /usr/local/bin/family-messenger update
+pct exec 120 -- journalctl -u family-messenger -f
+```
+
+Running `sh deploy/proxmox.sh` from a checkout pushes that checkout's
+`install.sh` into the container instead of downloading it, which is the quick
+way to try a local change to the installer.
+
 ## Manual install (Docker Compose)
 
 Requirements: a Linux host with Docker, a DNS name pointing to it, and open
@@ -429,7 +471,7 @@ web/              Vite + Preact client (crypto in web/src/crypto, translations i
 app/              Flutter client for Android, iOS, Windows, Linux, macOS (crypto in app/lib/crypto)
 protocol/         PROTOCOL.md and shared test vectors
 docs/             BOTS.md (Bot API)
-deploy/           docker-compose.yml, Caddyfile, .env.example, install.sh (one-line installer)
+deploy/           docker-compose.yml, Caddyfile, .env.example, install.sh (one-line installer), proxmox.sh (Proxmox LXC)
 deploy/builder/   Linux builder image (server, web, APK, Linux desktop) and windows/ (Flutter Windows build)
 .github/          release.yml, the only workflow: manual; tests, every binary and the GitHub Release
 ```
